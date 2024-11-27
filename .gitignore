@@ -1,0 +1,24 @@
+# Project stuff
+.project
+.settings
+settings.xml
+.idea
+*.iml
+.floo
+.flooignore
+.vscode
+node_modules
+.env
+coverage
+
+# OS generated files
+.DS_Store
+.DS_Store?
+
+# Yarn Integrity file
+.yarn-integrity
+
+yarn-error.log
+
+.eslintcache
+.terraform*

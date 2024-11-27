@@ -1,0 +1,32 @@
+{
+  "rules": {
+    "no-underscore-dangle": 0,
+    "no-unused-vars": ["error", { "args": "after-used" }],
+    "no-use-before-define": ["error", { "variables": false }],
+    "radix": 0,
+    "arrow-body-style": 0,
+    "no-param-reassign": [2, { "props": false }],
+    "no-plusplus": ["error", { "allowForLoopAfterthoughts": true }],
+    "import/prefer-default-export": "warn"
+  },
+  "env": {
+    "node": true,
+    "mocha": true,
+    "jest": true
+  },
+  "parserOptions": {
+    "ecmaVersion": 2018
+  },
+  "extends": [
+    "airbnb-base"
+  ],
+  "overrides": [
+    {
+      "files": [
+        "**/__tests__/**/*.[jt]s?(x)",
+        "**/?(*.)+(spec|test).[jt]s?(x)"
+      ],
+      "extends": ["plugin:jest/recommended"]
+    }
+  ]
+}
