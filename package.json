@@ -2,7 +2,7 @@
   "name": "formiocomponents",
   "version": "1.0.0",
   "description": "",
-  "main": "src/index.js",
+  "main": "src/app-prod.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -20,6 +20,7 @@
     "webpack-dev-server": "^5.1.0"
   },
   "dependencies": {
+    "dotenv": "^16.4.5",
     "formiojs": "^4.21.5"
   }
 }
