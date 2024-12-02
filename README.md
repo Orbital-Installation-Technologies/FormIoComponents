@@ -15,14 +15,23 @@ If you don't have nvm installed, follow the instructions here. If you see an err
 nvm i 20 && nvm use
 ```
 
-## Install Dependencies
+### Install Dependencies
 
 ```bash
 npm install
 ```
 
-## Running Development Environment
+### Running Development Environment
 
 ```bash
 webpack serve --open
 ```
+
+##  Deploying to Production
+
+Any changes to the `main` branch will automatically be deployed to https://form-cdn.orbitalcustoms.com/components/components.bundle.[buildnumber].js
+
+After the build is complete, update Form.IO:
+* Navigate to Settings
+* Custom CSS JS
+* Update the current Custom JS CDN url to reflect the new build number.
