@@ -35,7 +35,7 @@ jobs:
 
       - uses: jakejarvis/s3-sync-action@master
         with:
-          args: --acl public-read --follow-symlinks
+          args: --follow-symlinks
         env:
           AWS_S3_BUCKET: form-cdn.orbitalcustoms.com
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
