@@ -19,6 +19,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Remove Form.io imports
+        run: sed -i.bak '/import { Formio } from "formiojs";/d' ./src/components/*.js
+
       - name: Build Webpack Bundle
         run: webpack --config ./webpack.prod.cjs --env buildNumber=${{github.run_number }}
 

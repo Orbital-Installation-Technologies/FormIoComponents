@@ -1,5 +1,5 @@
 import { Formio } from "formiojs";
-import Rating from "./Rating/Rating.js";
+import Rating from "./components/Rating/Rating.js";
 
 Formio.use([
   {
