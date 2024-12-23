@@ -13,7 +13,7 @@ export default function (...extend) {
       },
       {
         key: "validation",
-        ignore: true,
+        ignore: false,
       },
     ],
     ...extend,
