@@ -44,7 +44,7 @@ export default class BarcodeScanner extends Field {
         <div style="display: flex; align-items: center; justify-content: space-between;">`;
     component += `
       <input 
-        ref="test" 
+        ref="barcode" 
         type="text" 
         class="form-control" 
         value="" 
@@ -79,13 +79,13 @@ export default class BarcodeScanner extends Field {
 
   attach(element) {
     this.loadRefs(element, {
-      test: "single",
+      barcode: "single",
       scanButton: "single",
       fileInput: "single",
     });
 
     if (!this.component.disabled) {
-      this.refs.test.addEventListener("change", () => {
+      this.refs.barcode.addEventListener("change", () => {
         this.updateValue(this.refs.test.value);
       });
 

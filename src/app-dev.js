@@ -8,7 +8,7 @@ Formio.use([
     components: {
       rating: Rating,
       barcode: BarcodeScanner,
-      gps: Gps
+      gps: Gps,
     },
   },
 ]);
@@ -27,7 +27,7 @@ Formio.builder(
 Formio.createForm(
   document.getElementById("formio"),
   {
-    components: [Rating.schema(), BarcodeScanner.schema()],
+    components: [Gps.schema(), Rating.schema(), BarcodeScanner.schema()],
   },
   {
     sanitizeConfig: {
