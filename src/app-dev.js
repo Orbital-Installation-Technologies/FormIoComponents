@@ -1,4 +1,4 @@
-import { Formio } from "formiojs";
+import { Formio } from "@formio/js";
 import Rating from "./components/Rating/Rating.js";
 import BarcodeScanner from "./components/BarcodeScanner/BarcodeScanner.js";
 import Gps from "./components/Gps/Gps.js";

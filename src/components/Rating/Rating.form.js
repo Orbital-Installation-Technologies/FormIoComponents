@@ -1,7 +1,7 @@
-import { Formio } from "formiojs";
+import { Components } from "@formio/js";
 import RatingEditDisplay from "./Rating.edit.display.js";
 export default function (...extend) {
-  return Formio.Components.baseEditForm(
+  return Components.baseEditForm(
     [
       {
         key: "data",
