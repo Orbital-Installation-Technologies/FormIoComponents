@@ -20,7 +20,7 @@
     "webpack-dev-server": "^5.1.0"
   },
   "dependencies": {
-    "dotenv": "^16.4.5",
-    "formiojs": "^4.21.5"
+    "@formio/js": "^5.0.1",
+    "dotenv": "^16.4.5"
   }
 }

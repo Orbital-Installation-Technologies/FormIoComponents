@@ -1,12 +1,12 @@
-import { Formio } from "formiojs";
+import { Components } from "@formio/js";
 import GpsEditForm from "./Gps.form";
 
-const Field = Formio.Components.components.field;
+const FieldComponent = Components.components.field;
 
-export default class Gps extends Field {
+export default class Gps extends FieldComponent {
   static editForm = GpsEditForm;
   static schema(...extend) {
-    return Field.schema({
+    return FieldComponent.schema({
       type: "gps",
       label: "GPS Location",
       key: "",
@@ -28,6 +28,7 @@ export default class Gps extends Field {
   constructor(component, options, data) {
     super(component, options, data);
     this.errorMessage = "";
+    this.fetchedInitially = false;
   }
 
   init() {
@@ -64,7 +65,7 @@ export default class Gps extends Field {
         ref="gpsButton" 
         type="button" 
         class="btn btn-primary">
-        <i class="fa fa-map"></i>
+        <i class="fa fa-map bi bi-map"></i>
       </button>
     `;
     component += "</div>";
@@ -99,7 +100,7 @@ export default class Gps extends Field {
         this.getLocation();
       });
 
-      if (this.component.defaultToCurrentLocation) {
+      if (this.component.defaultToCurrentLocation && !this.fetchedInitially) {
         this.getLocation();
       }
     }
@@ -121,9 +122,11 @@ export default class Gps extends Field {
         this.updateValue(latitude);
         this.refs.longitude.value = longitude;
         this.updateValue(longitude);
+        this.fetchedInitially = true;
       },
       (error) => {
         console.error("Geolocation error:", error);
+        this.fetchedInitially = true;
         this.setError("Unable to retrieve location.");
         this.updateState();
       },

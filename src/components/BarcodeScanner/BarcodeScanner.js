@@ -1,12 +1,12 @@
-import { Formio } from "formiojs";
+import { Components } from "@formio/js";
 import BarcodeScannerEditForm from "./BarcodeScanner.form";
 
-const Field = Formio.Components.components.field;
+const FieldComponent = Components.components.field;
 
-export default class BarcodeScanner extends Field {
+export default class BarcodeScanner extends FieldComponent {
   static editForm = BarcodeScannerEditForm;
   static schema(...extend) {
-    return Field.schema({
+    return FieldComponent.schema({
       type: "barcode",
       label: "Barcode",
       key: "",
@@ -54,7 +54,7 @@ export default class BarcodeScanner extends Field {
         ref="scanButton" 
         type="button" 
         class="btn btn-primary">
-        <i class="fa fa-camera"></i>
+        <i class="fa fa-camera bi bi-camera"></i>
       </button>
       <input 
         ref="fileInput"
@@ -86,7 +86,7 @@ export default class BarcodeScanner extends Field {
 
     if (!this.component.disabled) {
       this.refs.barcode.addEventListener("change", () => {
-        this.updateValue(this.refs.test.value);
+        this.updateValue(this.refs.barcode.value);
       });
 
       this.refs.scanButton.addEventListener("click", () => {
@@ -130,9 +130,9 @@ export default class BarcodeScanner extends Field {
             this.setError(null);
             this.updateState();
             this.updateValue(barcodes[0].rawValue.toString());
-            this.refs.test.value = barcodes[0].rawValue.toString();
+            this.refs.barcode.value = barcodes[0].rawValue.toString();
           } else {
-            this.refs.test.value = "";
+            this.refs.barcode.value = "";
             this.setError("No barcode detected. Please try again.");
             this.updateState();
           }
