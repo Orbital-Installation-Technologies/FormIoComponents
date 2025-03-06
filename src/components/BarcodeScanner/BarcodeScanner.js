@@ -1,5 +1,6 @@
 import { Components } from "@formio/js";
 import BarcodeScannerEditForm from "./BarcodeScanner.form";
+import { BrowserMultiFormatReader, BarcodeFormat } from "@zxing/browser";
 
 const FieldComponent = Components.components.field;
 
@@ -60,10 +61,9 @@ export default class BarcodeScanner extends FieldComponent {
         ref="fileInput"
         type="file"
         accept="image/*" 
-        capture="environment" 
         style="display: none;" 
         multiple="false"
-      >
+      />
     `;
     component += "</div>";
     if (this.errorMessage) {
@@ -106,39 +106,44 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   async decodeBarcode(file) {
-    if (!("BarcodeDetector" in window)) {
-      console.log("Barcode Detector is not supported in this browser.");
-      return;
-    }
-
-    const supportedFormats = await BarcodeDetector.getSupportedFormats().then(
-      (supportedFormats) => {
-        return supportedFormats;
-      },
-    );
-
-    const barcodeDetector = new BarcodeDetector({ formats: supportedFormats });
     const reader = new FileReader();
 
     reader.onload = async (event) => {
       const image = new Image();
       image.src = event.target.result;
+      image.crossOrigin = "Anonymous";
       image.onload = async () => {
+        const formats = [
+          BarcodeFormat.AZTEC,
+          BarcodeFormat.CODABAR,
+          BarcodeFormat.CODE_128,
+          BarcodeFormat.CODE_39,
+          BarcodeFormat.CODE_93,
+          BarcodeFormat.DATA_MATRIX,
+          BarcodeFormat.EAN_13,
+          BarcodeFormat.EAN_8,
+          BarcodeFormat.ITF,
+          BarcodeFormat.MAXICODE,
+          BarcodeFormat.PDF_417,
+          BarcodeFormat.QR_CODE,
+          BarcodeFormat.RSS_14,
+          BarcodeFormat.RSS_EXPANDED,
+          BarcodeFormat.UPC_A,
+          BarcodeFormat.UPC_E,
+          BarcodeFormat.UPC_EAN_EXTENSION,
+        ];
+        const hints = new Map();
+        hints.set(2, formats);
+        hints.set(3, true);
+        const codeReader = new BrowserMultiFormatReader(hints);
         try {
-          const barcodes = await barcodeDetector.detect(image);
-          if (barcodes.length > 0) {
-            this.setError(null);
-            this.updateState();
-            this.updateValue(barcodes[0].rawValue.toString());
-            this.refs.barcode.value = barcodes[0].rawValue.toString();
-          } else {
-            this.refs.barcode.value = "";
-            this.setError("No barcode detected. Please try again.");
-            this.updateState();
-          }
+          const result = await codeReader.decodeFromImageElement(image);
+          this.updateValue(result.getText());
+          this.refs.barcode.value = result.getText();
+          this.setError(null);
         } catch (error) {
           console.error("Barcode detection failed:", error);
-          this.setError("Error in barcode detection. Please try again.");
+          this.setError("No barcode detected. Please try again.");
           this.updateState();
         }
       };
