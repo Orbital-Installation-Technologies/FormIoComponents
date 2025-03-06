@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@formio/js": "^5.0.1",
+    "@zxing/browser": "^0.1.5",
     "dotenv": "^16.4.5"
   }
 }
