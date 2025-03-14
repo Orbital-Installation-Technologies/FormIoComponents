@@ -36,11 +36,13 @@ export default class Gps extends FieldComponent {
   }
 
   get inputInfo() {
-    const info = super.inputInfo;
-    return info;
+    return super.inputInfo;
   }
 
   render(content) {
+    const value = this.getValue();
+    const [latitude, longitude] = value ? value.split(",") : ["", ""];
+
     let component = `
     <div style="display: flex; flex-direction: column; gap: 8px;">
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">`;
@@ -49,7 +51,7 @@ export default class Gps extends FieldComponent {
         ref="latitude" 
         type="number" 
         class="form-control" 
-        value=""
+        value="${latitude}"
         placeholder="Latitude"
         style="flex-grow: 1;"
       >
@@ -57,7 +59,7 @@ export default class Gps extends FieldComponent {
         ref="longitude" 
         type="number" 
         class="form-control" 
-        value=""
+        value="${longitude}"
         placeholder="Longitude"
         style="flex-grow: 1;"
       >
@@ -89,20 +91,26 @@ export default class Gps extends FieldComponent {
 
     if (!this.component.disabled) {
       this.refs.latitude.addEventListener("change", () => {
-        this.updateValue(this.refs.latitude.value);
+        const latitude = this.refs.latitude.value;
+        const longitude = this.refs.longitude.value;
+        this.updateValue(`${latitude},${longitude}`);
       });
 
       this.refs.longitude.addEventListener("change", () => {
-        this.updateValue(this.refs.longitude.value);
+        const latitude = this.refs.latitude.value;
+        const longitude = this.refs.longitude.value;
+        this.updateValue(`${latitude},${longitude}`);
       });
 
       this.refs.gpsButton.addEventListener("click", () => {
         this.getLocation();
       });
 
-      if (this.component.defaultToCurrentLocation && !this.fetchedInitially) {
-        this.getLocation();
-      }
+      setTimeout(() => {
+        if (this.component.defaultToCurrentLocation && !this.fetchedInitially && !this.getValue()) {
+          this.getLocation();
+        }
+      }, 1500);
     }
     return super.attach(element);
   }
@@ -116,12 +124,17 @@ export default class Gps extends FieldComponent {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
-        this.setError(null);
-        this.updateState();
-        this.refs.latitude.value = latitude;
-        this.updateValue(latitude);
-        this.refs.longitude.value = longitude;
-        this.updateValue(longitude);
+        if (this.errorMessage !== "") {
+          this.setError(null);
+          this.updateState();
+        }
+        if (this.refs.latitude) {
+          this.refs.latitude.value = latitude;
+        }
+        if (this.refs.longitude) {
+          this.refs.longitude.value = longitude;
+        }
+        this.updateValue(`${latitude},${longitude}`);
         this.fetchedInitially = true;
       },
       (error) => {
@@ -159,26 +172,31 @@ export default class Gps extends FieldComponent {
   }
 
   normalizeValue(value, flags = {}) {
-    return super.normalizeValue(value, flags);
+    if (typeof value === "string" && value.includes(",")) {
+      return value;
+    }
+    return "";
   }
 
   getValue() {
-    return super.getValue();
-  }
-
-  getValueAt(index) {
-    return super.getValueAt(index);
+    const value = super.getValue();
+    return this.normalizeValue(value);
   }
 
   setValue(value, flags = {}) {
-    return super.setValue(value, flags);
-  }
-
-  setValueAt(index, value, flags = {}) {
-    return super.setValueAt(index, value, flags);
+    const normalizedValue = this.normalizeValue(value);
+    if (this.dataValue !== normalizedValue) {
+      super.setValue(normalizedValue, flags);
+      this.triggerChange();
+    }
+    this.redraw();
   }
 
   updateValue(value, flags = {}) {
-    return super.updateValue(...arguments);
+    const normalizedValue = this.normalizeValue(value);
+    if (this.dataValue !== normalizedValue) {
+      super.updateValue(normalizedValue, flags);
+      this.triggerChange();
+    }
   }
 }
