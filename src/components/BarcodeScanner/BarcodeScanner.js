@@ -48,7 +48,7 @@ export default class BarcodeScanner extends FieldComponent {
         ref="barcode" 
         type="text" 
         class="form-control" 
-        value="" 
+        value="${this.dataValue || ""}"
         style="flex-grow: 1; margin-right: 10px;"
       >
       <button 
@@ -83,6 +83,10 @@ export default class BarcodeScanner extends FieldComponent {
       scanButton: "single",
       fileInput: "single",
     });
+
+    if (this.dataValue) {
+      this.refs.barcode.value = this.dataValue;
+    }
 
     if (!this.component.disabled) {
       this.refs.barcode.addEventListener("change", () => {
@@ -152,24 +156,28 @@ export default class BarcodeScanner extends FieldComponent {
     reader.readAsDataURL(file);
   }
 
+  triggerChange() {}
+
   updateState() {
     this.triggerChange();
     this.redraw();
   }
 
   setError(message) {
-    if (message) {
-      this.errorMessage = message;
-      setTimeout(() => {
-        this.errorMessage = "";
-        this.updateState();
-      }, 3000);
-    } else {
-      this.errorMessage = "";
-    }
+    this.errorMessage = message || "";
+    this.updateState();
   }
 
   detach() {
+    if (this.refs.barcode) {
+      this.refs.barcode.removeEventListener("change", this.updateValue);
+    }
+    if (this.refs.scanButton) {
+      this.refs.scanButton.removeEventListener("click", this.handleScanClick);
+    }
+    if (this.refs.fileInput) {
+      this.refs.fileInput.removeEventListener("change", this.handleFileChange);
+    }
     return super.detach();
   }
 
@@ -190,7 +198,10 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   setValue(value, flags = {}) {
-    return super.setValue(value, flags);
+    super.setValue(value, flags);
+    if (this.refs.barcode) {
+      this.refs.barcode.value = value || "";
+    }
   }
 
   setValueAt(index, value, flags = {}) {
