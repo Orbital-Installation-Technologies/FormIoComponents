@@ -10,7 +10,6 @@ export default class Gps extends FieldComponent {
       type: "gps",
       label: "GPS Location",
       key: "",
-      defaultToCurrentLocation: false,
     });
   }
 
@@ -54,6 +53,7 @@ export default class Gps extends FieldComponent {
         value="${latitude}"
         placeholder="Latitude"
         style="flex-grow: 1;"
+        readOnly
       >
       <input 
         ref="longitude" 
@@ -62,6 +62,7 @@ export default class Gps extends FieldComponent {
         value="${longitude}"
         placeholder="Longitude"
         style="flex-grow: 1;"
+        readOnly
       >
       <button 
         ref="gpsButton" 
@@ -105,12 +106,6 @@ export default class Gps extends FieldComponent {
       this.refs.gpsButton.addEventListener("click", () => {
         this.getLocation();
       });
-
-      setTimeout(() => {
-        if (this.component.defaultToCurrentLocation && !this.fetchedInitially && !this.getValue()) {
-          this.getLocation();
-        }
-      }, 1500);
     }
     return super.attach(element);
   }
