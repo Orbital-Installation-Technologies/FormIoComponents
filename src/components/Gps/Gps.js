@@ -91,24 +91,30 @@ export default class Gps extends FieldComponent {
     });
 
     if (!this.component.disabled) {
-      this.refs.latitude.addEventListener("change", () => {
-        const latitude = this.refs.latitude.value;
-        const longitude = this.refs.longitude.value;
-        this.updateValue(`${latitude},${longitude}`);
-      });
+      if (this.refs.latitude && this.refs.longitude) {
+        this.refs.latitude.addEventListener("change", () => {
+          const latitude = this.refs.latitude.value;
+          const longitude = this.refs.longitude.value;
+          this.updateValue(`${latitude},${longitude}`);
+        });
 
-      this.refs.longitude.addEventListener("change", () => {
-        const latitude = this.refs.latitude.value;
-        const longitude = this.refs.longitude.value;
-        this.updateValue(`${latitude},${longitude}`);
-      });
+        this.refs.longitude.addEventListener("change", () => {
+          const latitude = this.refs.latitude.value;
+          const longitude = this.refs.longitude.value;
+          this.updateValue(`${latitude},${longitude}`);
+        });
+      }
 
-      this.refs.gpsButton.addEventListener("click", () => {
-        this.getLocation();
-      });
+      if (this.refs.gpsButton) {
+        this.refs.gpsButton.addEventListener("click", () => {
+          this.getLocation();
+        });
+      }
     }
+
     return super.attach(element);
   }
+
 
   getLocation() {
     if (!navigator.geolocation) {

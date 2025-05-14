@@ -78,36 +78,45 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   attach(element) {
+    const attached = super.attach(element);
+
     this.loadRefs(element, {
       barcode: "single",
       scanButton: "single",
       fileInput: "single",
     });
 
-    if (this.dataValue) {
-      this.refs.barcode.value = this.dataValue;
-    }
+    if (!this.refs.barcode || !this.refs.scanButton || !this.refs.fileInput) {
+        console.warn("BarcodeScanner refs not ready. Skipping event bindings.");
+        return;
+      }
 
-    if (!this.component.disabled) {
-      this.refs.barcode.addEventListener("change", () => {
-        this.updateValue(this.refs.barcode.value);
-      });
+      if (this.dataValue) {
+        this.refs.barcode.value = this.dataValue;
+      }
 
-      this.refs.scanButton.addEventListener("click", () => {
-        setTimeout(() => {
-          this.refs.fileInput.dispatchEvent(new MouseEvent("click"));
-        }, 0);
-      });
+      if (!this.component.disabled) {
+        this.refs.barcode.addEventListener("change", () => {
+          this.updateValue(this.refs.barcode.value);
+        });
 
-      this.refs.fileInput.addEventListener("change", (event) => {
-        if (event.target.files.length > 0) {
-          const file = event.target.files[0];
-          this.decodeBarcode(file);
-        }
-      });
-    }
-    return super.attach(element);
+        this.refs.scanButton.addEventListener("click", () => {
+          setTimeout(() => {
+            this.refs.fileInput.dispatchEvent(new MouseEvent("click"));
+          }, 0);
+        });
+
+        this.refs.fileInput.addEventListener("change", (event) => {
+          if (event.target.files.length > 0) {
+            const file = event.target.files[0];
+            this.decodeBarcode(file);
+          }
+        });
+      }
+
+    return attached;
   }
+
 
   async decodeBarcode(file) {
     const reader = new FileReader();
@@ -170,16 +179,17 @@ export default class BarcodeScanner extends FieldComponent {
 
   detach() {
     if (this.refs.barcode) {
-      this.refs.barcode.removeEventListener("change", this.updateValue);
+      this.refs.barcode.removeEventListener("change", () => this.updateValue(this.refs.barcode.value));
     }
     if (this.refs.scanButton) {
-      this.refs.scanButton.removeEventListener("click", this.handleScanClick);
+      this.refs.scanButton.removeEventListener("click", this.scanButtonClickHandler);
     }
     if (this.refs.fileInput) {
-      this.refs.fileInput.removeEventListener("change", this.handleFileChange);
+      this.refs.fileInput.removeEventListener("change", this.fileInputChangeHandler);
     }
     return super.detach();
   }
+
 
   destroy() {
     return super.destroy();
