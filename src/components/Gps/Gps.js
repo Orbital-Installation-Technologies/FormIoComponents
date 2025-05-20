@@ -6,11 +6,14 @@ const FieldComponent = Components.components.field;
 export default class Gps extends FieldComponent {
   static editForm = GpsEditForm;
   static schema(...extend) {
-    return FieldComponent.schema({
-      type: "gps",
-      label: "GPS Location",
-      key: "",
-    });
+    return FieldComponent.schema(
+      {
+        type: "gps",
+        label: "GPS Location",
+        key: "",
+      },
+      ...extend,
+    );
   }
 
   static get builderInfo() {
@@ -84,6 +87,8 @@ export default class Gps extends FieldComponent {
   }
 
   attach(element) {
+    const attached = super.attach(element);
+
     this.loadRefs(element, {
       latitude: "single",
       longitude: "single",
@@ -112,9 +117,8 @@ export default class Gps extends FieldComponent {
       }
     }
 
-    return super.attach(element);
+    return attached;
   }
-
 
   getLocation() {
     if (!navigator.geolocation) {

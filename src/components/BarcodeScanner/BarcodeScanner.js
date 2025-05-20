@@ -7,11 +7,14 @@ const FieldComponent = Components.components.field;
 export default class BarcodeScanner extends FieldComponent {
   static editForm = BarcodeScannerEditForm;
   static schema(...extend) {
-    return FieldComponent.schema({
-      type: "barcode",
-      label: "Barcode",
-      key: "",
-    });
+    return FieldComponent.schema(
+      {
+        type: "barcode",
+        label: "Barcode",
+        key: "",
+      },
+      ...extend,
+    );
   }
 
   static get builderInfo() {
@@ -87,36 +90,35 @@ export default class BarcodeScanner extends FieldComponent {
     });
 
     if (!this.refs.barcode || !this.refs.scanButton || !this.refs.fileInput) {
-        console.warn("BarcodeScanner refs not ready. Skipping event bindings.");
-        return;
-      }
+      console.warn("BarcodeScanner refs not ready. Skipping event bindings.");
+      return;
+    }
 
-      if (this.dataValue) {
-        this.refs.barcode.value = this.dataValue;
-      }
+    if (this.dataValue) {
+      this.refs.barcode.value = this.dataValue;
+    }
 
-      if (!this.component.disabled) {
-        this.refs.barcode.addEventListener("change", () => {
-          this.updateValue(this.refs.barcode.value);
-        });
+    if (!this.component.disabled) {
+      this.refs.barcode.addEventListener("change", () => {
+        this.updateValue(this.refs.barcode.value);
+      });
 
-        this.refs.scanButton.addEventListener("click", () => {
-          setTimeout(() => {
-            this.refs.fileInput.dispatchEvent(new MouseEvent("click"));
-          }, 0);
-        });
+      this.refs.scanButton.addEventListener("click", () => {
+        setTimeout(() => {
+          this.refs.fileInput.dispatchEvent(new MouseEvent("click"));
+        }, 0);
+      });
 
-        this.refs.fileInput.addEventListener("change", (event) => {
-          if (event.target.files.length > 0) {
-            const file = event.target.files[0];
-            this.decodeBarcode(file);
-          }
-        });
-      }
+      this.refs.fileInput.addEventListener("change", (event) => {
+        if (event.target.files.length > 0) {
+          const file = event.target.files[0];
+          this.decodeBarcode(file);
+        }
+      });
+    }
 
     return attached;
   }
-
 
   async decodeBarcode(file) {
     const reader = new FileReader();
@@ -179,7 +181,9 @@ export default class BarcodeScanner extends FieldComponent {
 
   detach() {
     if (this.refs.barcode) {
-      this.refs.barcode.removeEventListener("change", () => this.updateValue(this.refs.barcode.value));
+      this.refs.barcode.removeEventListener("change", () =>
+        this.updateValue(this.refs.barcode.value),
+      );
     }
     if (this.refs.scanButton) {
       this.refs.scanButton.removeEventListener("click", this.scanButtonClickHandler);
@@ -189,7 +193,6 @@ export default class BarcodeScanner extends FieldComponent {
     }
     return super.detach();
   }
-
 
   destroy() {
     return super.destroy();
