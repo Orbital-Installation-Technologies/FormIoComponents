@@ -35,3 +35,5 @@ After the build is complete, update Form.IO:
 * Navigate to Settings
 * Custom CSS JS
 * Update the current Custom JS CDN url to reflect the new build number.
+
+Bump the tag by 1.
