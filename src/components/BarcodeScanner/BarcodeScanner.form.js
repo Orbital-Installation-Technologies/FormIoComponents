@@ -12,6 +12,10 @@ export default function (...extend) {
         components: BarcodeEditDisplay,
       },
       {
+        key: "conditional",
+        components: Components.components.conditional.editForm,
+      },
+      {
         key: "validation",
         ignore: false,
       },
