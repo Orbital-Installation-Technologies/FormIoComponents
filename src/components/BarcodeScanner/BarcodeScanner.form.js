@@ -1,5 +1,6 @@
 import { Components } from "@formio/js";
 import BarcodeEditDisplay from "./BarcodeScanner.edit.display.js";
+
 export default function (...extend) {
   return Components.baseEditForm(
     [
@@ -12,8 +13,8 @@ export default function (...extend) {
         components: BarcodeEditDisplay,
       },
       {
-        key: "conditional",
-        components: Components.components.conditional.editForm,
+        key: 'conditional',
+        ignore: false,
       },
       {
         key: "validation",

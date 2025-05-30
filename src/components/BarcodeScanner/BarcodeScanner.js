@@ -37,6 +37,10 @@ export default class BarcodeScanner extends FieldComponent {
     super.init();
   }
 
+  conditionallyHidden(data) {
+    return super.conditionallyHidden(data);
+  }
+
   get inputInfo() {
     const info = super.inputInfo;
     return info;
