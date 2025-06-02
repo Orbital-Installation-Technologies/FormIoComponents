@@ -55,6 +55,20 @@ export default class Rating extends FieldComponent {
     super.init();
   }
 
+  conditionallyHidden(data) {
+    if (!this.component.customConditional) return false;
+
+    try {
+      return !this.evaluate(this.component.customConditional, {
+        ...this.data,
+        ...data
+      }, this.data);
+    } catch (e) {
+      console.warn('Conditional logic error:', e);
+      return false;
+    }
+  }
+
   get inputInfo() {
     const info = super.inputInfo;
     return info;
