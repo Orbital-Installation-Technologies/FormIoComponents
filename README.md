@@ -4,7 +4,7 @@
 ## Table of Contents
 
 1. [Prerequisites](#prerequisites)
-2. [Installation, Running, Testing in main](#installation-running-testing-in-main)
+2. [Installation, Running, Testing](#installation-running-testing)
 3. [Configuration](#configuration)
 4. [Updating the Package](#updating-the-package)
 5. [Environment Variables](#environment-variables)
@@ -30,7 +30,7 @@ npm --version
 
 ---
 
-## Installation, Running, Testing in main
+## Installation, Running, Testing
 
 1. **Clone this repository** (internally):
 
@@ -49,6 +49,24 @@ npm --version
 
    ```bash
    npm run dev
+   ```
+
+4. **Testing**:
+     
+   Testing standalone with local **form builder**
+
+   ```bash
+   npm run dev
+   ```
+     Testing along side local **Form renderer**
+   ```bash
+   npx webpack --config webpack.prod.cjs --mode production
+   npm pack
+   ```
+    Copy the full path of the ```formiocomponents-x.x.x.tgz``` file\
+    Then inside of the form Renderer
+   ```bash
+   npm i [full path of .tgz file]
    ```
 
 ---
