@@ -41,6 +41,7 @@ export default class Rating extends FieldComponent {
   setIconProperties() {
     const domIcon = new DOMParser().parseFromString(this.component.icon, "text/xml");
     domIcon.firstChild.style.fill = this.component.unfilledColor;
+    domIcon.firstChild.style.display = "inline-block";
     domIcon.firstChild.setAttribute("height", this.component.iconHeight);
     domIcon.firstChild.setAttribute("width", this.component.iconWidth);
     this.component.icon = new XMLSerializer().serializeToString(domIcon.documentElement);
