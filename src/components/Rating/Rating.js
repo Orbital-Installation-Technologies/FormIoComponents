@@ -12,7 +12,7 @@ export default class Rating extends FieldComponent {
       key: "rating",
       unfilledColor: "#ddd",
       filledColor: "yellow",
-      numOfIcons: "5",
+      numOfIcons: 5,
       iconHeight: "25px",
       iconWidth: "25px",
       icon: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
@@ -59,12 +59,16 @@ export default class Rating extends FieldComponent {
     if (!this.component.customConditional) return false;
 
     try {
-      return !this.evaluate(this.component.customConditional, {
-        ...this.data,
-        ...data
-      }, this.data);
+      return !this.evaluate(
+        this.component.customConditional,
+        {
+          ...this.data,
+          ...data,
+        },
+        this.data,
+      );
     } catch (e) {
-      console.warn('Conditional logic error:', e);
+      console.warn("Conditional logic error:", e);
       return false;
     }
   }
