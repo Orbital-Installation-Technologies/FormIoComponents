@@ -41,6 +41,7 @@ export default class Rating extends FieldComponent {
   setIconProperties() {
     const domIcon = new DOMParser().parseFromString(this.component.icon, "text/xml");
     domIcon.firstChild.style.fill = this.component.unfilledColor;
+    domIcon.firstChild.style.display = "inline-block";
     domIcon.firstChild.setAttribute("height", this.component.iconHeight);
     domIcon.firstChild.setAttribute("width", this.component.iconWidth);
     this.component.icon = new XMLSerializer().serializeToString(domIcon.documentElement);
@@ -59,12 +60,16 @@ export default class Rating extends FieldComponent {
     if (!this.component.customConditional) return false;
 
     try {
-      return !this.evaluate(this.component.customConditional, {
-        ...this.data,
-        ...data
-      }, this.data);
+      return !this.evaluate(
+        this.component.customConditional,
+        {
+          ...this.data,
+          ...data,
+        },
+        this.data,
+      );
     } catch (e) {
-      console.warn('Conditional logic error:', e);
+      console.warn("Conditional logic error:", e);
       return false;
     }
   }
