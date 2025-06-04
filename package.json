@@ -4,7 +4,7 @@
   "description": "",
   "main": "src/app-prod.js",
   "scripts": {
-    "dev": "webpack --config webpack.config.cjs --watch"
+    "dev": "webpack serve --open"
   },
   "keywords": [],
   "author": "",
@@ -22,6 +22,7 @@
   "dependencies": {
     "@formio/js": "^5.0.1",
     "@zxing/browser": "^0.1.5",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "quagga": "^0.12.1"
   }
 }

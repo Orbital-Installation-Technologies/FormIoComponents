@@ -1,12 +1,12 @@
 import { Components } from "@formio/js";
+import Quagga from "quagga";
 import BarcodeScannerEditForm from "./BarcodeScanner.form";
-import { BrowserMultiFormatReader, BarcodeFormat } from "@zxing/browser";
 
 const FieldComponent = Components.components.field;
-console.log("FieldComponent", FieldComponent)
 
 export default class BarcodeScanner extends FieldComponent {
   static editForm = BarcodeScannerEditForm;
+
   static schema(...extend) {
     return FieldComponent.schema(
       {
@@ -32,6 +32,7 @@ export default class BarcodeScanner extends FieldComponent {
   constructor(component, options, data) {
     super(component, options, data);
     this.errorMessage = "";
+    window.Quagga = Quagga;
   }
 
   init() {
@@ -42,56 +43,80 @@ export default class BarcodeScanner extends FieldComponent {
     if (!this.component.customConditional) return false;
 
     try {
-      return !this.evaluate(this.component.customConditional, {
-        ...this.data,
-        ...data
-      }, this.data);
+      return !this.evaluate(
+        this.component.customConditional,
+        { ...this.data, ...data },
+        this.data
+      );
     } catch (e) {
-      console.warn('Conditional logic error:', e);
+      console.warn("Conditional logic error:", e);
       return false;
     }
   }
 
-
   get inputInfo() {
-    const info = super.inputInfo;
-    return info;
+    return super.inputInfo;
   }
 
   render(content) {
-    let component = `
-    <div style="display: flex; flex-direction: column; gap: 8px;">
-        <div style="display: flex; align-items: center; justify-content: space-between;">`;
-    component += `
-      <input 
-        ref="barcode" 
-        type="text" 
-        class="form-control" 
-        value="${this.dataValue || ""}"
-        style="flex-grow: 1; margin-right: 10px;"
-      >
-      <button 
-        ref="scanButton" 
-        type="button" 
-        class="btn btn-primary">
-        <i class="fa fa-camera bi bi-camera"></i>
-      </button>
-      <input 
-        ref="fileInput"
-        type="file"
-        accept="image/*" 
-        style="display: none;" 
-        multiple="false"
-      />
+    const component = `
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <input
+            ref="barcode"
+            type="text"
+            class="form-control"
+            value="${this.dataValue || ""}"
+            style="flex-grow: 1; margin-right: 10px;"
+          >
+          <button
+            ref="scanButton"
+            type="button"
+            class="btn btn-primary">
+            <i class="fa fa-camera bi bi-camera"></i>
+          </button>
+        </div>
+        ${
+          this.errorMessage
+            ? `<div class="formio-errors">
+                 <div class="form-text error">${this.errorMessage}</div>
+               </div>`
+            : ""
+        }
+        <!-- Modal container for live video + canvas -->
+        <div
+          ref="quaggaModal"
+          style="
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+          ">
+          <div
+            style="position: relative; width: 640px; height: 480px;; display: flex; flex-direction: column; background-color: gray"
+          >
+            <div style="display: flex; justify-content: flex-end; padding: 10px;">
+              <button ref="closeModal" class="btn btn-light">Close</button>
+            </div>
+            <div style="flex:1; position: relative;">
+              <!-- Container for Quagga’s own <video> & <canvas> -->
+              <div ref="quaggaContainer" style="width:640px; height:480px;"></div>
+              <!-- We’ll draw our own overlay on top, if needed: -->
+              <canvas
+                ref="quaggaOverlay"
+                style="position:absolute; top:0; left:0; width:100%; height:100%;"
+              ></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
     `;
-    component += "</div>";
-    if (this.errorMessage) {
-      component += `
-      <div class="formio-errors">
-        <div class="form-text error">${this.errorMessage}</div>
-      </div>`;
-    }
-    component += `</div>`;
 
     return super.render(component);
   }
@@ -102,85 +127,141 @@ export default class BarcodeScanner extends FieldComponent {
     this.loadRefs(element, {
       barcode: "single",
       scanButton: "single",
-      fileInput: "single",
+      quaggaModal: "single",
+      quaggaContainer: "single", // new container ref
+      quaggaOverlay: "single",
+      closeModal: "single",
     });
 
-    if (!this.refs.barcode || !this.refs.scanButton || !this.refs.fileInput) {
+
+    if (
+      !this.refs.barcode ||
+      !this.refs.scanButton ||
+      !this.refs.quaggaModal ||
+      !this.refs.quaggaContainer ||
+      !this.refs.quaggaOverlay ||
+      !this.refs.closeModal
+    ) {
       console.warn("BarcodeScanner refs not ready. Skipping event bindings.");
-      return;
+      return attached;
     }
 
+    // Populate input if there's an existing value
     if (this.dataValue) {
       this.refs.barcode.value = this.dataValue;
     }
 
     if (!this.component.disabled) {
+      // Update Form.io data when user types manually
       this.refs.barcode.addEventListener("change", () => {
         this.updateValue(this.refs.barcode.value);
       });
 
+      // Open the Quagga modal on button click
       this.refs.scanButton.addEventListener("click", () => {
-        setTimeout(() => {
-          this.refs.fileInput.dispatchEvent(new MouseEvent("click"));
-        }, 0);
+        this.openQuaggaModal();
       });
 
-      this.refs.fileInput.addEventListener("change", (event) => {
-        if (event.target.files.length > 0) {
-          const file = event.target.files[0];
-          this.decodeBarcode(file);
-        }
+      // Close button shuts down Quagga and hides modal
+      this.refs.closeModal.addEventListener("click", () => {
+        this.stopQuagga();
+        this.refs.quaggaModal.style.display = "none";
       });
     }
 
     return attached;
   }
 
-  async decodeBarcode(file) {
-    const reader = new FileReader();
+  openQuaggaModal() {
+    // Show the modal
+    this.refs.quaggaModal.style.display = "flex";
 
-    reader.onload = async (event) => {
-      const image = new Image();
-      image.src = event.target.result;
-      image.crossOrigin = "Anonymous";
-      image.onload = async () => {
-        const formats = [
-          BarcodeFormat.AZTEC,
-          BarcodeFormat.CODABAR,
-          BarcodeFormat.CODE_128,
-          BarcodeFormat.CODE_39,
-          BarcodeFormat.CODE_93,
-          BarcodeFormat.DATA_MATRIX,
-          BarcodeFormat.EAN_13,
-          BarcodeFormat.EAN_8,
-          BarcodeFormat.ITF,
-          BarcodeFormat.MAXICODE,
-          BarcodeFormat.PDF_417,
-          BarcodeFormat.QR_CODE,
-          BarcodeFormat.RSS_14,
-          BarcodeFormat.RSS_EXPANDED,
-          BarcodeFormat.UPC_A,
-          BarcodeFormat.UPC_E,
-          BarcodeFormat.UPC_EAN_EXTENSION,
-        ];
-        const hints = new Map();
-        hints.set(2, formats);
-        hints.set(3, true);
-        const codeReader = new BrowserMultiFormatReader(hints);
-        try {
-          const result = await codeReader.decodeFromImageElement(image);
-          this.updateValue(result.getText());
-          this.refs.barcode.value = result.getText();
-          this.setError(null);
-        } catch (error) {
-          console.error("Barcode detection failed:", error);
-          this.setError("No barcode detected. Please try again.");
-          this.updateState();
-        }
-      };
+    // Grab the “container” element (not a video tag)
+    const container = this.refs.quaggaContainer;
+    const overlayCtx = this.refs.quaggaOverlay.getContext("2d");
+
+    const config = {
+      inputStream: {
+        name: "Live",
+        type: "LiveStream",
+        target: container,          // <–– this is crucial
+        constraints: {
+          facingMode: "environment"
+        },
+      },
+      decoder: {
+        readers: [
+          "code_128_reader",
+          "ean_reader",
+          "ean_8_reader",
+          "upc_reader",
+          "upc_e_reader"
+        ]
+      },
+      locate: true
     };
 
-    reader.readAsDataURL(file);
+    window.Quagga.init(config, (err) => {
+      if (err) {
+        console.error("Quagga init error:", err);
+        // Show an error/fallback UI if needed
+        return;
+      }
+      window.Quagga.start();
+    });
+
+    window.Quagga.onProcessed((result) => {
+      // Clear the overlay
+      overlayCtx.clearRect(0, 0, container.clientWidth, container.clientHeight);
+
+      if (result && result.boxes) {
+        result.boxes
+          .filter(box => box !== result.box)
+          .forEach((box) => {
+            this.drawPath(overlayCtx, box, "rgba(255, 255, 255, 0.5)");
+          });
+      }
+      if (result && result.box) {
+        this.drawPath(overlayCtx, result.box, "rgba(0, 255, 0, 0.7)");
+      }
+    });
+
+    window.Quagga.onDetected((data) => {
+      const code = data.codeResult.code;
+      this.updateValue(code);
+      this.refs.barcode.value = code;
+
+      // Flash border briefly
+      this.refs.quaggaModal.style.border = "5px solid lime";
+      setTimeout(() => {
+        this.refs.quaggaModal.style.border = "none";
+        // Optionally auto-close:
+        // this.stopQuagga();
+        // this.refs.quaggaModal.style.display = "none";
+      }, 300);
+    });
+  }
+
+  stopQuagga() {
+    try {
+      window.Quagga.stop();
+      window.Quagga.offProcessed();
+      window.Quagga.offDetected();
+    } catch (e) {
+      // Quagga may not be running—ignore
+    }
+  }
+
+  drawPath(ctx, points, color) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(points[0][0], points[0][1]);
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i][0], points[i][1]);
+    }
+    ctx.lineTo(points[0][0], points[0][1]);
+    ctx.stroke();
   }
 
   triggerChange() {}
@@ -202,15 +283,16 @@ export default class BarcodeScanner extends FieldComponent {
       );
     }
     if (this.refs.scanButton) {
-      this.refs.scanButton.removeEventListener("click", this.scanButtonClickHandler);
+      this.refs.scanButton.removeEventListener("click", this.openQuaggaModal);
     }
-    if (this.refs.fileInput) {
-      this.refs.fileInput.removeEventListener("change", this.fileInputChangeHandler);
+    if (this.refs.closeModal) {
+      this.refs.closeModal.removeEventListener("click", this.stopQuagga);
     }
     return super.detach();
   }
 
   destroy() {
+    this.stopQuagga();
     return super.destroy();
   }
 
