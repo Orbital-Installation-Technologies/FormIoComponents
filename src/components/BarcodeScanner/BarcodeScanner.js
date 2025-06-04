@@ -32,8 +32,10 @@ export default class BarcodeScanner extends FieldComponent {
   constructor(component, options, data) {
     super(component, options, data);
     this.errorMessage = "";
-    this._lastBox = null;     // stores the points of the green bounding polygon
-    this._lastCode = null;    // stores the last detected barcode string
+    this._lastBox = null;      // raw Quagga box: array of [x,y] in video‐pixel space
+    this._lastCode = null;     // decoded string
+    this._videoDims = null;    // { width, height } from the <video>
+    this._smoothedBoxes = null;
     this._onOverlayClick = this._onOverlayClick.bind(this);
     window.Quagga = Quagga;
   }
@@ -57,27 +59,19 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
-  get inputInfo() {
-    return super.inputInfo;
-  }
-
   render(content) {
-    // We create a 400×300px container for Quagga’s video + overlay,
-    // and absolutely place the "Close" button on top.
-    const component = `
-      <div style="display: flex; flex-direction: column; gap: 8px;">
-        <div style="display: flex; align-items: center; justify-content: space-between;">
+    // 400×300 modal with video + overlay canvas inside
+    return super.render(`
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <div style="display:flex; align-items:center; justify-content:space-between;">
           <input
             ref="barcode"
             type="text"
             class="form-control"
             value="${this.dataValue || ""}"
-            style="flex-grow: 1; margin-right: 10px;"
-          >
-          <button
-            ref="scanButton"
-            type="button"
-            class="btn btn-primary">
+            style="flex-grow:1; margin-right:10px;"
+          />
+          <button ref="scanButton" type="button" class="btn btn-primary">
             <i class="fa fa-camera"></i>
           </button>
         </div>
@@ -88,72 +82,67 @@ export default class BarcodeScanner extends FieldComponent {
                </div>`
             : ""
         }
-        <!-- Modal overlay: full-screen dark background -->
+        <!-- Full‐screen dark backdrop -->
         <div
           ref="quaggaModal"
           style="
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.8);
-            z-index: 9999;
-            align-items: center;
-            justify-content: center;
+            display:none;
+            position:fixed;
+            top:0; left:0;
+            width:100%; height:100%;
+            background:rgba(0,0,0,0.8);
+            z-index:9999;
+            align-items:center;
+            justify-content:center;
           ">
           <!-- Centered 400×300 box -->
           <div
             style="
-              position: relative;
-              width: 400px;
-              height: 300px;
-              background-color: #333;
-              border-radius: 8px;
-              box-shadow: 0 0 10px rgba(0,0,0,0.5);
-              overflow: hidden;
+              position:relative;
+              width:400px;
+              height:300px;
+              background-color:#333;
+              border-radius:8px;
+              box-shadow:0 0 10px rgba(0,0,0,0.5);
+              overflow:hidden;
             ">
-            <!-- Close button sits on top-right -->
+            <!-- Close button in top‐right -->
             <button
               ref="closeModal"
               style="
-                position: absolute;
-                top: 8px;
-                right: 8px;
-                z-index: 20;
+                position:absolute;
+                top:8px; right:8px;
+                z-index:20;
               "
               class="btn btn-light">
               Close
             </button>
-            <!-- Quagga’s <video> and overlay <canvas> -->
+            <!-- Container for Quagga’s <video> + our overlay <canvas> -->
             <div
               ref="quaggaContainer"
               style="
-                width: 100%;
-                height: 100%;
-                position: relative;
-                background: black;
-              "
-            >
-              <!-- Quagga will inject a <video> element here -->
+                width:100%;
+                height:100%;
+                position:relative;
+                background:black;
+              ">
+              <!-- Quagga-injected <video> goes here -->
               <canvas
                 ref="quaggaOverlay"
+                width="400"
+                height="300"
                 style="
-                  position: absolute;
-                  top: 0;
-                  left: 0;
-                  pointer-events: auto; /* allow clicks for box detection */
-                  z-index: 10;
-                "
-              ></canvas>
+                  position:absolute;
+                  top:0; left:0;
+                  cursor:pointer;
+                  z-index:10;
+                ">
+              </canvas>
             </div>
           </div>
         </div>
       </div>
-    `;
-
-    return super.render(component);
+    `);
   }
 
   attach(element) {
@@ -176,11 +165,11 @@ export default class BarcodeScanner extends FieldComponent {
       !this.refs.quaggaOverlay ||
       !this.refs.closeModal
     ) {
-      console.warn("BarcodeScanner refs not ready. Skipping event bindings.");
+      console.warn("Refs not ready—skipping event bindings.");
       return attached;
     }
 
-    // If there is already a value, populate the input
+    // If there’s an existing value, fill the input
     if (this.dataValue) {
       this.refs.barcode.value = this.dataValue;
     }
@@ -191,18 +180,19 @@ export default class BarcodeScanner extends FieldComponent {
         this.updateValue(this.refs.barcode.value);
       });
 
-      // On “Scan” click, open the modal & start Quagga
+      // On “Scan” click, open modal + start Quagga
       this.refs.scanButton.addEventListener("click", () => {
         this.openQuaggaModal();
       });
 
-      // On “Close” click, stop Quagga & hide modal
+      // On “Close” click: stop Quagga, hide modal, clear overlay
       this.refs.closeModal.addEventListener("click", () => {
         this.stopQuagga();
         this.refs.quaggaModal.style.display = "none";
         this._clearOverlay();
         this._lastBox = null;
         this._lastCode = null;
+        this._videoDims = null;
         this.refs.quaggaOverlay.removeEventListener("click", this._onOverlayClick);
       });
     }
@@ -211,65 +201,70 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   openQuaggaModal() {
-    // 1) Show the full-screen modal
+    // 1) Show the backdrop/modal
     this.refs.quaggaModal.style.display = "flex";
 
     // 2) Reset any previous state
     this._lastBox = null;
     this._lastCode = null;
+    this._videoDims = null;
     this._clearOverlay();
 
-    // 3) Enable click‐through on the overlay (to detect green‐box taps)
+    // 3) Enable clicking on the overlay
     const overlay = this.refs.quaggaOverlay;
     overlay.style.pointerEvents = "auto";
     overlay.addEventListener("click", this._onOverlayClick);
 
-    // 4) Define a function to run *after* Quagga has injected its <video>
+    // 4) Function to wait until Quagga’s <video> is available and has metadata
     const onVideoReady = () => {
       const container = this.refs.quaggaContainer;
       const overlay = this.refs.quaggaOverlay;
-      // Find the <video> element that Quagga just created
       const video = container.querySelector("video");
       if (!video) {
-        // Not ready yet, try again in 50ms
         return setTimeout(onVideoReady, 50);
       }
-
-      // Wait until the video’s metadata is loaded (native resolution known)
       if (!video.videoWidth || !video.videoHeight) {
         return setTimeout(onVideoReady, 50);
       }
 
-      // 5) Make the <video> fill exactly 400×300 without cropping:
+      // 5a) Record the camera’s actual resolution:
+      this._videoDims = {
+        width: video.videoWidth,   // e.g. 640
+        height: video.videoHeight, // e.g. 480
+      };
+
+      // 5b) Force the <video> to fill the container, using “object-fit: contain”
+      // so we can read its exact on-screen size rather than cropping:
       video.style.width = "100%";
       video.style.height = "100%";
-      video.style.objectFit = "cover"; 
-      // Because container is 4:3 and video is 4:3 (640×480), object-fit:cover will NOT crop.
-      // If your camera orientation differs, this still fills the container.
+      video.style.objectFit = "contain";
 
-      // 6) Now size the overlay <canvas> to match the video’s intrinsic resolution:
-      const vidW = video.videoWidth;   // e.g. 640
-      const vidH = video.videoHeight;  // e.g. 480
-      overlay.width = vidW;
-      overlay.height = vidH;
+      // 5c) Now that the video is laid out in a 400×300 container,
+      // find out exactly where it lives and how big it is:
+      const videoRect     = video.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
 
-      // 7) Scale the canvas’s *display* size to fill the container CSS (400×300):
-      overlay.style.width = container.clientWidth + "px";   // "400px"
-      overlay.style.height = container.clientHeight + "px"; // "300px"
+      // Compute the overlay’s CSS top-left corner relative to container:
+      const offsetLeft = videoRect.left - containerRect.left;
+      const offsetTop  = videoRect.top  - containerRect.top;
 
-      // 8) Compute scale factors to map video‐pixel coords → CSS coords:
-      const scaleX = container.clientWidth / vidW;
-      const scaleY = container.clientHeight / vidH;
+      // 5d) Position the overlay <canvas> so that it sits exactly on top of the <video>:
+      overlay.style.position = "absolute";
+      overlay.style.left     = offsetLeft + "px";
+      overlay.style.top      = offsetTop  + "px";
+      overlay.style.width    = videoRect.width  + "px";
+      overlay.style.height   = videoRect.height + "px";
 
-      const ctx = overlay.getContext("2d");
-      // Reset any previous transforms, then scale
-      ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
+      // 5e) Set the overlay’s internal drawing buffer to the RAW camera resolution,
+      //     so Quagga’s raw points (0–639, 0–479) map 1:1 into this buffer:
+      overlay.width  = this._videoDims.width;   // e.g. 640
+      overlay.height = this._videoDims.height;  // e.g. 480
 
-      // 9) Start drawing Quagga’s results onto this overlay
-      this._startQuaggaProcessing(ctx);
+      // 5f) Now start drawing Quagga’s bounding‐box results:
+      this._startQuaggaProcessing();
     };
 
-    // 10) Initialize Quagga with single­-barcode detection
+    // 6) Initialize Quagga for 1D barcodes
     const config = {
       inputStream: {
         name: "Live",
@@ -283,17 +278,16 @@ export default class BarcodeScanner extends FieldComponent {
             height: { ideal: 480 },
           },
         },
-        // Focus scanning on the central 60% × 60% area (helps accuracy)
         area: {
-          top: "20%",
-          right: "20%",
-          left: "20%",
-          bottom: "20%",
+          top: "0%",
+          right: "0%",
+          left: "0%",
+          bottom: "0%",
         },
       },
       locator: {
-        patchSize: "medium", 
-        halfSample: true,
+        patchSize: "large",   // helps detect thin bars
+        halfSample: true,    // use full resolution
       },
       decoder: {
         readers: [
@@ -303,10 +297,10 @@ export default class BarcodeScanner extends FieldComponent {
           "upc_reader",
           "upc_e_reader",
         ],
-        multiple: false, // ← only look for one barcode
+        multiple: false,
       },
       locate: true,
-      numOfWorkers: navigator.hardwareConcurrency || 2,
+      numOfWorkers: 20,
     };
 
     window.Quagga.init(config, (err) => {
@@ -326,108 +320,217 @@ export default class BarcodeScanner extends FieldComponent {
         return;
       }
       window.Quagga.start();
-      // Once Quagga has inserted <video>, run onVideoReady
+      // Wait until the <video> is inserted and has dimensions:
       onVideoReady();
     });
   }
 
-  _startQuaggaProcessing(overlayCtx) {
-    const overlay = this.refs.quaggaOverlay;
+  _startQuaggaProcessing() {
+    const overlay   = this.refs.quaggaOverlay;
+    const container = this.refs.quaggaContainer;
+    const videoEl   = container.querySelector("video");
+    if (!videoEl || !this._videoDims) return; // safety
 
-    // onProcessed: draw all candidate boxes, then highlight the "best" box in green
+    // Raw camera resolution (e.g. 640×480)
+    const vidW = this._videoDims.width;
+    const vidH = this._videoDims.height;
+
+    // Video’s on-screen CSS size
+    const videoRect = videoEl.getBoundingClientRect();
+    const cssW = videoRect.width;   // e.g. 400
+    const cssH = videoRect.height;  // e.g. 300
+
+    // Scaling factor “raw → displayed”
+    const scaleX = cssW / vidW; // ~0.625
+    const scaleY = cssH / vidH; // ~0.625
+
     window.Quagga.onProcessed((result) => {
-      // Clear the entire canvas (in *video pixel* units)
-      overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+        const ctx = overlay.getContext("2d");
+        // Clear the entire raw buffer (640×480)
+        ctx.clearRect(0, 0, overlay.width, overlay.height);
 
-      if (result && result.boxes) {
-        // Draw faint white boxes for every candidate
-        result.boxes
-          .filter((b) => b !== result.box)
-          .forEach((b) => {
-            this._drawPath(overlayCtx, b, "rgba(255, 255, 255, 1)");
+        // 1) Grab raw polygons (video‐pixel coords) and run them through our smoother:
+        let rawBoxes = [];this._smoothedBoxes = null;
+        if (result && result.boxes && result.boxes.length) {
+          // Each result.boxes[k] is an array: [ [x1,y1], [x2,y2], [x3,y3], [x4,y4] ]
+          rawBoxes = result.boxes.map(b => b.slice());
+        }
+        this._matchAndSmoothBoxes(rawBoxes);
+
+        // 2) Draw the smoothed polygons in bright green:
+        if (this._smoothedBoxes && this._smoothedBoxes.length) {
+          ctx.strokeStyle = "rgba(0,255,0,1)";
+          ctx.lineWidth   = 2;
+          this._smoothedBoxes.forEach((box) => {
+            ctx.beginPath();
+            ctx.moveTo(box[0][0], box[0][1]);
+            for (let i = 1; i < box.length; i++) {
+              ctx.lineTo(box[i][0], box[i][1]);
+            }
+            ctx.closePath();
+            ctx.stroke();
           });
-      }
+        }
+      });
 
-      if (result && result.box) {
-        // Save the “best” box polygon
-        this._lastBox = result.box;
-        // Draw the green bounding polygon
-        this._drawPath(overlayCtx, result.box, "rgba(0, 255, 0, 1)");
-      }
-    });
-
-    // onDetected: store the code but DO NOT auto-insert.
-    // Instead highlight the modal’s border, waiting for user click.
-    window.Quagga.onDetected((data) => {
-      this._lastCode = data.codeResult.code;
-      // Flash the modal border so user knows “a code is locked”
-      this.refs.quaggaModal.style.border = "4px solid lime";
-      setTimeout(() => {
-        this.refs.quaggaModal.style.border = "";
-      }, 400);
-    });
-  }
-
-  _drawPath(ctx, points, color) {
-    if (!points || !points.length) return;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(points[0][0], points[0][1]);
-    for (let i = 1; i < points.length; i++) {
-      ctx.lineTo(points[i][0], points[i][1]);
+      // onDetected: store the code (unchanged)
+      window.Quagga.onDetected((data) => {
+        this._lastCode = data.codeResult.code;
+        this.refs.quaggaModal.style.border = "4px solid lime";
+        setTimeout(() => {
+          this.refs.quaggaModal.style.border = "";
+        }, 400);
+      });
     }
-    ctx.closePath();
-    ctx.stroke();
-  }
+  
+
+    _matchAndSmoothBoxes(rawBoxes) {
+      const α = this._SMOOTH_ALPHA;      // e.g. 0.3
+      const maxLost = this._MAX_LOST_FRAMES;
+
+      // If this is the very first frame, just copy raw → smoothed:
+      if (!this._smoothedBoxes) {
+        this._smoothedBoxes = rawBoxes.map(b => b.slice());
+        this._lostCounts     = new Array(rawBoxes.length).fill(0);
+        return;
+      }
+
+      // Otherwise, we have an existing array of smoothedBoxes from the previous frame:
+      const oldBoxes = this._smoothedBoxes;
+      const oldLost  = this._lostCounts;
+      const newSmoothed = [];
+      const newLost     = [];
+
+      // 1) Build a list of “centroids” for each raw box and each old box:
+      const rawCentroids = rawBoxes.map(box => {
+        const cx = (box[0][0] + box[1][0] + box[2][0] + box[3][0]) / 4;
+        const cy = (box[0][1] + box[1][1] + box[2][1] + box[3][1]) / 4;
+        return [cx, cy];
+      });
+      const oldCentroids = oldBoxes.map(box => {
+        const cx = (box[0][0] + box[1][0] + box[2][0] + box[3][0]) / 4;
+        const cy = (box[0][1] + box[1][1] + box[2][1] + box[3][1]) / 4;
+        return [cx, cy];
+      });
+
+      // 2) Attempt to “match” each oldBox to the closest rawBox by centroid distance:
+      //    We’ll build an array `matches[i] = j` meaning oldBoxes[i] ↔ rawBoxes[j].
+      const usedRaw = new Set();
+      const matches = new Array(oldBoxes.length).fill(-1);
+
+      oldCentroids.forEach((oldC, i) => {
+        let bestJ = -1;
+        let bestDist = Infinity;
+        rawCentroids.forEach((rawC, j) => {
+          if (usedRaw.has(j)) return; // already claimed
+          const dx = oldC[0] - rawC[0];
+          const dy = oldC[1] - rawC[1];
+          const d2 = dx * dx + dy * dy;
+          if (d2 < bestDist) {
+            bestDist = d2;
+            bestJ = j;
+          }
+        });
+        // If the best centroid distance is “too large,” we consider it “no match.”
+        // Feel free to tweak this threshold (in raw‐pixel squared units).
+        const MAX_CENTROID_DIST_SQ = 1000 * 1000; // ~ 1000px distance squared (very loose)
+        if (bestJ >= 0 && bestDist < MAX_CENTROID_DIST_SQ) {
+          matches[i] = bestJ;
+          usedRaw.add(bestJ);
+        }
+      });
+
+      // 3) For each oldBox:
+      oldBoxes.forEach((oldBox, i) => {
+        const rawIdx = matches[i];
+        if (rawIdx >= 0) {
+          // We found a matching rawBox → do EMA corner by corner:
+          const rawBox = rawBoxes[rawIdx]; // shape: [[x1,y1],…,[x4,y4]]
+          const smBox  = oldBox.slice(); // copy the old smoothed coords
+
+          for (let k = 0; k < 4; k++) {
+            smBox[k][0] = smBox[k][0] * (1 - α) + rawBox[k][0] * α;
+            smBox[k][1] = smBox[k][1] * (1 - α) + rawBox[k][1] * α;
+          }
+
+          newSmoothed.push(smBox);
+          newLost.push(0); // got a match, so lost=0
+        } else {
+          // No match → increment lost counter. If not too old, keep it:
+          const lostCount = oldLost[i] + 1;
+          if (lostCount < maxLost) {
+            newSmoothed.push(oldBox); // keep it “as‐is” (still smoothing)
+            newLost.push(lostCount);
+          }
+          // If lostCount ≥ maxLost, we drop this polygon permanently.
+        }
+      });
+
+      // 4) For any rawBoxes that were never used (no oldBox matched to them),
+      //    create a brand‐new smoothed polygon directly from raw (no EMA on first frame).
+      rawBoxes.forEach((rawBox, j) => {
+        if (!usedRaw.has(j)) {
+          const newPoly = rawBox.map(pt => pt.slice());
+          newSmoothed.push(newPoly);
+          newLost.push(0);
+        }
+      });
+
+      // 5) Replace our arrays:
+      this._smoothedBoxes = newSmoothed;
+      this._lostCounts     = newLost;
+    }
 
   _onOverlayClick(evt) {
-    // If no “best box” or no detected code, do nothing
-    if (!this._lastBox || !this._lastCode) return;
+    // If no polygons or no code, do nothing
+    if (!this._lastBoxes || !this._lastCode) return;
 
-    const overlay = this.refs.quaggaOverlay;
+    const overlay   = this.refs.quaggaOverlay;
     const container = this.refs.quaggaContainer;
+    const videoEl   = container.querySelector("video");
+    const rect      = overlay.getBoundingClientRect();
 
-    // Get the overlay’s DOM bounding box (CSS coords)
-    const rect = overlay.getBoundingClientRect();
+    // Raw camera resolution
+    const vidW = this._videoDims.width;   // e.g. 640
+    const vidH = this._videoDims.height;  // e.g. 480
 
-    // We know overlay.width = video.videoWidth, overlay.height = video.videoHeight
-    // And overlay CSS width/height = container.clientWidth/Height.
-    const vidW = overlay.width;
-    const vidH = overlay.height;
-    const cssW = container.clientWidth;
-    const cssH = container.clientHeight;
+    // Video’s on-screen size
+    const videoRect = videoEl.getBoundingClientRect();
+    const cssW = videoRect.width;   // e.g. 400
+    const cssH = videoRect.height;  // e.g. 300
 
-    // Compute scale factors to map CSS → video pixels:
-    const scaleX = vidW / cssW;
-    const scaleY = vidH / cssH;
+    // Inverse‐scale CSS → raw
+    const scaleX_inv = vidW / cssW;  // 640/400 = 1.6
+    const scaleY_inv = vidH / cssH;  // 480/300 = 1.6
 
-    // Convert the click’s clientX/clientY into video‐pixel coords:
-    const clickX = (evt.clientX - rect.left) * scaleX;
-    const clickY = (evt.clientY - rect.top) * scaleY;
+    // Compute the click in raw video‐pixel coordinates
+    const clickX = (evt.clientX - rect.left) * scaleX_inv;
+    const clickY = (evt.clientY - rect.top)  * scaleY_inv;
 
-    // Check if the click is inside the last bounding polygon:
-    if (this._pointInPolygon(clickX, clickY, this._lastBox)) {
-      // User clicked inside the green box: insert & close
-      this.updateValue(this._lastCode);
-      this.refs.barcode.value = this._lastCode;
-      this.stopQuagga();
-      this.refs.quaggaModal.style.display = "none";
-      this._clearOverlay();
-      this._lastBox = null;
-      this._lastCode = null;
-      overlay.removeEventListener("click", this._onOverlayClick);
+    // Check if (clickX, clickY) is inside ANY of the stored polygons
+    for (const poly of this._lastBoxes) {
+      if (this._pointInPolygon(clickX, clickY, poly)) {
+        // User clicked inside one of the green boxes: insert code & close
+        this.updateValue(this._lastCode);
+        this.refs.barcode.value = this._lastCode;
+        this.stopQuagga();
+        this.refs.quaggaModal.style.display = "none";
+        this._clearOverlay();
+        this._lastBoxes = null;
+        this._lastCode  = null;
+        this._videoDims = null;
+        overlay.removeEventListener("click", this._onOverlayClick);
+        return; // break out of the loop
+      }
     }
   }
 
-  _pointInPolygon(x, y, polygon) {
-    // Ray-casting algorithm
+  _pointInPolygon(x, y, poly) {
+    // Standard ray-casting for point-in-polygon
     let inside = false;
-    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-      const xi = polygon[i][0],
-        yi = polygon[i][1];
-      const xj = polygon[j][0],
-        yj = polygon[j][1];
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i][0], yi = poly[i][1];
+      const xj = poly[j][0], yj = poly[j][1];
       const intersect =
         (yi > y) !== (yj > y) &&
         x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
@@ -440,8 +543,6 @@ export default class BarcodeScanner extends FieldComponent {
     const overlay = this.refs.quaggaOverlay;
     if (overlay) {
       const ctx = overlay.getContext("2d");
-      // Reset transform to identity before clearing
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, overlay.width, overlay.height);
     }
   }
@@ -452,7 +553,7 @@ export default class BarcodeScanner extends FieldComponent {
       window.Quagga.offDetected();
       window.Quagga.stop();
     } catch (e) {
-      // If Quagga isn’t running, ignore
+      // ignore if Quagga not running
     }
   }
 
