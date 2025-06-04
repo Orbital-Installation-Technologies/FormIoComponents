@@ -32,6 +32,9 @@ export default class BarcodeScanner extends FieldComponent {
   constructor(component, options, data) {
     super(component, options, data);
     this.errorMessage = "";
+    this._lastBox = null;     // stores the points of the green bounding polygon
+    this._lastCode = null;    // stores the last detected barcode string
+    this._onOverlayClick = this._onOverlayClick.bind(this);
     window.Quagga = Quagga;
   }
 
@@ -59,6 +62,8 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   render(content) {
+    // We create a 400×300px container for Quagga’s video + overlay,
+    // and absolutely place the "Close" button on top.
     const component = `
       <div style="display: flex; flex-direction: column; gap: 8px;">
         <div style="display: flex; align-items: center; justify-content: space-between;">
@@ -73,7 +78,7 @@ export default class BarcodeScanner extends FieldComponent {
             ref="scanButton"
             type="button"
             class="btn btn-primary">
-            <i class="fa fa-camera bi bi-camera"></i>
+            <i class="fa fa-camera"></i>
           </button>
         </div>
         ${
@@ -83,7 +88,7 @@ export default class BarcodeScanner extends FieldComponent {
                </div>`
             : ""
         }
-        <!-- Modal container for live video + canvas -->
+        <!-- Modal overlay: full-screen dark background -->
         <div
           ref="quaggaModal"
           style="
@@ -98,19 +103,49 @@ export default class BarcodeScanner extends FieldComponent {
             align-items: center;
             justify-content: center;
           ">
+          <!-- Centered 400×300 box -->
           <div
-            style="position: relative; width: 640px; height: 480px;; display: flex; flex-direction: column; background-color: gray"
-          >
-            <div style="display: flex; justify-content: flex-end; padding: 10px;">
-              <button ref="closeModal" class="btn btn-light">Close</button>
-            </div>
-            <div style="flex:1; position: relative;">
-              <!-- Container for Quagga’s own <video> & <canvas> -->
-              <div ref="quaggaContainer" style="width:640px; height:480px;"></div>
-              <!-- We’ll draw our own overlay on top, if needed: -->
+            style="
+              position: relative;
+              width: 400px;
+              height: 300px;
+              background-color: #333;
+              border-radius: 8px;
+              box-shadow: 0 0 10px rgba(0,0,0,0.5);
+              overflow: hidden;
+            ">
+            <!-- Close button sits on top-right -->
+            <button
+              ref="closeModal"
+              style="
+                position: absolute;
+                top: 8px;
+                right: 8px;
+                z-index: 20;
+              "
+              class="btn btn-light">
+              Close
+            </button>
+            <!-- Quagga’s <video> and overlay <canvas> -->
+            <div
+              ref="quaggaContainer"
+              style="
+                width: 100%;
+                height: 100%;
+                position: relative;
+                background: black;
+              "
+            >
+              <!-- Quagga will inject a <video> element here -->
               <canvas
                 ref="quaggaOverlay"
-                style="position:absolute; top:0; left:0; width:100%; height:100%;"
+                style="
+                  position: absolute;
+                  top: 0;
+                  left: 0;
+                  pointer-events: auto; /* allow clicks for box detection */
+                  z-index: 10;
+                "
               ></canvas>
             </div>
           </div>
@@ -128,11 +163,10 @@ export default class BarcodeScanner extends FieldComponent {
       barcode: "single",
       scanButton: "single",
       quaggaModal: "single",
-      quaggaContainer: "single", // new container ref
+      quaggaContainer: "single",
       quaggaOverlay: "single",
       closeModal: "single",
     });
-
 
     if (
       !this.refs.barcode ||
@@ -146,26 +180,30 @@ export default class BarcodeScanner extends FieldComponent {
       return attached;
     }
 
-    // Populate input if there's an existing value
+    // If there is already a value, populate the input
     if (this.dataValue) {
       this.refs.barcode.value = this.dataValue;
     }
 
     if (!this.component.disabled) {
-      // Update Form.io data when user types manually
+      // Manual typing → Form.io
       this.refs.barcode.addEventListener("change", () => {
         this.updateValue(this.refs.barcode.value);
       });
 
-      // Open the Quagga modal on button click
+      // On “Scan” click, open the modal & start Quagga
       this.refs.scanButton.addEventListener("click", () => {
         this.openQuaggaModal();
       });
 
-      // Close button shuts down Quagga and hides modal
+      // On “Close” click, stop Quagga & hide modal
       this.refs.closeModal.addEventListener("click", () => {
         this.stopQuagga();
         this.refs.quaggaModal.style.display = "none";
+        this._clearOverlay();
+        this._lastBox = null;
+        this._lastCode = null;
+        this.refs.quaggaOverlay.removeEventListener("click", this._onOverlayClick);
       });
     }
 
@@ -173,21 +211,89 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   openQuaggaModal() {
-    // Show the modal
+    // 1) Show the full-screen modal
     this.refs.quaggaModal.style.display = "flex";
 
-    // Grab the “container” element (not a video tag)
-    const container = this.refs.quaggaContainer;
-    const overlayCtx = this.refs.quaggaOverlay.getContext("2d");
+    // 2) Reset any previous state
+    this._lastBox = null;
+    this._lastCode = null;
+    this._clearOverlay();
 
+    // 3) Enable click‐through on the overlay (to detect green‐box taps)
+    const overlay = this.refs.quaggaOverlay;
+    overlay.style.pointerEvents = "auto";
+    overlay.addEventListener("click", this._onOverlayClick);
+
+    // 4) Define a function to run *after* Quagga has injected its <video>
+    const onVideoReady = () => {
+      const container = this.refs.quaggaContainer;
+      const overlay = this.refs.quaggaOverlay;
+      // Find the <video> element that Quagga just created
+      const video = container.querySelector("video");
+      if (!video) {
+        // Not ready yet, try again in 50ms
+        return setTimeout(onVideoReady, 50);
+      }
+
+      // Wait until the video’s metadata is loaded (native resolution known)
+      if (!video.videoWidth || !video.videoHeight) {
+        return setTimeout(onVideoReady, 50);
+      }
+
+      // 5) Make the <video> fill exactly 400×300 without cropping:
+      video.style.width = "100%";
+      video.style.height = "100%";
+      video.style.objectFit = "cover"; 
+      // Because container is 4:3 and video is 4:3 (640×480), object-fit:cover will NOT crop.
+      // If your camera orientation differs, this still fills the container.
+
+      // 6) Now size the overlay <canvas> to match the video’s intrinsic resolution:
+      const vidW = video.videoWidth;   // e.g. 640
+      const vidH = video.videoHeight;  // e.g. 480
+      overlay.width = vidW;
+      overlay.height = vidH;
+
+      // 7) Scale the canvas’s *display* size to fill the container CSS (400×300):
+      overlay.style.width = container.clientWidth + "px";   // "400px"
+      overlay.style.height = container.clientHeight + "px"; // "300px"
+
+      // 8) Compute scale factors to map video‐pixel coords → CSS coords:
+      const scaleX = container.clientWidth / vidW;
+      const scaleY = container.clientHeight / vidH;
+
+      const ctx = overlay.getContext("2d");
+      // Reset any previous transforms, then scale
+      ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
+
+      // 9) Start drawing Quagga’s results onto this overlay
+      this._startQuaggaProcessing(ctx);
+    };
+
+    // 10) Initialize Quagga with single­-barcode detection
     const config = {
       inputStream: {
         name: "Live",
         type: "LiveStream",
-        target: container,          // <–– this is crucial
+        target: this.refs.quaggaContainer,
         constraints: {
-          facingMode: "environment"
+          audio: false,
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+          },
         },
+        // Focus scanning on the central 60% × 60% area (helps accuracy)
+        area: {
+          top: "20%",
+          right: "20%",
+          left: "20%",
+          bottom: "20%",
+        },
+      },
+      locator: {
+        patchSize: "medium", 
+        halfSample: true,
       },
       decoder: {
         readers: [
@@ -195,64 +301,75 @@ export default class BarcodeScanner extends FieldComponent {
           "ean_reader",
           "ean_8_reader",
           "upc_reader",
-          "upc_e_reader"
-        ]
+          "upc_e_reader",
+        ],
+        multiple: false, // ← only look for one barcode
       },
-      locate: true
+      locate: true,
+      numOfWorkers: navigator.hardwareConcurrency || 2,
     };
 
     window.Quagga.init(config, (err) => {
       if (err) {
         console.error("Quagga init error:", err);
-        // Show an error/fallback UI if needed
+        const container = this.refs.quaggaContainer;
+        container.innerHTML = `
+          <div style="
+            color: white;
+            text-align: center;
+            padding: 20px;
+            font-size: 1rem;
+          ">
+            🚫 Camera failed to start:<br>
+            ${err.name || err.message}
+          </div>`;
         return;
       }
       window.Quagga.start();
+      // Once Quagga has inserted <video>, run onVideoReady
+      onVideoReady();
     });
+  }
 
+  _startQuaggaProcessing(overlayCtx) {
+    const overlay = this.refs.quaggaOverlay;
+
+    // onProcessed: draw all candidate boxes, then highlight the "best" box in green
     window.Quagga.onProcessed((result) => {
-      // Clear the overlay
-      overlayCtx.clearRect(0, 0, container.clientWidth, container.clientHeight);
+      // Clear the entire canvas (in *video pixel* units)
+      overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
 
       if (result && result.boxes) {
+        // Draw faint white boxes for every candidate
         result.boxes
-          .filter(box => box !== result.box)
-          .forEach((box) => {
-            this.drawPath(overlayCtx, box, "rgba(255, 255, 255, 0.5)");
+          .filter((b) => b !== result.box)
+          .forEach((b) => {
+            this._drawPath(overlayCtx, b, "rgba(255, 255, 255, 1)");
           });
       }
+
       if (result && result.box) {
-        this.drawPath(overlayCtx, result.box, "rgba(0, 255, 0, 0.7)");
+        // Save the “best” box polygon
+        this._lastBox = result.box;
+        // Draw the green bounding polygon
+        this._drawPath(overlayCtx, result.box, "rgba(0, 255, 0, 1)");
       }
     });
 
+    // onDetected: store the code but DO NOT auto-insert.
+    // Instead highlight the modal’s border, waiting for user click.
     window.Quagga.onDetected((data) => {
-      const code = data.codeResult.code;
-      this.updateValue(code);
-      this.refs.barcode.value = code;
-
-      // Flash border briefly
-      this.refs.quaggaModal.style.border = "5px solid lime";
+      this._lastCode = data.codeResult.code;
+      // Flash the modal border so user knows “a code is locked”
+      this.refs.quaggaModal.style.border = "4px solid lime";
       setTimeout(() => {
-        this.refs.quaggaModal.style.border = "none";
-        // Optionally auto-close:
-        // this.stopQuagga();
-        // this.refs.quaggaModal.style.display = "none";
-      }, 300);
+        this.refs.quaggaModal.style.border = "";
+      }, 400);
     });
   }
 
-  stopQuagga() {
-    try {
-      window.Quagga.stop();
-      window.Quagga.offProcessed();
-      window.Quagga.offDetected();
-    } catch (e) {
-      // Quagga may not be running—ignore
-    }
-  }
-
-  drawPath(ctx, points, color) {
+  _drawPath(ctx, points, color) {
+    if (!points || !points.length) return;
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -260,20 +377,83 @@ export default class BarcodeScanner extends FieldComponent {
     for (let i = 1; i < points.length; i++) {
       ctx.lineTo(points[i][0], points[i][1]);
     }
-    ctx.lineTo(points[0][0], points[0][1]);
+    ctx.closePath();
     ctx.stroke();
   }
 
-  triggerChange() {}
+  _onOverlayClick(evt) {
+    // If no “best box” or no detected code, do nothing
+    if (!this._lastBox || !this._lastCode) return;
 
-  updateState() {
-    this.triggerChange();
-    this.redraw();
+    const overlay = this.refs.quaggaOverlay;
+    const container = this.refs.quaggaContainer;
+
+    // Get the overlay’s DOM bounding box (CSS coords)
+    const rect = overlay.getBoundingClientRect();
+
+    // We know overlay.width = video.videoWidth, overlay.height = video.videoHeight
+    // And overlay CSS width/height = container.clientWidth/Height.
+    const vidW = overlay.width;
+    const vidH = overlay.height;
+    const cssW = container.clientWidth;
+    const cssH = container.clientHeight;
+
+    // Compute scale factors to map CSS → video pixels:
+    const scaleX = vidW / cssW;
+    const scaleY = vidH / cssH;
+
+    // Convert the click’s clientX/clientY into video‐pixel coords:
+    const clickX = (evt.clientX - rect.left) * scaleX;
+    const clickY = (evt.clientY - rect.top) * scaleY;
+
+    // Check if the click is inside the last bounding polygon:
+    if (this._pointInPolygon(clickX, clickY, this._lastBox)) {
+      // User clicked inside the green box: insert & close
+      this.updateValue(this._lastCode);
+      this.refs.barcode.value = this._lastCode;
+      this.stopQuagga();
+      this.refs.quaggaModal.style.display = "none";
+      this._clearOverlay();
+      this._lastBox = null;
+      this._lastCode = null;
+      overlay.removeEventListener("click", this._onOverlayClick);
+    }
   }
 
-  setError(message) {
-    this.errorMessage = message || "";
-    this.updateState();
+  _pointInPolygon(x, y, polygon) {
+    // Ray-casting algorithm
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const xi = polygon[i][0],
+        yi = polygon[i][1];
+      const xj = polygon[j][0],
+        yj = polygon[j][1];
+      const intersect =
+        (yi > y) !== (yj > y) &&
+        x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  _clearOverlay() {
+    const overlay = this.refs.quaggaOverlay;
+    if (overlay) {
+      const ctx = overlay.getContext("2d");
+      // Reset transform to identity before clearing
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+    }
+  }
+
+  stopQuagga() {
+    try {
+      window.Quagga.offProcessed();
+      window.Quagga.offDetected();
+      window.Quagga.stop();
+    } catch (e) {
+      // If Quagga isn’t running, ignore
+    }
   }
 
   detach() {
@@ -287,6 +467,9 @@ export default class BarcodeScanner extends FieldComponent {
     }
     if (this.refs.closeModal) {
       this.refs.closeModal.removeEventListener("click", this.stopQuagga);
+    }
+    if (this.refs.quaggaOverlay) {
+      this.refs.quaggaOverlay.removeEventListener("click", this._onOverlayClick);
     }
     return super.detach();
   }
