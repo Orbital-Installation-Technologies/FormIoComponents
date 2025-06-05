@@ -2,6 +2,7 @@ import { Formio } from "@formio/js";
 import Rating from "./components/Rating/Rating.js";
 import BarcodeScanner from "./components/BarcodeScanner/BarcodeScanner.js";
 import Gps from "./components/Gps/Gps.js";
+import ReviewButton from "./components/ReviewButton/ReviewButton.js";
 
 Formio.use([
   {
@@ -9,6 +10,7 @@ Formio.use([
       rating: Rating,
       barcode: BarcodeScanner,
       gps: Gps,
+      reviewbutton: ReviewButton,
     },
   },
 ]);
@@ -27,7 +29,7 @@ Formio.builder(
 Formio.createForm(
   document.getElementById("formio"),
   {
-    components: [Gps.schema(), Rating.schema(), BarcodeScanner.schema()],
+    components: [Gps.schema(), Rating.schema(), BarcodeScanner.schema(), ReviewButton.schema()],
   },
   {
     sanitizeConfig: {
