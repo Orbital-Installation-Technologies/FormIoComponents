@@ -33,9 +33,31 @@ export default class ReviewButton extends FieldComponent {
     super(component, options, data);
   }
 
-  render(content) {
+  init() {
+    super.init();
+  }
+
+  conditionallyHidden(data) {
+    if (!this.component.customConditional) return false;
+
+    try {
+      return !this.evaluate(
+        this.component.customConditional,
+        {
+          ...this.data,
+          ...data,
+        },
+        this.data,
+      );
+    } catch (e) {
+      console.warn("Conditional logic error:", e);
+      return false;
+    }
+  }
+
+  render() {
     return super.render(
-      `<button ref="button" class="btn btn-primary">${this.component.label}</button>`,
+      `<button ref="button" type="button" class="btn btn-primary">${this.component.label}</button>`,
     );
   }
 
@@ -47,7 +69,10 @@ export default class ReviewButton extends FieldComponent {
       const noShow = allData["data"]["noShow"];
 
       if (noShow === "yes") {
-        this.emit("submitButton", { type: "submit" });
+        const confirmed = confirm("Are you sure you want to submit without verification?");
+        if (confirmed) {
+          this.emit("submitButton", { type: "submit" });
+        }
         return;
       }
 
@@ -60,32 +85,25 @@ export default class ReviewButton extends FieldComponent {
           <h2 class="text-xl font-semibold mb-4">Review Form Data</h2>
 
           <div class="mb-4 text-sm whitespace-pre-wrap" style="max-height:200px; overflow-y:auto; border:1px solid #ccc; padding:8px;">
-            ${Object.entries(allData)
-              .filter(([key]) => key === "data") // only keep "data" key
-              .map(
-                ([key, val]) =>
-                  `<div><strong>${key}</strong>: ${typeof val === "object" ? JSON.stringify(val) : val}</div>`,
-              )
-              .join("")}
+            <div><strong>Billing Customer</strong> : ${allData.data.billingCustomer || ""}</div>
+            <div><strong>Work Order</strong> : ${allData.data.workOrder || ""}</div>
+            <div><strong>Billing Customer Exists</strong> : ${allData.data.billingCustomerExists || ""}</div>
+            <div><strong>Sub-Customer</strong> : ${allData.data.subCustomer || ""}</div>
+            <div><strong>PO/Case/WO</strong> : ${allData.data.po || ""}</div>
+            <div><strong>GPS Coordinates</strong> : ${allData.data.gps || ""}</div>
+            <div><strong>No Show?</strong> : ${allData.data.noShow || ""}</div>
+            <div><strong>Asset Type</strong> : ${allData.data.assetType || ""}</div>
+            <div><strong>Hardware List</strong> : ${JSON.stringify(allData.data.hardwareList ?? "")}</div>
           </div>
 
-          <div class="space-y-4 mb-4">
-            <label class="block">
-              <span class="text-gray-700">Support Confirmation Number</span>
-              <input type="text" class="w-full border rounded p-2 mt-1" id="supportNumber" />
-            </label>
-            <label class="block">
-              <span class="text-gray-700">Verified Successfully?</span>
-              <select id="verified" class="w-full border rounded p-2 mt-1">
-                <option value="">Select</option>
-                <option value="Yes">Yes</option>
-                <option value="No">No</option>
-              </select>
-            </label>
-            <label class="block">
-              <span class="text-gray-700">Screenshot Upload</span>
-              <input type="file" id="screenshot" class="w-full mt-1" />
-            </label>
+          <div class="flex items-center space-x-3 mb-4">
+            <input type="text" class="flex-1 border rounded p-2 text-sm" placeholder="Support number" id="supportNumber" />
+            <select class="flex-1 border rounded p-2 text-sm" id="verified">
+              <option value="">Verified (Yes/No)</option>
+              <option value="Yes">Yes</option>
+              <option value="No">No</option>
+            </select>
+            <input type="file" class="flex-1 text-sm" id="screenshot" />
           </div>
 
           <div class="mt-4 flex justify-end space-x-4">
