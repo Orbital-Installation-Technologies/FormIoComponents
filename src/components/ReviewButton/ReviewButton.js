@@ -88,30 +88,37 @@ export default class ReviewButton extends FieldComponent {
           <h2 class="text-xl font-semibold mb-4">Review Form Data</h2>
 
           <div class="mb-4 text-sm" style="max-height:200px; overflow-y:auto; border:1px solid #ccc; padding:8px;">
-            <div><strong>Billing Customer</strong> : ${allData.data.billingCustomer || ""}</div>
-            <div><strong>Work Order</strong> : ${allData.data.workOrder || ""}</div>
-            <div><strong>Billing Customer Exists</strong> : ${allData.data.billingCustomerExists || ""}</div>
-            <div><strong>Sub-Customer</strong> : ${allData.data.subCustomer || ""}</div>
-            <div><strong>PO/Case/WO</strong> : ${allData.data.poCase || ""}</div>
-            <div><strong>GPS Coordinates</strong> : ${allData.data.gpsCoordinates || ""}</div>
-            <div><strong>No Show?</strong> : ${allData.data.noShow || ""}</div>
-            <div><strong>Asset Type</strong> : ${allData.data.assetType || ""}</div>
-            <div><strong>Hardware List:</strong></div>
-            <ol style="padding-left: 1.5rem;">
-              ${(allData.data.hardwareList || [])
-                .map((item, index) => {
-                  const data = item.form?.data || {};
+            ${Object.keys(allData.data)
+              .map((key) => {
+                // Check if the value is an array, such as hardwareList, and handle accordingly
+                const value = allData.data[key];
+                if (Array.isArray(value)) {
                   return `
-                    <li style="margin-bottom: 0.5rem;">
-                      <div><strong>Hardware Product:</strong> ${data.hardwareProduct || ""}</div>
-                      <div><strong>Job Type:</strong> ${data.jobType || ""}</div>
-                      <div><strong>Notes:</strong> ${data.hardwareNotes || ""}</div>
-                      <div><strong>Removed Competitor Device:</strong> ${data.removedCompetitorDevice ? "Yes" : "No"}</div>
-                    </li>
+                    <div><strong>${key}:</strong></div>
+                    <ol style="padding-left: 1.5rem;">
+                      ${value
+                        .map((item, index) => {
+                          const itemData = item.form?.data || {}; // Extract nested data
+                          return `
+                            <li style="margin-bottom: 0.5rem;">
+                              <div><strong>Item ${index + 1}:</strong></div>
+                              ${Object.keys(itemData)
+                                .map((nestedKey) => {
+                                  return `<div><strong>${nestedKey}:</strong> ${itemData[nestedKey] || ""}</div>`;
+                                })
+                                .join("")}
+                            </li>
+                          `;
+                        })
+                        .join("")}
+                    </ol>
                   `;
-                })
-                .join("")}
-            </ol>
+                } else {
+                  // Display regular fields
+                  return `<div><strong>${key}:</strong> ${value || ""}</div>`;
+                }
+              })
+              .join("")}
           </div>
 
           <div class="flex items-center space-x-3 mb-4">
