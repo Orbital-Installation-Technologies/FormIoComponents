@@ -78,6 +78,50 @@ export default class ReviewButton extends FieldComponent {
         return;
       }
 
+      // Filter only fields with reviewVisible = true, excluding hidden, buttons, etc.
+      console.log(this.root?.components);
+      const visibleFields = this.root?.components?.filter(
+        (comp) =>
+          comp.component.properties.reviewVisible &&
+          comp.visible !== false &&
+          !["button", "hidden", "file", "image"].includes(comp.component.type),
+      );
+
+      const reviewHtml = visibleFields
+        .map((comp) => {
+          const key = comp.component.key;
+          const label = comp.component.label || key;
+          const value = comp.getValue();
+
+          // Handle array fields like hardwareList
+          if (Array.isArray(value)) {
+            return `
+              <div><strong>${label}:</strong></div>
+              <ol style="padding-left: 1.5rem;">
+                ${value
+                  .map((item, index) => {
+                    const itemData = item.form?.data || {};
+                    return `
+                    <li style="margin-bottom: 0.5rem;">
+                      <div><strong>Item ${index + 1}:</strong></div>
+                      ${Object.entries(itemData)
+                        .map(([nestedKey, nestedValue]) => {
+                          return `<div><strong>${nestedKey}:</strong> ${nestedValue || ""}</div>`;
+                        })
+                        .join("")}
+                    </li>
+                  `;
+                  })
+                  .join("")}
+              </ol>
+            `;
+          }
+
+          // Regular single-value fields
+          return `<div><strong>${label}:</strong> ${value ?? ""}</div>`;
+        })
+        .join("");
+
       const modal = document.createElement("div");
       modal.style.zIndex = "1000";
       modal.className =
@@ -88,37 +132,7 @@ export default class ReviewButton extends FieldComponent {
           <h2 class="text-xl font-semibold mb-4">Review Form Data</h2>
 
           <div class="mb-4 text-sm" style="max-height:200px; overflow-y:auto; border:1px solid #ccc; padding:8px;">
-            ${Object.keys(allData.data)
-              .map((key) => {
-                // Check if the value is an array, such as hardwareList, and handle accordingly
-                const value = allData.data[key];
-                if (Array.isArray(value)) {
-                  return `
-                    <div><strong>${key}:</strong></div>
-                    <ol style="padding-left: 1.5rem;">
-                      ${value
-                        .map((item, index) => {
-                          const itemData = item.form?.data || {}; // Extract nested data
-                          return `
-                            <li style="margin-bottom: 0.5rem;">
-                              <div><strong>Item ${index + 1}:</strong></div>
-                              ${Object.keys(itemData)
-                                .map((nestedKey) => {
-                                  return `<div><strong>${nestedKey}:</strong> ${itemData[nestedKey] || ""}</div>`;
-                                })
-                                .join("")}
-                            </li>
-                          `;
-                        })
-                        .join("")}
-                    </ol>
-                  `;
-                } else {
-                  // Display regular fields
-                  return `<div><strong>${key}:</strong> ${value || ""}</div>`;
-                }
-              })
-              .join("")}
+            ${reviewHtml}
           </div>
 
           <div class="flex items-center space-x-3 mb-4">
