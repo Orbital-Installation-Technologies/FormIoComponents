@@ -1,6 +1,6 @@
-import AllComponents from "@formio/components";
+import { Components } from "@formio/js";
 
-Object.values(AllComponents).forEach((Component) => {
+Object.values(Components.components).forEach((Component) => {
   if (Component && typeof Component.editForm === "function") {
     const originalEditForm = Component.editForm;
 
