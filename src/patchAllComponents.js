@@ -1,4 +1,5 @@
 import { Components } from "@formio/js";
+console.log("patch running");
 
 Object.values(Components.components).forEach((Component) => {
   if (Component && typeof Component.editForm === "function") {

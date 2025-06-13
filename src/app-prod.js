@@ -1,3 +1,4 @@
+import "./patchAllComponents.js";
 import Rating from "./components/Rating/Rating.js";
 import BarcodeScanner from "./components/BarcodeScanner/BarcodeScanner";
 import Gps from "./components/Gps/Gps";
