@@ -3,7 +3,6 @@ import BarcodeScannerEditForm from "./BarcodeScanner.form";
 import { BrowserMultiFormatReader, BarcodeFormat } from "@zxing/browser";
 
 const FieldComponent = Components.components.field;
-console.log("FieldComponent", FieldComponent)
 
 export default class BarcodeScanner extends FieldComponent {
   static editForm = BarcodeScannerEditForm;
@@ -42,16 +41,19 @@ export default class BarcodeScanner extends FieldComponent {
     if (!this.component.customConditional) return false;
 
     try {
-      return !this.evaluate(this.component.customConditional, {
-        ...this.data,
-        ...data
-      }, this.data);
+      return !this.evaluate(
+        this.component.customConditional,
+        {
+          ...this.data,
+          ...data,
+        },
+        this.data,
+      );
     } catch (e) {
-      console.warn('Conditional logic error:', e);
+      console.warn("Conditional logic error:", e);
       return false;
     }
   }
-
 
   get inputInfo() {
     const info = super.inputInfo;
