@@ -6,16 +6,20 @@ const ReviewFieldPlugin = {
     console.log("ReviewFieldPlugin initialized. Patching components...");
 
     Object.entries(Components.components).forEach(([name, Component]) => {
-      console.log(`Patching component: ${name}`);
-
       if (Component?.editForm instanceof Function) {
         const original = Component.editForm;
         Component.editForm = (...args) => {
           const form = original(...args);
+          console.log("form:", form);
+
           const top = Array.isArray(form) ? form[0] : form;
+          console.log("top:", top);
+
           const tabs = top?.components || [];
           const tabDef = tabs.find((t) => t.key === "tabs");
           const display = tabDef?.components.find((t) => t.key === "display")?.components;
+          console.log("display:", display);
+
           if (Array.isArray(display) && !display.some((c) => c.key === "reviewVisible")) {
             display.push({
               type: "checkbox",
@@ -25,7 +29,10 @@ const ReviewFieldPlugin = {
               weight: 999,
               tooltip: "If checked, this field will appear in the Review modal summary.",
             });
+            console.log("display2:", display);
           }
+          console.log("form2:", form);
+
           return form;
         };
       }
