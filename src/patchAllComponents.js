@@ -1,13 +1,14 @@
 import { Components } from "@formio/js";
 
+
 export const ReviewFieldPlugin = {
   preInit: () => {
     console.log("ReviewFieldPlugin running");
 
+
     Object.values(Components.components).forEach((Component) => {
       if (Component && typeof Component.editForm === "function") {
         const originalEditForm = Component.editForm;
-
         Component.editForm = (...extend) => {
           const form = originalEditForm(...extend);
 
