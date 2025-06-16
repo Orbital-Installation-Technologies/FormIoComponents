@@ -1,5 +1,9 @@
-import "./patchAllComponents.js";
 import { Formio } from "@formio/js";
+import { ReviewFieldPlugin } from "./patchAllComponents.js";
+
+// Register plugin BEFORE custom components
+Formio.use(ReviewFieldPlugin);
+
 import Rating from "./components/Rating/Rating.js";
 import BarcodeScanner from "./components/BarcodeScanner/BarcodeScanner.js";
 import Gps from "./components/Gps/Gps.js";
