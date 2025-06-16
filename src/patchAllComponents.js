@@ -24,3 +24,6 @@ Object.values(Components.components).forEach((Component) => {
     };
   }
 });
+
+// register plugin BEFORE creating builder
+Formio.use(ReviewFieldPlugin);
