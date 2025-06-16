@@ -1,4 +1,6 @@
-import { Formio, Components } from "@formio/js";
+import { Formio } from "@formio/js";
+const Components = Formio.Components;
+
 console.log("Patching all components to add reviewVisible field...");
 
 const ReviewFieldPlugin = {
