@@ -6,7 +6,9 @@ const ReviewFieldPlugin = {
     console.log("ReviewFieldPlugin initialized. Patching components...");
 
     Object.entries(Components.components).forEach(([name, Component]) => {
-      if (Component?.editForm instanceof Function) {
+      console.log(typeof Component?.editForm);
+
+      if (typeof Component?.editForm === "function") {
         const original = Component.editForm;
         Component.editForm = (...args) => {
           const form = original(...args);
