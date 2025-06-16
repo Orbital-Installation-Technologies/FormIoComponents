@@ -44,3 +44,4 @@ const ReviewFieldPlugin = {
 
 // register plugin BEFORE creating builder
 Formio.registerPlugin(ReviewFieldPlugin, "ReviewFieldPlugin");
+Formio.use("ReviewFieldPlugin");
