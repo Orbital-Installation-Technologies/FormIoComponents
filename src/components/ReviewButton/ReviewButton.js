@@ -69,7 +69,7 @@ export default class ReviewButton extends FieldComponent {
       console.log(allData);
 
       const noShow = allData["data"]["noShow"];
-
+      const supportNumber = allData.data.billingCustomer || "Unavailable";
       if (noShow === "yes") {
         const confirmed = confirm("Are you sure you want to submit without verification?");
         if (confirmed) {
@@ -135,14 +135,36 @@ export default class ReviewButton extends FieldComponent {
             ${reviewHtml}
           </div>
 
-          <div class="flex items-center space-x-3 mb-4">
-            <input type="text" class="flex-1 border rounded p-2 text-sm" placeholder="Support number" id="supportNumber" />
-            <select class="flex-1 border rounded p-2 text-sm" id="verified">
-              <option value="">Verified (Yes/No)</option>
-              <option value="Yes">Yes</option>
-              <option value="No">No</option>
-            </select>
-            <input type="file" class="flex-1 text-sm" id="screenshot" />
+          <div class="flex space-x-4 mb-4">
+            <div class="text-sm w-1/2">
+              <label class="block font-medium mb-1">Support Number</label>
+              <input type="text" id="supportNumber" class="w-full border rounded p-2 text-sm bg-gray-100" value="${supportNumber}" disabled />
+            </div>
+
+            <div class="text-sm w-1/2">
+              <label class="block font-medium mb-1">Verified</label>
+              <select id="verified" class="w-full border rounded p-2 text-sm">
+                <option value="">Select verification type</option>
+                <option value="App">App</option>
+                <option value="Support">Support</option>
+                <option value="Not Verified">Not Verified</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="mb-4 text-sm w-full" id="screenshotWrapper" style="display: none;">
+            <label class="block font-medium mb-1">Screenshot Upload</label>
+            <input type="file" id="screenshot" class="w-full text-sm" />
+          </div>
+
+          <div class="mb-4 text-sm w-full" id="notesOptionalWrapper" style="display: none;">
+            <label class="block font-medium mb-1">Notes (optional)</label>
+            <textarea id="notesOptional" class="w-full border rounded p-2 text-sm"></textarea>
+          </div>
+
+          <div class="mb-4 text-sm w-full" id="notesRequiredWrapper" style="display: none;">
+            <label class="block font-medium mb-1">Explain why not verified<span class="text-red-500">(Required)*</span></label>
+            <textarea id="notesRequired" class="w-full border rounded p-2 text-sm"></textarea>
           </div>
 
           <div class="mt-4 flex justify-end space-x-4">
@@ -153,18 +175,41 @@ export default class ReviewButton extends FieldComponent {
 
       document.body.appendChild(modal);
 
+      // Handle conditional UI based on Verified selection
+      const verifiedSelect = modal.querySelector("#verified");
+      const screenshotWrapper = modal.querySelector("#screenshotWrapper");
+      const notesOptionalWrapper = modal.querySelector("#notesOptionalWrapper");
+      const notesRequiredWrapper = modal.querySelector("#notesRequiredWrapper");
+
+      verifiedSelect.onchange = () => {
+        const value = verifiedSelect.value;
+
+        if (value === "App" || value === "Support") {
+          screenshotWrapper.style.display = "block";
+          notesOptionalWrapper.style.display = "block";
+          notesRequiredWrapper.style.display = "none";
+        } else if (value === "Not Verified") {
+          screenshotWrapper.style.display = "none";
+          notesOptionalWrapper.style.display = "none";
+          notesRequiredWrapper.style.display = "block";
+        } else {
+          screenshotWrapper.style.display = "none";
+          notesOptionalWrapper.style.display = "none";
+          notesRequiredWrapper.style.display = "none";
+        }
+      };
+
       modal.querySelector("#cancelModal").onclick = () => {
         document.body.removeChild(modal);
       };
 
       modal.querySelector("#submitModal").onclick = () => {
-        const supportNumber = modal.querySelector("#supportNumber").value;
-        const verified = modal.querySelector("#verified").value;
-        const screenshot = modal.querySelector("#screenshot").files[0];
+        const verifiedSelect = modal.querySelector("#verified");
+        const notesRequired = modal.querySelector("#notesRequired").innerHTML;
 
         // Only require fields if noShow is specifically "No"
         if (noShow === "no") {
-          if (!supportNumber || !verified || !screenshot) {
+          if (verifiedSelect.value === "Not Verified" && !notesRequired) {
             alert("Please complete all verification fields.");
             return;
           }

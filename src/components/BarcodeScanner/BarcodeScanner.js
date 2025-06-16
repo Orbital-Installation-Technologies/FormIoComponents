@@ -54,8 +54,13 @@ export default class BarcodeScanner extends FieldComponent {
     try {
       return !this.evaluate(
         this.component.customConditional,
-        { ...this.data, ...data },
-        this.data
+
+        {
+          ...this.data,
+          ...data,
+        },
+        this.data,
+
       );
     } catch (e) {
       console.warn("Conditional logic error:", e);
@@ -63,6 +68,11 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
+
+  get inputInfo() {
+    const info = super.inputInfo;
+    return info;
+  }
   render(content) {
     return super.render(`
       <div style="display:flex; flex-direction:column; gap:8px;">
