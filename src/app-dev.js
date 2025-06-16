@@ -1,5 +1,5 @@
 import { Formio } from "@formio/js";
-import { ReviewFieldPlugin } from "./patchAllComponents.js";
+import "./patchAllComponents.js";
 
 import Rating from "./components/Rating/Rating.js";
 import BarcodeScanner from "./components/BarcodeScanner/BarcodeScanner.js";
