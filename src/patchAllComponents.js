@@ -4,7 +4,7 @@ const Components = Formio.Components;
 console.log("Patching all components to add reviewVisible field...");
 
 const ReviewFieldPlugin = {
-  preInit: () => {
+  init: () => {
     console.log("ReviewFieldPlugin initialized. Patching components...");
 
     Object.entries(Components.components).forEach(([name, Component]) => {
