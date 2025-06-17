@@ -153,7 +153,7 @@ export default class ReviewButton extends FieldComponent {
           </div>
 
           <div class="mb-4 text-sm w-full" id="screenshotWrapper" style="display: none;">
-            <label class="block font-medium mb-1">Screenshot Upload</label>
+            <label class="block font-medium mb-1">Screenshot Upload<span class="text-red-500">(Required)*</span></label>
             <input type="file" id="screenshot" class="w-full text-sm" />
           </div>
 
@@ -204,12 +204,20 @@ export default class ReviewButton extends FieldComponent {
       };
 
       modal.querySelector("#submitModal").onclick = () => {
-        const verifiedSelect = modal.querySelector("#verified");
-        const notesRequired = modal.querySelector("#notesRequired").innerHTML;
+        const verifiedSelect = modal.querySelector("#verified").value;
+        const notesRequired = modal.querySelector("#notesRequired").value;
+        const notesOptional = modal.querySelector("#notesOptional").value;
+        const screenshotInput = modal.querySelector("#screenshot");
+        const screenshot = screenshotInput.files.length > 0 ? screenshotInput.files[0] : null;
+        const supportNumber = modal.querySelector("#supportNumber").value;
+        console.log(notesRequired, notesOptional, screenshot, supportNumber);
 
         // Only require fields if noShow is specifically "No"
         if (noShow === "no") {
-          if (verifiedSelect.value === "Not Verified" && !notesRequired) {
+          if (
+            (verifiedSelect === "Not Verified" && !notesRequired) ||
+            (verifiedSelect != "Not Verified" && !screenshot)
+          ) {
             alert("Please complete all verification fields.");
             return;
           }
@@ -217,8 +225,10 @@ export default class ReviewButton extends FieldComponent {
           this.root.setValue({
             ...allData,
             supportNumber,
-            verified,
+            verifiedSelect,
             screenshot,
+            notesOptional,
+            notesRequired,
           });
         }
 
