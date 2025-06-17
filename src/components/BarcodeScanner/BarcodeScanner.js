@@ -1,5 +1,9 @@
 import { Components } from "@formio/js";
-import { BrowserMultiFormatReader, BarcodeFormat } from "@zxing/browser";
+import { 
+  BrowserMultiFormatReader, 
+  DecodeHintType, 
+  BarcodeFormat 
+} from "@zxing/browser";
 import BarcodeScannerEditForm from "./BarcodeScanner.form";
 
 const FieldComponent = Components.components.field;
@@ -39,8 +43,9 @@ export default class BarcodeScanner extends FieldComponent {
     this._isFrozen = false;
     this._frozenImageData = null;
     this._lastDetectedCode = null;
-    this._lastBoxes = null; // Store detected barcode boxes
+    this._lastBoxes = []; // Store detected barcode boxes (changed from null to empty array)
     this._lastCodes = []; // Store detected barcode values
+    this._hintsMap = null; // Will store ZXing hints
   }
 
   init() {
@@ -50,12 +55,54 @@ export default class BarcodeScanner extends FieldComponent {
 
   initZXing() {
     try {
-      // Create a simple reader with default settings
-      this.codeReader = new BrowserMultiFormatReader();
-      console.log("ZXing initialized successfully");
+      // Don't use require here since we've already imported at the top
+      // Just use the imported classes directly
+      
+      // Create a hints map to configure the reader
+      this._hintsMap = new Map();
+      
+      // Check if BarcodeFormat is available from the import
+      if (BarcodeFormat) {
+        // Set formats to detect - include all common formats
+        const formats = [
+          BarcodeFormat.QR_CODE,
+          BarcodeFormat.DATA_MATRIX,
+          BarcodeFormat.CODE_39,
+          BarcodeFormat.CODE_93,
+          BarcodeFormat.CODE_128,
+          BarcodeFormat.EAN_8,
+          BarcodeFormat.EAN_13,
+          BarcodeFormat.ITF,
+          BarcodeFormat.UPC_A,
+          BarcodeFormat.UPC_E,
+          BarcodeFormat.CODABAR
+        ];
+        
+        this._hintsMap.set(DecodeHintType.POSSIBLE_FORMATS, formats);
+      } else {
+        console.warn("BarcodeFormat is undefined, skipping format configuration");
+      }
+      
+      // Always set TRY_HARDER hint if available
+      if (DecodeHintType && DecodeHintType.TRY_HARDER) {
+        this._hintsMap.set(DecodeHintType.TRY_HARDER, true);
+      }
+      
+      // Create a reader with our custom hints
+      this.codeReader = new BrowserMultiFormatReader(this._hintsMap);
+      console.log("ZXing initialized successfully with custom hints");
     } catch (error) {
       console.error("Error initializing ZXing:", error);
       this.errorMessage = "Failed to initialize barcode scanner";
+      
+      // Fallback to basic initialization without hints
+      try {
+        console.log("Attempting fallback initialization...");
+        this.codeReader = new BrowserMultiFormatReader();
+        console.log("ZXing initialized with default settings");
+      } catch (fallbackError) {
+        console.error("Fallback initialization also failed:", fallbackError);
+      }
     }
   }
 
@@ -134,15 +181,8 @@ export default class BarcodeScanner extends FieldComponent {
               display: inline-block;
             ">
             <div style="position: absolute; top: 8px; right: 8px; z-index: 20; display: flex; gap: 5px;">
-              <button
-                ref="closeModal"
-                style="
-                  background: white;
-                  border: none;
-                  border-radius: 4px;
-                  padding: 5px 10px;
-                ">
-                Close
+              <button ref="closeModal" type="button" class="btn btn-danger btn-sm">
+                <i class="fa fa-times"></i> Close
               </button>
             </div>
             <div
@@ -213,14 +253,19 @@ export default class BarcodeScanner extends FieldComponent {
         }
       });
 
-      this.refs.closeModal.addEventListener("click", () => {
-        this.closeScanner();
-      });
+      // Only add event listener if closeModal exists
+      if (this.refs.closeModal) {
+        this.refs.closeModal.addEventListener("click", () => {
+          this.closeScanner();
+        });
+      }
 
       // Add click handler for the overlay to select barcodes
-      this.refs.scannerOverlay.addEventListener("click", (event) => {
-        this.handleOverlayClick(event);
-      });
+      if (this.refs.scannerOverlay) {
+        this.refs.scannerOverlay.addEventListener("click", (event) => {
+          this.handleOverlayClick(event);
+        });
+      }
     }
 
     return attached;
@@ -236,7 +281,7 @@ export default class BarcodeScanner extends FieldComponent {
 
     try {
       // Reset state
-      this._lastBoxes = null;
+      this._lastBoxes = [];
       this._lastCodes = [];
       this._lastDetectedCode = null;
       
@@ -289,7 +334,7 @@ export default class BarcodeScanner extends FieldComponent {
       
       // Set up animation frame for continuous drawing
       const updateOverlay = () => {
-        if (this.scannerRunning && this._lastBoxes) {
+        if (this.scannerRunning && this._lastBoxes.length > 0) {
           this.drawBoxes();
         }
         if (this.scannerRunning) {
@@ -334,34 +379,32 @@ export default class BarcodeScanner extends FieldComponent {
               box.code = result.getText();
               box.format = result.getBarcodeFormat().toString();
               
-              // Store the box for drawing
-              this._lastBoxes = [box];
+              // Check if we already have this code
+              const existingIndex = this._lastCodes.indexOf(result.getText());
               
-              // Store the code
-              this._lastCodes = [result.getText()];
-              
-              // If no code is selected yet, select this one
-              if (!this._lastDetectedCode) {
-                this._lastDetectedCode = result.getText();
-                this.refs.barcode.value = result.getText();
-                this.updateValue(result.getText());
+              if (existingIndex === -1) {
+                // New code, add it
+                this._lastBoxes.push(box);
+                this._lastCodes.push(result.getText());
                 
-                // Visual feedback for first detection
-                this.refs.scannerModal.style.border = "4px solid lime";
-                setTimeout(() => {
-                  this.refs.scannerModal.style.border = "";
-                }, 400);
-              } else if (this._lastDetectedCode !== result.getText()) {
-                // Only update if it's a different code
-                this._lastDetectedCode = result.getText();
-                this.refs.barcode.value = result.getText();
-                this.updateValue(result.getText());
+                // If no code is selected yet, select this one
+                if (!this._lastDetectedCode) {
+                  this._lastDetectedCode = result.getText();
+                  this.refs.barcode.value = result.getText();
+                  this.updateValue(result.getText());
+                  
+                  // Visual feedback for first detection
+                  this.refs.scannerModal.style.border = "4px solid lime";
+                  setTimeout(() => {
+                    this.refs.scannerModal.style.border = "";
+                  }, 400);
+                }
                 
-                // Visual feedback for new code
-                this.refs.scannerModal.style.border = "4px solid yellow";
-                setTimeout(() => {
-                  this.refs.scannerModal.style.border = "";
-                }, 200);
+                // Update the scanning indicator to show how many codes found
+                scanningDiv.textContent = `Scanning... (${this._lastCodes.length} codes found)`;
+              } else {
+                // Update the position of an existing code
+                this._lastBoxes[existingIndex] = box;
               }
             }
           }
@@ -409,7 +452,6 @@ export default class BarcodeScanner extends FieldComponent {
     if (overlay.width !== width || overlay.height !== height) {
       overlay.width = width;
       overlay.height = height;
-      console.log('Canvas dimensions set to:', width, height);
     }
     
     // Clear the canvas
@@ -424,20 +466,34 @@ export default class BarcodeScanner extends FieldComponent {
         const [x1, y1] = box[0];
         const [x2, y2] = box[1];
         
-        // Create a rectangle using the two points as opposite corners
-        points = [
-          [x1, y1],  // Top-left
-          [x2, y1],  // Top-right
-          [x2, y2],  // Bottom-right
-          [x1, y2]   // Bottom-left
-        ];
+        // For 1D barcodes, create a taller rectangle to make it more visible
+        // Typically 1D barcodes are horizontal lines
+        const isHorizontal = Math.abs(x2 - x1) > Math.abs(y2 - y1);
+        
+        if (isHorizontal) {
+          // For horizontal barcodes, extend vertically
+          const height = Math.max(30, Math.abs(y2 - y1)); // At least 30px tall
+          points = [
+            [x1, y1 - height/2],  // Top-left
+            [x2, y1 - height/2],  // Top-right
+            [x2, y1 + height/2],  // Bottom-right
+            [x1, y1 + height/2]   // Bottom-left
+          ];
+        } else {
+          // For vertical barcodes, extend horizontally
+          const width = Math.max(30, Math.abs(x2 - x1)); // At least 30px wide
+          points = [
+            [x1 - width/2, y1],  // Top-left
+            [x1 + width/2, y1],  // Top-right
+            [x1 + width/2, y2],  // Bottom-right
+            [x1 - width/2, y2]   // Bottom-left
+          ];
+        }
         
         // Store the code and format
         points.code = box.code;
         points.format = box.format;
-        
-        console.log('Converted 2-point box to rectangle:', points);
-      } else if (box.length < 3) {
+      } else if (box.length < 2) {
         console.log('Box has fewer than 2 points, cannot draw:', box);
         return;
       }
@@ -453,22 +509,29 @@ export default class BarcodeScanner extends FieldComponent {
       // Style based on whether this is the selected code
       if (this._lastDetectedCode === points.code) {
         ctx.strokeStyle = '#00ff00'; // Green for selected
-        ctx.lineWidth = 6;
+        ctx.lineWidth = 4;
       } else {
         ctx.strokeStyle = '#ffff00'; // Yellow for unselected
-        ctx.lineWidth = 4;
+        ctx.lineWidth = 3;
       }
       
       ctx.stroke();
+      
+      // Add a semi-transparent fill
+      ctx.fillStyle = 'rgba(0, 255, 0, 0.2)';
+      ctx.fill();
       
       // Add a more visible label with the barcode value
       if (points.code) {
         ctx.font = 'bold 16px Arial';
         const textWidth = ctx.measureText(points.code).width;
+        const labelX = Math.min(points[0][0], points[1][0], points[2][0], points[3][0]);
+        const labelY = Math.min(points[0][1], points[1][1], points[2][1], points[3][1]) - 10;
+        
         ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(points[0][0], points[0][1] - 30, textWidth + 20, 25);
+        ctx.fillRect(labelX, labelY - 20, textWidth + 20, 25);
         ctx.fillStyle = '#ffffff';
-        ctx.fillText(points.code, points[0][0] + 10, points[0][1] - 10);
+        ctx.fillText(points.code, labelX + 10, labelY);
       }
     });
   }
@@ -682,7 +745,22 @@ export default class BarcodeScanner extends FieldComponent {
     try {
       // Stop scanning
       if (this.codeReader) {
-        this.codeReader.reset();
+        try {
+          // Different versions of ZXing might have different methods
+          if (typeof this.codeReader.reset === 'function') {
+            this.codeReader.reset();
+          } else if (typeof this.codeReader.stopContinuousDecode === 'function') {
+            this.codeReader.stopContinuousDecode();
+          } else if (typeof this.codeReader.stopAsyncDecode === 'function') {
+            this.codeReader.stopAsyncDecode();
+          } else {
+            // If no specific stop method is available, we'll rely on the
+            // video element being removed from the DOM
+            console.log('No specific stop method found on codeReader');
+          }
+        } catch (stopError) {
+          console.warn('Error stopping code reader:', stopError);
+        }
       }
       
       // Cancel animation frame if active
@@ -694,19 +772,24 @@ export default class BarcodeScanner extends FieldComponent {
       this.scannerRunning = false;
       
       // Hide modal
-      this.refs.scannerModal.style.display = "none";
+      if (this.refs.scannerModal) {
+        this.refs.scannerModal.style.display = "none";
+      }
       
       // Clear the overlay
       if (this.refs.scannerOverlay) {
         const ctx = this.refs.scannerOverlay.getContext('2d');
-        ctx.clearRect(0, 0, this.refs.scannerOverlay.width, this.refs.scannerOverlay.height);
+        if (ctx) {
+          ctx.clearRect(0, 0, this.refs.scannerOverlay.width, this.refs.scannerOverlay.height);
+        }
       }
       
       // Reset state
       this._isFrozen = false;
       this._frozenImageData = null;
-      this._lastBoxes = null;
-      this._lastCodes = [];
+      
+      // Don't reset _lastBoxes and _lastCodes here to preserve detected barcodes
+      // between scanner sessions
     } catch (error) {
       console.error('Error closing scanner:', error);
     }
