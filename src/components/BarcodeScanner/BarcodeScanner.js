@@ -527,9 +527,7 @@ export default class BarcodeScanner extends FieldComponent {
       const offsetTop  = video.offsetTop;
 
       overlay.style.position = "absolute";
-      const isDesktop = window.innerWidth > 768;
-      const extraOffset = (isDesktop) ? 125 : 200;
-      overlay.style.left = `${offsetLeft + (this._firstOpen ? extraOffset : 0)}px`;
+      overlay.style.left = `${offsetLeft + 64}px`;
       overlay.style.top      = `${offsetTop}px`;
       overlay.style.width    = video.style.width  || `${this._videoDims.width}px`;
       overlay.style.height   = video.style.height || `${this._videoDims.height}px`;
