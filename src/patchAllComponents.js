@@ -12,6 +12,8 @@ const ReviewFieldPlugin = {
 
       if (typeof Component?.editForm === "function") {
         const original = Component.editForm;
+        console.log(original);
+
         Component.editForm = (...args) => {
           const form = original(...args);
           console.log("form:", form);
@@ -46,4 +48,6 @@ const ReviewFieldPlugin = {
 
 // register plugin BEFORE creating builder
 Formio.registerPlugin(ReviewFieldPlugin, "ReviewFieldPlugin");
-Formio.use("ReviewFieldPlugin");
+setTimeout(() => {
+  Formio.use("ReviewFieldPlugin");
+}, 500);
