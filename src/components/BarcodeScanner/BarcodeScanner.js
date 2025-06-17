@@ -565,7 +565,7 @@ export default class BarcodeScanner extends FieldComponent {
         frequency: 10,        // Process every 10th frame for better performance
       },
       locate: true,
-      numOfWorkers: 4,        // Reduced for better stability
+      numOfWorkers: 5,        // Reduced for better stability
     };
 
     window.Quagga.init(config, (err) => {
@@ -618,7 +618,7 @@ export default class BarcodeScanner extends FieldComponent {
       const offsetTop  = video.offsetTop;
 
       overlay.style.position = "absolute";
-      overlay.style.setProperty('left', `${offsetLeft + 64}px`, 'important');
+      overlay.style.setProperty('left', `${offsetLeft}px`, '!important');
       overlay.style.top      = `${offsetTop}px`;
       overlay.style.width    = video.style.width  || `${this._videoDims.width}px`;
       overlay.style.height   = video.style.height || `${this._videoDims.height}px`;
@@ -659,7 +659,7 @@ export default class BarcodeScanner extends FieldComponent {
       const containerRect = container.getBoundingClientRect();
       
       overlay.style.position = "absolute";
-      overlay.style.left = `${videoEl.offsetLeft}px`;
+      overlay.style.left = `${videoEl.offsetLeft + 155}px`;
       overlay.style.top = `${videoEl.offsetTop}px`;
       overlay.style.width = `${videoRect.width}px`;
       overlay.style.height = `${videoRect.height}px`;
@@ -691,13 +691,26 @@ export default class BarcodeScanner extends FieldComponent {
           if (result && Array.isArray(result)) {
             rawBoxes = result
               .filter(item => item && item.box && Array.isArray(item.box))
-              .map(item => item.box.slice());
+              .map(item => {
+                const boxCopy = item.box.slice();
+                if (item.codeResult && item.codeResult.code) {
+                  boxCopy.code = item.codeResult.code;
+                  boxCopy.format = item.codeResult.format;
+                }
+                return boxCopy;
+              });
           } 
           // Handle the standard Quagga format
           else if (result && result.boxes && Array.isArray(result.boxes)) {
             rawBoxes = result.boxes
               .filter(box => Array.isArray(box))
               .map(box => box.slice());
+              
+            // If there's a code result, associate it with the first box
+            if (result.codeResult && result.codeResult.code && rawBoxes.length > 0) {
+              rawBoxes[0].code = result.codeResult.code;
+              rawBoxes[0].format = result.codeResult.format;
+            }
           }
           
           // Apply smoothing to the boxes
@@ -706,13 +719,25 @@ export default class BarcodeScanner extends FieldComponent {
           // Use smoothed boxes for display and click detection
           this._lastBoxes = this._smoothedBoxes || rawBoxes;
           
-          // Draw all boxes in green
+          // Draw all boxes
           if (this._lastBoxes && this._lastBoxes.length > 0) {
-            this._lastBoxes.forEach((box) => {
+            this._lastBoxes.forEach((box, index) => {
               try {
                 if (box && box.length >= 4) {
-                  // Use bright green for all boxes
-                  ctx.strokeStyle = "rgba(0, 255, 0, 1)";
+                  // Check if this box has an associated code
+                  const boxCode = box.code || (this._lastCodes && this._lastCodes.length > 0 ? this._lastCodes[0] : null);
+                  
+                  // Use different colors for different boxes
+                  const colors = [
+                    "rgba(0, 255, 0, 1)",   // Green
+                    "rgba(255, 0, 0, 1)",   // Red
+                    "rgba(0, 0, 255, 1)",   // Blue
+                    "rgba(255, 255, 0, 1)", // Yellow
+                    "rgba(255, 0, 255, 1)"  // Magenta
+                  ];
+                  
+                  const colorIndex = index % colors.length;
+                  ctx.strokeStyle = colors[colorIndex];
                   ctx.lineWidth = 5;
                   
                   // Draw the box
@@ -724,11 +749,8 @@ export default class BarcodeScanner extends FieldComponent {
                   ctx.closePath();
                   ctx.stroke();
                   
-                  // Check if this box has an associated code
-                  const boxCode = box.code || (this._lastCodes && this._lastCodes.length > 0 ? this._lastCodes[0] : null);
-                  
+                  // Add background for text if we have a code
                   if (boxCode) {
-                    // Add background for text
                     const xs = box.map(pt => pt[0]);
                     const ys = box.map(pt => pt[1]);
                     const x0 = Math.min(...xs);
@@ -738,7 +760,7 @@ export default class BarcodeScanner extends FieldComponent {
                     ctx.fillRect(x0, y0 - 30, 200, 25);
                     
                     // Draw text
-                    ctx.fillStyle = "rgba(0, 255, 0, 1)";
+                    ctx.fillStyle = colors[colorIndex];
                     ctx.font = "bold 20px sans-serif";
                     ctx.fillText(boxCode, x0 + 5, y0 - 8);
                   }
@@ -756,7 +778,6 @@ export default class BarcodeScanner extends FieldComponent {
               }
             });
           }
-
         } catch (e) {
           console.error("Error in onProcessed:", e);
         }
@@ -769,16 +790,38 @@ export default class BarcodeScanner extends FieldComponent {
           // Process detected codes
           let newCodes = [];
           
+          // Helper function to calculate confidence from decodedCodes
+          const calculateConfidence = (result) => {
+            // Hardcoded minimum confidence threshold - adjust this value as needed
+            const MIN_CONFIDENCE_THRESHOLD = 0.1;
+            
+            if (!result.codeResult || !result.codeResult.decodedCodes) {
+              return MIN_CONFIDENCE_THRESHOLD; // Default confidence if data not available
+            }
+            
+            // Calculate average error from decodedCodes (lower error = higher confidence)
+            const codes = result.codeResult.decodedCodes.filter(c => c.error !== undefined);
+            if (codes.length === 0) return MIN_CONFIDENCE_THRESHOLD;
+            
+            const avgError = codes.reduce((sum, code) => sum + code.error, 0) / codes.length;
+            // Convert error to confidence (1.0 - error, capped between MIN_CONFIDENCE_THRESHOLD and 0.9)
+            return Math.min(0.9, Math.max(MIN_CONFIDENCE_THRESHOLD, 1.0 - avgError));
+          };
+          
           // Handle different data formats
           if (Array.isArray(data)) {
             // Process array of detection results
             data.forEach(result => {
               if (result.codeResult && result.codeResult.code) {
-                newCodes.push({
-                  code: result.codeResult.code,
-                  box: result.box || null,
-                  confidence: result.codeResult.confidence || 0
-                });
+                // Only add unique codes
+                if (!newCodes.some(item => item.code === result.codeResult.code)) {
+                  newCodes.push({
+                    code: result.codeResult.code,
+                    box: result.box || null,
+                    confidence: calculateConfidence(result),
+                    format: result.codeResult.format
+                  });
+                }
               }
             });
           } else if (data.codeResult) {
@@ -786,27 +829,30 @@ export default class BarcodeScanner extends FieldComponent {
             newCodes.push({
               code: data.codeResult.code,
               box: data.box || null,
-              confidence: data.codeResult.confidence || 0
+              confidence: calculateConfidence(data),
+              format: data.codeResult.format
             });
           }
           
-          // Filter out low confidence detections (optional)
-          // newCodes = newCodes.filter(item => item.confidence > 0.1);
+          // Filter out low confidence detections
+          //newCodes = newCodes.filter(item => item.confidence > 0.2);
           
           // Only update codes if we have new ones
           if (newCodes.length > 0) {
             // Extract just the code strings for _lastCodes
-            this._lastCodes = newCodes.map(item => item.code);
+            const uniqueCodes = [...new Set(newCodes.map(item => item.code))];
+            this._lastCodes = uniqueCodes;
             console.log("All detected codes:", this._lastCodes);
             
             // Associate codes with boxes if possible
             if (this._lastBoxes && this._lastBoxes.length > 0) {
-              // If we have exactly one box and one code, associate them
-              if (this._lastBoxes.length === 1 && newCodes.length === 1) {
-                this._lastBoxes[0].code = newCodes[0].code;
-              }
+              // Clear previous code associations
+              // this._lastBoxes.forEach(box => {
+              //   box.code = null;
+              // });
+              
               // If we have multiple boxes and codes, try to match them by position
-              else if (newCodes.some(item => item.box)) {
+              if (newCodes.some(item => item.box)) {
                 // For codes that have box information, match directly
                 newCodes.forEach(codeItem => {
                   if (codeItem.box) {
@@ -827,30 +873,24 @@ export default class BarcodeScanner extends FieldComponent {
                     // Associate if we found a close enough box
                     if (closestBox && closestDist < 100) { // 100px threshold
                       closestBox.code = codeItem.code;
+                      closestBox.format = codeItem.format;
                     }
                   }
                 });
-                
-                // For remaining boxes without codes, distribute remaining codes
-                const unassignedBoxes = this._lastBoxes.filter(box => !box.code);
-                const unassignedCodes = newCodes
-                  .filter(codeItem => !this._lastBoxes.some(box => box.code === codeItem.code))
-                  .map(item => item.code);
-                
-                unassignedBoxes.forEach((box, idx) => {
-                  if (idx < unassignedCodes.length) {
-                    box.code = unassignedCodes[idx];
-                  }
-                });
               }
-              // If we can't match by position, just distribute codes to boxes
-              else {
-                this._lastBoxes.forEach((box, idx) => {
-                  if (idx < this._lastCodes.length) {
-                    box.code = this._lastCodes[idx];
-                  }
-                });
-              }
+              
+              // For remaining boxes without codes, distribute remaining codes
+              const unassignedBoxes = this._lastBoxes.filter(box => !box.code);
+              const unassignedCodes = newCodes
+                .filter(codeItem => !this._lastBoxes.some(box => box.code === codeItem.code))
+                .map(item => ({code: item.code, format: item.format}));
+              
+              unassignedBoxes.forEach((box, idx) => {
+                if (idx < unassignedCodes.length) {
+                  box.code = unassignedCodes[idx].code;
+                  box.format = unassignedCodes[idx].format;
+                }
+              });
             }
             
             // Visual feedback
@@ -994,7 +1034,7 @@ export default class BarcodeScanner extends FieldComponent {
           if (this._pointInPolygon(clickX, clickY, poly)) {
             console.log("Box clicked:", poly);
             // Use the code associated with this box, or the first code if none
-            const codeToUse = poly.code || (this._lastCodes.length > 0 ? this._lastCodes[0] : "");
+            const codeToUse = poly.code || (this._lastCodes && this._lastCodes.length > 0 ? this._lastCodes[0] : "");
             this.updateValue(codeToUse);
             this.refs.barcode.value = codeToUse;
             this.stopQuagga();
