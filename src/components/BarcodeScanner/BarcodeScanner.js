@@ -349,10 +349,20 @@ export default class BarcodeScanner extends FieldComponent {
                 '2of5_reader',
                 'code_93_reader'
               ],
-              multiple: true  // Enable multiple barcode detection
+              multiple: true,  // Enable multiple barcode detection
+              debug: {
+                showCanvas: true,
+                showPatches: true,
+                showFoundPatches: true,
+              },
             },
             locate: true,
-            src: canvas.toDataURL()
+            src: canvas.toDataURL('image/jpeg', 1.0),  // Use JPEG with full quality
+            locator: {
+              patchSize: "medium",
+              halfSample: true,
+            },
+            frequency: 1,
           }, (result) => {
             try {
               console.log("Quagga result:", result);
@@ -522,13 +532,16 @@ export default class BarcodeScanner extends FieldComponent {
           audio: false,
           video: {
             facingMode: { ideal: "environment" },
-            width: { ideal: 640 },
-            height: { ideal: 480 },
+            width: { ideal: 1280 },  // Higher resolution
+            height: { ideal: 720 },  // Higher resolution
           },
         },
         area: { top: "0%", right: "0%", left: "0%", bottom: "0%" },
       },
-      locator: { patchSize: "large", halfSample: false },
+      locator: { 
+        patchSize: "medium",  // Try medium instead of large
+        halfSample: true,     // Enable half sampling for better performance
+      },
       decoder: {
         readers: [
           'code_128_reader',
@@ -544,9 +557,15 @@ export default class BarcodeScanner extends FieldComponent {
           'code_93_reader'
         ],
         multiple: true,
+        debug: {
+          showCanvas: true,
+          showPatches: true,
+          showFoundPatches: true,
+        },
+        frequency: 10,        // Process every 10th frame for better performance
       },
       locate: true,
-      numOfWorkers: 100,
+      numOfWorkers: 4,        // Reduced for better stability
     };
 
     window.Quagga.init(config, (err) => {
