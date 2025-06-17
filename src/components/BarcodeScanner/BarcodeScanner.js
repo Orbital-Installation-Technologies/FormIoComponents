@@ -40,8 +40,8 @@ export default class BarcodeScanner extends FieldComponent {
     this._lostCounts = null;   
     this._boxColors = {};  // Store colors by box ID
     this._nextBoxId = 1;   // Counter for generating unique box IDs
-    this._SMOOTH_ALPHA = 0.005;      // lower alpha = smoother, less responsive
-    this._MAX_LOST_FRAMES = 150;    // number of frames to keep a polygon after detection lost
+    this._SMOOTH_ALPHA = 0.075;      // lower alpha = smoother, less responsive
+    this._MAX_LOST_FRAMES = 10;    // number of frames to keep a polygon after detection lost
     this._onOverlayClick = this._onOverlayClick.bind(this);
     window.Quagga = Quagga;
   }
@@ -399,11 +399,26 @@ export default class BarcodeScanner extends FieldComponent {
                     ctx.fillStyle = "rgba(0,0,0,0.7)";
                     ctx.fillRect(x0, y0 - 30, 200, 25);
                     
-                    // Draw text
+                    // Draw text with better positioning and overflow handling
                     ctx.fillStyle = "rgba(0,255,0,1)";
                     ctx.font = "bold 20px sans-serif";
-                    ctx.textBaseline = "bottom";
-                    ctx.fillText(result.codeResult.code, x0 + 5, y0 - 8);
+                    ctx.textBaseline = "middle";
+                    
+                    // Truncate long codes if needed
+                    const maxWidth = 190; // Slightly less than background width
+                    let displayCode = result.codeResult.code;
+                    let textWidth = ctx.measureText(displayCode).width;
+                    
+                    if (textWidth > maxWidth) {
+                      // Truncate and add ellipsis
+                      while (textWidth > maxWidth - 20 && displayCode.length > 3) {
+                        displayCode = displayCode.slice(0, -1);
+                        textWidth = ctx.measureText(displayCode + "...").width;
+                      }
+                      displayCode += "...";
+                    }
+                    
+                    ctx.fillText(displayCode, x0 + 5, y0 - 17); // Centered in background
                   }
                   
                   // Check for additional boxes
@@ -666,12 +681,15 @@ export default class BarcodeScanner extends FieldComponent {
               .map(box => box.slice());
           }
           
-          // Store the raw boxes for click detection
-          this._lastBoxes = rawBoxes;
+          // Apply smoothing to the boxes
+          this._matchAndSmoothBoxes(rawBoxes);
+          
+          // Use smoothed boxes for display and click detection
+          this._lastBoxes = this._smoothedBoxes || rawBoxes;
           
           // Draw all boxes in green
-          if (rawBoxes.length > 0) {
-            rawBoxes.forEach((box) => {
+          if (this._lastBoxes && this._lastBoxes.length > 0) {
+            this._lastBoxes.forEach((box) => {
               try {
                 if (box && box.length >= 4) {
                   // Use bright green for all boxes
