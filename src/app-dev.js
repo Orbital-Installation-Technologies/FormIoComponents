@@ -1,4 +1,3 @@
-import { Formio } from "@formio/js";
 import "./patchAllComponents.js";
 
 import Rating from "./components/Rating/Rating.js";
