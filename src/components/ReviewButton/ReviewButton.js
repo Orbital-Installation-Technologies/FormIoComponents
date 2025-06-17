@@ -82,7 +82,7 @@ export default class ReviewButton extends FieldComponent {
       console.log(this.root?.components);
       const visibleFields = this.root?.components?.filter(
         (comp) =>
-          comp.component.properties.reviewVisible &&
+          comp.component.reviewVisible &&
           comp.visible !== false &&
           !["button", "hidden", "file", "image"].includes(comp.component.type),
       );
