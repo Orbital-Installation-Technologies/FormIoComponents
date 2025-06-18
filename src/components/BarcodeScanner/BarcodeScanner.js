@@ -341,7 +341,6 @@ export default class BarcodeScanner extends FieldComponent {
             textColor: "#00FF00",                        // green text
           });
           drawingLayer.setDefaultStyle(styleId, undefined, D.DCE.EnumDrawingItemMediaType.DIMT_BARCODE);
-console.log("result", result);
           result.barcodeResultItems?.forEach(item => {
             const { points } = item.location;
             const xs = points.map(p => p.x), ys = points.map(p => p.y);
@@ -349,7 +348,7 @@ console.log("result", result);
             
             const width = Math.max(...xs) - x;
             const height = Math.max(...ys) - y;
-            
+
             // Create the text label
             const textItem = new D.DCE.TextDrawingItem(
               item.text,
@@ -391,17 +390,6 @@ console.log("result", result);
       this.scannerContainer.innerHTML = "";
       this.scannerContainer.appendChild(cameraView.getUIElement());
       await cameraEnhancer.open();
-
-      // ✅ Official click listener
-      // cameraView.setDrawingItemClickListener((clicked) => {
-      //   const value = clicked.getText && clicked.getText();
-      //   if (!value) return;
-
-      //   this.scannedBarcodes = this.component.multiple
-      //     ? [...this.scannedBarcodes, value]
-      //     : [value];
-      //   this.saveAndClose();
-      // });
 
       this.cvRouter = cvRouter;
       this.cameraEnhancer = cameraEnhancer;
