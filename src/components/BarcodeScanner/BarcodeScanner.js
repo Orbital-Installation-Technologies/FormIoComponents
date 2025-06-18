@@ -1,5 +1,6 @@
 import { Components } from "@formio/js";
 import Quagga from "quagga";
+import { BrowserMultiFormatReader, DecodeHintType, BarcodeFormat } from '@zxing/library';
 import BarcodeScannerEditForm from "./BarcodeScanner.form";
 
 const FieldComponent = Components.components.field;
@@ -43,6 +44,7 @@ export default class BarcodeScanner extends FieldComponent {
     this._SMOOTH_ALPHA = 0.075;      // lower alpha = smoother, less responsive
     this._MAX_LOST_FRAMES = 10;    // number of frames to keep a polygon after detection lost
     this._onOverlayClick = this._onOverlayClick.bind(this);
+    this._zxingReader = null;
     window.Quagga = Quagga;
   }
 
@@ -259,18 +261,87 @@ export default class BarcodeScanner extends FieldComponent {
     reader.readAsDataURL(file);
   }
 
-  scanImageForBarcodes(img) {
+  // Initialize ZXing reader
+  _initZXingReader() {
+    if (!this._zxingReader) {
+      const hints = new Map();
+      const formats = [
+        BarcodeFormat.CODE_128,
+        BarcodeFormat.EAN_13,
+        BarcodeFormat.EAN_8,
+        BarcodeFormat.UPC_A,
+        BarcodeFormat.UPC_E,
+        BarcodeFormat.CODE_39,
+        BarcodeFormat.CODABAR,
+        BarcodeFormat.ITF,
+        BarcodeFormat.CODE_93
+      ];
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
+      this._zxingReader = new BrowserMultiFormatReader(hints);
+    }
+    return this._zxingReader;
+  }
+
+  // Process image with ZXing
+  async _processWithZXing(imageSource) {
     try {
+      const reader = this._initZXingReader();
+      const result = await reader.decodeFromImage(imageSource);
+      return {
+        code: result.getText(),
+        format: result.getBarcodeFormat().toString(),
+        resultPoints: result.getResultPoints()
+      };
+    } catch (e) {
+      console.log("ZXing could not detect barcode:", e);
+      return null;
+    }
+  }
+
+  // Convert ZXing points to Quagga-compatible box format
+  _zxingPointsToBox(points) {
+    if (!points || points.length < 3) return null;
+    
+    // ZXing typically returns 4 corner points for QR codes, but may return fewer for 1D barcodes
+    // We'll create a rectangle from the points we have
+    const box = [];
+    
+    if (points.length >= 4) {
+      // Use all 4 points
+      for (let i = 0; i < 4; i++) {
+        box.push([points[i].getX(), points[i].getY()]);
+      }
+    } else {
+      // For 1D barcodes, create a rectangle from the available points
+      const xs = points.map(p => p.getX());
+      const ys = points.map(p => p.getY());
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      
+      box.push([minX, minY]);
+      box.push([maxX, minY]);
+      box.push([maxX, maxY]);
+      box.push([minX, maxY]);
+    }
+    
+    return box;
+  }
+
+  async scanImageForBarcodes(img) {
+    try {
+      // Setup UI as before
       this.refs.quaggaModal.style.display = "flex";
       this._lastBoxes = null;
-      this._lastCodes = [];  // Reset to empty array
+      this._lastCodes = [];
       this._videoDims = null;
       this._clearOverlay();
 
       const container = this.refs.quaggaContainer;
       const overlay = this.refs.quaggaOverlay;
       
-      // Clear any previous content
+      // Clear previous content
       container.innerHTML = '';
       
       // Set dimensions based on image
@@ -310,7 +381,7 @@ export default class BarcodeScanner extends FieldComponent {
         console.error("Error drawing loading message:", e);
       }
       
-      // Position the overlay correctly
+      // Setup overlay
       overlay.style.position = "absolute";
       overlay.style.left = "0";
       overlay.style.top = "0";
@@ -319,7 +390,7 @@ export default class BarcodeScanner extends FieldComponent {
       overlay.style.pointerEvents = "auto";
       overlay.style.zIndex = "10";
       
-      // Make sure we remove any previous click listeners before adding a new one
+      // Add click listener
       try {
         overlay.removeEventListener("click", this._onOverlayClick);
         overlay.addEventListener("click", this._onOverlayClick);
@@ -327,13 +398,13 @@ export default class BarcodeScanner extends FieldComponent {
         console.error("Error setting up click listener:", e);
       }
       
-      console.log("Image dimensions:", img.naturalWidth, "x", img.naturalHeight);
-      console.log("Displayed dimensions:", img.clientWidth, "x", img.clientHeight);
-      console.log("Overlay dimensions:", overlay.width, "x", overlay.height);
-      
-      // Process with Quagga with a delay to ensure DOM is ready
-      setTimeout(() => {
+      // Process with both libraries
+      setTimeout(async () => {
         try {
+          // First try with ZXing
+          const zxingResult = await this._processWithZXing(img);
+          
+          // Then try with Quagga
           Quagga.decodeSingle({
             decoder: {
               readers: [
@@ -349,7 +420,7 @@ export default class BarcodeScanner extends FieldComponent {
                 '2of5_reader',
                 'code_93_reader'
               ],
-              multiple: true,  // Enable multiple barcode detection
+              multiple: true,
               debug: {
                 showCanvas: true,
                 showPatches: true,
@@ -357,15 +428,16 @@ export default class BarcodeScanner extends FieldComponent {
               },
             },
             locate: true,
-            src: canvas.toDataURL('image/jpeg', 1.0),  // Use JPEG with full quality
+            src: canvas.toDataURL('image/jpeg', 1.0),
             locator: {
               patchSize: "medium",
               halfSample: true,
             },
             frequency: 1,
-          }, (result) => {
+          }, (quaggaResult) => {
             try {
-              console.log("Quagga result:", result);
+              console.log("Quagga result:", quaggaResult);
+              console.log("ZXing result:", zxingResult);
               
               // Make sure the overlay is still in the DOM
               if (!container.contains(overlay)) {
@@ -373,127 +445,102 @@ export default class BarcodeScanner extends FieldComponent {
               }
               
               // Clear the overlay
-              try {
-                const ctx = overlay.getContext("2d");
-                ctx.clearRect(0, 0, overlay.width, overlay.height);
+              const ctx = overlay.getContext("2d");
+              ctx.clearRect(0, 0, overlay.width, overlay.height);
+              
+              // Combine results from both libraries
+              let detectedCodes = [];
+              let detectedBoxes = [];
+              
+              // Process Quagga results
+              if (quaggaResult && quaggaResult.codeResult) {
+                detectedCodes.push({
+                  code: quaggaResult.codeResult.code,
+                  format: quaggaResult.codeResult.format,
+                  source: 'quagga'
+                });
                 
-                if (result && result.codeResult) {
-                  // Found at least one barcode
-                  this._lastCodes = [result.codeResult.code];  // Start with the primary code
-                  console.log("Detected primary code:", result.codeResult.code);
-                  
-                  // Draw boxes
-                  if (result.box) {
-                    // Store box for click detection
-                    this._lastBoxes = [result.box.slice()];
-                    this._lastBoxes[0].code = result.codeResult.code;
-                    
-                    // Draw the main box in green
-                    ctx.strokeStyle = "rgba(0,255,0,1)";
-                    ctx.lineWidth = 5; // Make lines thicker
-                    ctx.beginPath();
-                    ctx.moveTo(result.box[0][0], result.box[0][1]);
-                    for (let i = 1; i < result.box.length; i++) {
-                      ctx.lineTo(result.box[i][0], result.box[i][1]);
-                    }
-                    ctx.closePath();
-                    ctx.stroke();
-                    
-                    // Display the code with background for better visibility
-                    const xs = result.box.map(pt => pt[0]);
-                    const ys = result.box.map(pt => pt[1]);
-                    const x0 = Math.min(...xs);
-                    const y0 = Math.min(...ys);
-                    
-                    // Add background for text
-                    ctx.fillStyle = "rgba(0,0,0,0.7)";
-                    ctx.fillRect(x0, y0 - 30, 200, 25);
-                    
-                    // Draw text with better positioning and overflow handling
-                    ctx.fillStyle = "rgba(0,255,0,1)";
-                    ctx.font = "bold 20px sans-serif";
-                    ctx.textBaseline = "middle";
-                    
-                    // Truncate long codes if needed
-                    const maxWidth = 190; // Slightly less than background width
-                    let displayCode = result.codeResult.code;
-                    let textWidth = ctx.measureText(displayCode).width;
-                    
-                    if (textWidth > maxWidth) {
-                      // Truncate and add ellipsis
-                      while (textWidth > maxWidth - 20 && displayCode.length > 3) {
-                        displayCode = displayCode.slice(0, -1);
-                        textWidth = ctx.measureText(displayCode + "...").width;
-                      }
-                      displayCode += "...";
-                    }
-                    
-                    ctx.fillText(displayCode, x0 + 5, y0 - 17); // Centered in background
-                  }
-                  
-                  // Check for additional boxes
-                  if (result.boxes && result.boxes.length > 0) {
-                    // Store all boxes for click detection if not already stored
-                    if (!this._lastBoxes) {
-                      this._lastBoxes = [];
-                    }
-                    
-                    // Draw all boxes except the main one
-                    const boxes = result.boxes.filter(box => box !== result.box);
-                    ctx.strokeStyle = "rgba(255,0,0,0.8)";
-                    ctx.lineWidth = 5; // Make lines thicker
-                    
-                    boxes.forEach((box) => {
-                      // Add to lastBoxes if not already there
-                      const boxCopy = box.slice().map(point => point.slice());
-                      boxCopy.code = result.codeResult.code; // Associate with the detected code
-                      this._lastBoxes.push(boxCopy);
-                      
-                      // Draw the box
-                      try {
-                        ctx.beginPath();
-                        ctx.moveTo(box[0][0], box[0][1]);
-                        for (let i = 1; i < box.length; i++) {
-                          ctx.lineTo(box[i][0], box[i][1]);
-                        }
-                        ctx.closePath();
-                        ctx.stroke();
-                      } catch (e) {
-                        console.error("Error drawing box:", e, box);
-                      }
-                    });
-                  }
-                } else {
-                  // No barcode found
-                  ctx.fillStyle = "rgba(0,0,0,0.7)";
-                  ctx.fillRect(overlay.width/2 - 150, overlay.height/2 - 20, 300, 40);
-                  
-                  ctx.fillStyle = "rgba(255,0,0,1)";
-                  ctx.font = "bold 24px sans-serif";
-                  ctx.textAlign = "center";
-                  ctx.fillText("No barcode detected", overlay.width/2, overlay.height/2);
+                if (quaggaResult.box) {
+                  const boxCopy = quaggaResult.box.slice();
+                  boxCopy.code = quaggaResult.codeResult.code;
+                  detectedBoxes.push(boxCopy);
                 }
-              } catch (e) {
-                console.error("Error drawing on overlay:", e);
+              }
+              
+              // Process ZXing results
+              if (zxingResult) {
+                // Only add if not already detected by Quagga
+                if (!detectedCodes.some(c => c.code === zxingResult.code)) {
+                  detectedCodes.push({
+                    code: zxingResult.code,
+                    format: zxingResult.format,
+                    source: 'zxing'
+                  });
+                  
+                  const zxingBox = this._zxingPointsToBox(zxingResult.resultPoints);
+                  if (zxingBox) {
+                    zxingBox.code = zxingResult.code;
+                    detectedBoxes.push(zxingBox);
+                  }
+                }
+              }
+              
+              // Update state with detected codes
+              this._lastCodes = detectedCodes.map(c => c.code);
+              this._lastBoxes = detectedBoxes;
+              
+              // Draw results
+              if (detectedCodes.length > 0) {
+                // Draw boxes
+                detectedBoxes.forEach((box, index) => {
+                  // Use different colors for different sources
+                  const isZXing = detectedCodes[index]?.source === 'zxing';
+                  ctx.strokeStyle = isZXing ? "rgba(0,0,255,1)" : "rgba(0,255,0,1)";
+                  ctx.lineWidth = 5;
+                  
+                  ctx.beginPath();
+                  ctx.moveTo(box[0][0], box[0][1]);
+                  for (let i = 1; i < box.length; i++) {
+                    ctx.lineTo(box[i][0], box[i][1]);
+                  }
+                  ctx.closePath();
+                  ctx.stroke();
+                  
+                  // Display the code
+                  const xs = box.map(pt => pt[0]);
+                  const ys = box.map(pt => pt[1]);
+                  const x0 = Math.min(...xs);
+                  const y0 = Math.min(...ys);
+                  
+                  // Add background for text
+                  ctx.fillStyle = "rgba(0,0,0,0.7)";
+                  ctx.fillRect(x0, y0 - 30, 200, 25);
+                  
+                  // Draw text
+                  ctx.fillStyle = isZXing ? "rgba(0,0,255,1)" : "rgba(0,255,0,1)";
+                  ctx.font = "bold 20px sans-serif";
+                  ctx.textBaseline = "middle";
+                  
+                  // Show code and source
+                  const codeInfo = `${box.code} (${isZXing ? 'ZXing' : 'Quagga'})`;
+                  ctx.fillText(codeInfo, x0 + 5, y0 - 17, 190);
+                });
+              } else {
+                // No barcode found
+                ctx.fillStyle = "rgba(0,0,0,0.7)";
+                ctx.fillRect(overlay.width/2 - 150, overlay.height/2 - 20, 300, 40);
+                
+                ctx.fillStyle = "rgba(255,0,0,1)";
+                ctx.font = "bold 24px sans-serif";
+                ctx.textAlign = "center";
+                ctx.fillText("No barcode detected", overlay.width/2, overlay.height/2);
               }
             } catch (e) {
-              console.error("Error processing Quagga result:", e);
+              console.error("Error processing results:", e);
             }
           });
         } catch (e) {
-          console.error("Error initializing Quagga:", e);
-          // Show error on overlay
-          try {
-            const ctx = overlay.getContext("2d");
-            ctx.fillStyle = "rgba(0,0,0,0.7)";
-            ctx.fillRect(overlay.width/2 - 150, overlay.height/2 - 20, 300, 40);
-            ctx.fillStyle = "rgba(255,0,0,1)";
-            ctx.font = "bold 24px sans-serif";
-            ctx.textAlign = "center";
-            ctx.fillText("Error scanning barcode", overlay.width/2, overlay.height/2);
-          } catch (innerError) {
-            console.error("Error showing error message:", innerError);
-          }
+          console.error("Error in barcode processing:", e);
         }
       }, 500);
     } catch (e) {
@@ -504,7 +551,7 @@ export default class BarcodeScanner extends FieldComponent {
   openQuaggaModal() {
     this.refs.quaggaModal.style.display = "flex";
     this._lastBoxes = null;
-    this._lastCodes = [];  // Reset to empty array
+    this._lastCodes = [];
     this._videoDims = null;
     this._clearOverlay();
 
@@ -523,6 +570,9 @@ export default class BarcodeScanner extends FieldComponent {
     overlay.style.zIndex = "10";
     overlay.addEventListener("click", this._onOverlayClick);
 
+    // Initialize ZXing reader
+    this._initZXingReader();
+
     const config = {
       inputStream: {
         name: "Live",
@@ -532,40 +582,41 @@ export default class BarcodeScanner extends FieldComponent {
           audio: false,
           video: {
             facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },  // Higher resolution
-            height: { ideal: 720 },  // Higher resolution
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
           },
         },
         area: { top: "0%", right: "0%", left: "0%", bottom: "0%" },
+        willReadFrequently: true
       },
       locator: { 
-        patchSize: "medium",  // Try medium instead of large
-        halfSample: true,     // Enable half sampling for better performance
+        patchSize: "medium",
+        halfSample: true,
       },
       decoder: {
         readers: [
           'code_128_reader',
-          'ean_reader',        // EAN-13
-          'ean_8_reader',      // EAN-8
-          'upc_reader',        // UPC-A
-          'upc_e_reader',      // UPC-E
+          'ean_reader',
+          'ean_8_reader',
+          'upc_reader',
+          'upc_e_reader',
           'code_39_reader',
-          'code_39_vin_reader',// Code-39 (VIN)
+          'code_39_vin_reader',
           'codabar_reader',
-          'i2of5_reader',      // Interleaved 2 of 5 (ITF)
-          '2of5_reader',       // Standard 2 of 5
+          'i2of5_reader',
+          '2of5_reader',
           'code_93_reader'
         ],
         multiple: true,
         debug: {
-          showCanvas: true,
-          showPatches: true,
-          showFoundPatches: true,
+          showCanvas: false,
+          showPatches: false,
+          showFoundPatches: false,
         },
-        frequency: 10,        // Process every 10th frame for better performance
+        frequency: 10,
       },
       locate: true,
-      numOfWorkers: 5,        // Reduced for better stability
+      numOfWorkers: 2,
     };
 
     window.Quagga.init(config, (err) => {
@@ -584,51 +635,147 @@ export default class BarcodeScanner extends FieldComponent {
           </div>`;
         return;
       }
-      window.Quagga.start();
       
-      // Hide the drawingBuffer canvas that Quagga creates
+      // Get video dimensions before starting
       setTimeout(() => {
-        const canvas = document.querySelector("canvas.drawingBuffer");
-        if (canvas) canvas.style.display = "none";
-      }, 50);
-      
-      // Make sure our overlay is on top
-      if (container.contains(overlay)) {
-        container.appendChild(overlay);
-      }
-      
-      onVideoReady();
+        const videoEl = container.querySelector("video");
+        if (videoEl) {
+          // Store reference to video element
+          this._videoElement = videoEl;
+          
+          this._videoDims = {
+            width: videoEl.videoWidth || 640,
+            height: videoEl.videoHeight || 480
+          };
+          
+          // Set overlay dimensions to match video
+          overlay.width = this._videoDims.width;
+          overlay.height = this._videoDims.height;
+          
+          console.log("Video dimensions set to:", this._videoDims);
+        }
+        
+        window.Quagga.start();
+        
+        // Hide the drawingBuffer canvas that Quagga creates
+        setTimeout(() => {
+          const canvas = document.querySelector("canvas.drawingBuffer");
+          if (canvas) canvas.style.display = "none";
+        }, 50);
+        
+        // Make sure our overlay is on top
+        if (container.contains(overlay)) {
+          container.appendChild(overlay);
+        }
+        
+        // Start Quagga processing first, then ZXing as a backup
+        this._startQuaggaProcessing();
+        
+        // Delay ZXing setup to ensure Quagga is running smoothly first
+        setTimeout(() => {
+          this._setupZXingVideoProcessing();
+        }, 1000);
+      }, 300);
     });
+  }
 
-    const onVideoReady = () => {
-      const video = container.querySelector("video");
-      if (!video || !video.videoWidth || !video.videoHeight) {
-        return setTimeout(onVideoReady, 50);
+  // Setup ZXing to process video frames
+  _setupZXingVideoProcessing() {
+    try {
+      // Clear any existing interval
+      if (this._zxingInterval) {
+        clearInterval(this._zxingInterval);
+        this._zxingInterval = null;
       }
-
-      this._videoDims = {
-        width: video.videoWidth,
-        height: video.videoHeight,
-      };
-      video.style.maxWidth = "100%";
-      video.style.height = "auto";
-      video.style.objectFit = "contain";
-
-      const offsetLeft = video.offsetLeft;
-      const offsetTop  = video.offsetTop;
-
-      overlay.style.position = "absolute";
-      overlay.style.setProperty('left', `${offsetLeft}px`, '!important');
-      overlay.style.top      = `${offsetTop}px`;
-      overlay.style.width    = video.style.width  || `${this._videoDims.width}px`;
-      overlay.style.height   = video.style.height || `${this._videoDims.height}px`;
-      overlay.style.zIndex   = "10";
-
-      overlay.width  = this._videoDims.width;
-      overlay.height = this._videoDims.height;
-
-      this._startQuaggaProcessing();
-    };
+      
+      // Since ZXing is having trouble detecting barcodes that Quagga can detect,
+      // we'll reduce the frequency of ZXing processing to avoid performance issues
+      // and rely more on Quagga for primary detection
+      
+      const container = this.refs.quaggaContainer;
+      const videoEl = container.querySelector("video");
+      
+      if (!videoEl) {
+        console.warn("No video element found for ZXing processing");
+        return;
+      }
+      
+      // Create a canvas for capturing video frames
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      // Process video frames with ZXing at a lower frequency (every 1.5 seconds)
+      this._zxingInterval = setInterval(async () => {
+        try {
+          // Skip ZXing processing if we already have detected codes from Quagga
+          if (this._lastCodes.length > 0) {
+            return;
+          }
+          
+          if (videoEl.readyState === videoEl.HAVE_ENOUGH_DATA) {
+            // Capture a frame from the video
+            canvas.width = videoEl.videoWidth;
+            canvas.height = videoEl.videoHeight;
+            ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+            
+            // Convert canvas to image URL
+            const imageUrl = canvas.toDataURL('image/jpeg', 0.8);
+            
+            // Create an image element
+            const img = new Image();
+            img.onload = async () => {
+              try {
+                // Use decodeFromImage
+                const zxingResult = await this._zxingReader.decodeFromImage(img);
+                
+                if (zxingResult) {
+                  console.log("ZXing detected barcode:", zxingResult);
+                  
+                  // Create a box from ZXing result points
+                  const box = this._zxingPointsToBox(zxingResult.getResultPoints());
+                  
+                  if (box) {
+                    // Add code to the box
+                    box.code = zxingResult.getText();
+                    box.format = zxingResult.getBarcodeFormat().toString();
+                    box.source = 'zxing';
+                    
+                    // Add to detected codes if not already present
+                    if (!this._lastCodes.includes(box.code)) {
+                      this._lastCodes.push(box.code);
+                    }
+                    
+                    // Add to boxes if not already present
+                    if (!this._lastBoxes) {
+                      this._lastBoxes = [];
+                    }
+                    
+                    // Check if we already have this box
+                    const boxExists = this._lastBoxes.some(existingBox => 
+                      existingBox.code === box.code && existingBox.source === 'zxing'
+                    );
+                    
+                    if (!boxExists) {
+                      this._lastBoxes.push(box);
+                    }
+                  }
+                }
+              } catch (e) {
+                // ZXing throws when no barcode is found, so we can ignore this error
+                if (e.name !== 'NotFoundException') {
+                  console.error("Error in ZXing image processing:", e);
+                }
+              }
+            };
+            img.src = imageUrl;
+          }
+        } catch (e) {
+          console.error("Error in ZXing processing:", e);
+        }
+      }, 1500); // Process every 1.5 seconds to reduce load
+    } catch (e) {
+      console.error("Error setting up ZXing video processing:", e);
+    }
   }
 
   _startQuaggaProcessing() {
@@ -642,105 +789,86 @@ export default class BarcodeScanner extends FieldComponent {
       console.log("Overlay exists:", !!overlay);
       console.log("Container exists:", !!container);
       console.log("Video element exists:", !!videoEl);
-      console.log("Video dimensions:", this._videoDims);
       
-      if (!videoEl || !this._videoDims) {
-        console.warn("Missing video element or dimensions, cannot start processing");
+      if (!videoEl) {
+        console.warn("No video element found, cannot start processing");
         return;
       }
+      
+      // Wait for video dimensions if not already set
+      if (!this._videoDims && videoEl) {
+        this._videoDims = {
+          width: videoEl.videoWidth || 640,
+          height: videoEl.videoHeight || 480
+        };
+      }
+      
+      console.log("Video dimensions:", this._videoDims);
 
       // Ensure overlay is properly sized and positioned
       overlay.width = this._videoDims.width;
       overlay.height = this._videoDims.height;
-      console.log("Set overlay dimensions to:", overlay.width, "x", overlay.height);
       
       // Position overlay exactly over the video
-      const videoRect = videoEl.getBoundingClientRect();
-      const containerRect = container.getBoundingClientRect();
-      
       overlay.style.position = "absolute";
-      overlay.style.left = `${videoEl.offsetLeft + 155}px`;
-      overlay.style.top = `${videoEl.offsetTop}px`;
-      overlay.style.width = `${videoRect.width}px`;
-      overlay.style.height = `${videoRect.height}px`;
+      overlay.style.left = "0";
+      overlay.style.top = "0";
+      overlay.style.width = "100%";
+      overlay.style.height = "100%";
       
-      console.log("Video position:", videoEl.offsetLeft, videoEl.offsetTop);
-      console.log("Video rect:", videoRect.width, videoRect.height);
-      console.log("Overlay style:", overlay.style.left, overlay.style.top, overlay.style.width, overlay.style.height);
-
       // Force overlay to be visible
       overlay.style.display = "block";
       overlay.style.pointerEvents = "auto";
       overlay.style.zIndex = "10";
 
+      // Reduce processing frequency to prevent performance issues
+      let processCount = 0;
+      
       window.Quagga.onProcessed((result) => {
+       
         try {
+          // Only process every 3rd frame to reduce load
+          processCount++;
+          if (processCount % 3 !== 0) return;
+          
           const ctx = overlay.getContext("2d");
           if (!ctx) {
             console.error("Could not get overlay context");
             return;
           }
-          
+           
           // Clear the entire canvas
           ctx.clearRect(0, 0, overlay.width, overlay.height);
           
           // Process boxes from the result
           let rawBoxes = [];
           
-          // Handle the format shown in your example
           if (result && Array.isArray(result)) {
             rawBoxes = result
               .filter(item => item && item.box && Array.isArray(item.box))
               .map(item => {
                 const boxCopy = item.box.slice();
                 if (item.codeResult && item.codeResult.code) {
-                  boxCopy.code = item.codeResult.code;
-                  boxCopy.format = item.codeResult.format;
+                  boxCopy.code = item.codeResult.code || "test";
+                  //boxCopy.format = item.codeResult.format;
                 }
                 return boxCopy;
               });
-          } 
-          // Handle the standard Quagga format
-          else if (result && result.boxes && Array.isArray(result.boxes)) {
-            rawBoxes = result.boxes
-              .filter(box => Array.isArray(box))
-              .map(box => box.slice());
-              
-            // If there's a code result, associate it with the first box
-            if (result.codeResult && result.codeResult.code && rawBoxes.length > 0) {
-              rawBoxes[0].code = result.codeResult.code;
-              rawBoxes[0].format = result.codeResult.format;
-            }
           }
-          
-          // Apply smoothing to the boxes
-          this._matchAndSmoothBoxes(rawBoxes);
-          
-          // Use smoothed boxes for display and click detection
-          this._lastBoxes = this._smoothedBoxes || rawBoxes;
+
+          console.log("Quagga onProcessed called", rawBoxes);
+          this._lastBoxes = rawBoxes;
           
           // Draw all boxes
           if (this._lastBoxes && this._lastBoxes.length > 0) {
             this._lastBoxes.forEach((box, index) => {
               try {
                 if (box && box.length >= 4) {
-                  // Check if this box has an associated code
-                  const boxCode = box.code || (this._lastCodes && this._lastCodes.length > 0 ? this._lastCodes[0] : null);
+                  // Use different colors for different sources
+                  ctx.strokeStyle = box.source === 'zxing' ? 
+                    "rgba(0,0,255,1)" : "rgba(0,255,0,1)";
+                  ctx.lineWidth = 3;
                   
-                  // Use different colors for different boxes
-                  const colors = [
-                    "rgba(0, 255, 0, 1)",   // Green
-                    "rgba(255, 0, 0, 1)",   // Red
-                    "rgba(0, 0, 255, 1)",   // Blue
-                    "rgba(255, 255, 0, 1)", // Yellow
-                    "rgba(255, 0, 255, 1)"  // Magenta
-                  ];
-                  
-                  const colorIndex = index % colors.length;
-                  ctx.strokeStyle = colors[colorIndex];
-                  ctx.lineWidth = 5;
-                  
-                  // Draw the box
                   ctx.beginPath();
                   ctx.moveTo(box[0][0], box[0][1]);
                   for (let i = 1; i < box.length; i++) {
@@ -749,34 +877,30 @@ export default class BarcodeScanner extends FieldComponent {
                   ctx.closePath();
                   ctx.stroke();
                   
-                  // Add background for text if we have a code
-                  if (boxCode) {
-                    const xs = box.map(pt => pt[0]);
-                    const ys = box.map(pt => pt[1]);
-                    const x0 = Math.min(...xs);
-                    const y0 = Math.min(...ys);
-                    
-                    ctx.fillStyle = "rgba(0,0,0,0.7)";
-                    ctx.fillRect(x0, y0 - 30, 200, 25);
-                    
-                    // Draw text
-                    ctx.fillStyle = colors[colorIndex];
-                    ctx.font = "bold 20px sans-serif";
-                    ctx.fillText(boxCode, x0 + 5, y0 - 8);
+                  // Add code label
+                  if (box.code) {
+                    const center = this._getBoxCenter(box);
+                    ctx.font = "16px Arial";
+                    ctx.fillStyle = "white";
+                    ctx.strokeStyle = "black";
+                    ctx.lineWidth = 3;
+                    ctx.strokeText(box.code, center.x, center.y);
+                    ctx.fillText(box.code, center.x, center.y);
                   }
-                  
-                  // Draw the box corners as dots
-                  ctx.fillStyle = "white";
-                  box.forEach(point => {
-                    ctx.beginPath();
-                    ctx.arc(point[0], point[1], 5, 0, 2 * Math.PI);
-                    ctx.fill();
-                  });
                 }
               } catch (e) {
-                console.error(`Error drawing box:`, e, box);
+                console.error(`Error drawing box:`, e);
               }
             });
+          }
+          
+          // If we have detected codes but no boxes, show a message
+          if (this._lastCodes.length > 0 && (!this._lastBoxes || this._lastBoxes.length === 0)) {
+            ctx.font = "20px Arial";
+            ctx.fillStyle = "white";
+            ctx.textAlign = "center";
+            ctx.fillText(`${this._lastCodes.length} barcode(s) detected`, overlay.width/2, overlay.height/2 - 20);
+            ctx.fillText("Tap to select", overlay.width/2, overlay.height/2 + 20);
           }
         } catch (e) {
           console.error("Error in onProcessed:", e);
@@ -787,117 +911,45 @@ export default class BarcodeScanner extends FieldComponent {
         try {
           console.log("Quagga detected barcode:", data);
           
-          // Process detected codes
-          let newCodes = [];
-          
-          // Helper function to calculate confidence from decodedCodes
-          const calculateConfidence = (result) => {
-            // Hardcoded minimum confidence threshold - adjust this value as needed
-            const MIN_CONFIDENCE_THRESHOLD = 0.1;
+          // Add to detected codes if not already present
+          if (data.codeResult && data.codeResult.code) {
+            const newCode = data.codeResult.code;
             
-            if (!result.codeResult || !result.codeResult.decodedCodes) {
-              return MIN_CONFIDENCE_THRESHOLD; // Default confidence if data not available
+            if (!this._lastCodes.includes(newCode)) {
+              this._lastCodes.push(newCode);
+              
+              // Visual feedback
+              this.refs.quaggaModal.style.border = "4px solid lime";
+              setTimeout(() => {
+                this.refs.quaggaModal.style.border = "";
+              }, 400);
             }
             
-            // Calculate average error from decodedCodes (lower error = higher confidence)
-            const codes = result.codeResult.decodedCodes.filter(c => c.error !== undefined);
-            if (codes.length === 0) return MIN_CONFIDENCE_THRESHOLD;
-            
-            const avgError = codes.reduce((sum, code) => sum + code.error, 0) / codes.length;
-            // Convert error to confidence (1.0 - error, capped between MIN_CONFIDENCE_THRESHOLD and 0.9)
-            return Math.min(0.9, Math.max(MIN_CONFIDENCE_THRESHOLD, 1.0 - avgError));
-          };
-          
-          // Handle different data formats
-          if (Array.isArray(data)) {
-            // Process array of detection results
-            data.forEach(result => {
-              if (result.codeResult && result.codeResult.code) {
-                // Only add unique codes
-                if (!newCodes.some(item => item.code === result.codeResult.code)) {
-                  newCodes.push({
-                    code: result.codeResult.code,
-                    box: result.box || null,
-                    confidence: calculateConfidence(result),
-                    format: result.codeResult.format
-                  });
+            // Add box if available
+            if (data.box) {
+              // Normalize box format
+              const normalizedBox = this._normalizeBoxFormat(data.box);
+              
+              if (normalizedBox) {
+                // Add code and format info to the box
+                normalizedBox.code = newCode;
+                normalizedBox.format = data.codeResult.format;
+                normalizedBox.source = 'quagga';
+                
+                if (!this._lastBoxes) {
+                  this._lastBoxes = [];
+                }
+                
+                // Check if we already have this box
+                const boxExists = this._lastBoxes.some(existingBox => 
+                  existingBox.code === normalizedBox.code && existingBox.source === 'quagga'
+                );
+                
+                if (!boxExists) {
+                  this._lastBoxes.push(normalizedBox);
                 }
               }
-            });
-          } else if (data.codeResult) {
-            // Process single detection result
-            newCodes.push({
-              code: data.codeResult.code,
-              box: data.box || null,
-              confidence: calculateConfidence(data),
-              format: data.codeResult.format
-            });
-          }
-          
-          // Filter out low confidence detections
-          //newCodes = newCodes.filter(item => item.confidence > 0.2);
-          
-          // Only update codes if we have new ones
-          if (newCodes.length > 0) {
-            // Extract just the code strings for _lastCodes
-            const uniqueCodes = [...new Set(newCodes.map(item => item.code))];
-            this._lastCodes = uniqueCodes;
-            console.log("All detected codes:", this._lastCodes);
-            
-            // Associate codes with boxes if possible
-            if (this._lastBoxes && this._lastBoxes.length > 0) {
-              // Clear previous code associations
-              // this._lastBoxes.forEach(box => {
-              //   box.code = null;
-              // });
-              
-              // If we have multiple boxes and codes, try to match them by position
-              if (newCodes.some(item => item.box)) {
-                // For codes that have box information, match directly
-                newCodes.forEach(codeItem => {
-                  if (codeItem.box) {
-                    // Find the closest box in _lastBoxes to this code's box
-                    const codeCenter = this._getBoxCenter(codeItem.box);
-                    let closestBox = null;
-                    let closestDist = Infinity;
-                    
-                    this._lastBoxes.forEach(box => {
-                      const boxCenter = this._getBoxCenter(box);
-                      const dist = this._getDistance(codeCenter, boxCenter);
-                      if (dist < closestDist) {
-                        closestDist = dist;
-                        closestBox = box;
-                      }
-                    });
-                    
-                    // Associate if we found a close enough box
-                    if (closestBox && closestDist < 100) { // 100px threshold
-                      closestBox.code = codeItem.code;
-                      closestBox.format = codeItem.format;
-                    }
-                  }
-                });
-              }
-              
-              // For remaining boxes without codes, distribute remaining codes
-              const unassignedBoxes = this._lastBoxes.filter(box => !box.code);
-              const unassignedCodes = newCodes
-                .filter(codeItem => !this._lastBoxes.some(box => box.code === codeItem.code))
-                .map(item => ({code: item.code, format: item.format}));
-              
-              unassignedBoxes.forEach((box, idx) => {
-                if (idx < unassignedCodes.length) {
-                  box.code = unassignedCodes[idx].code;
-                  box.format = unassignedCodes[idx].format;
-                }
-              });
             }
-            
-            // Visual feedback
-            this.refs.quaggaModal.style.border = "4px solid lime";
-            setTimeout(() => {
-              this.refs.quaggaModal.style.border = "";
-            }, 400);
           }
         } catch (e) {
           console.error("Error in onDetected:", e);
@@ -908,19 +960,64 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
+  // Normalize box format to ensure consistent structure
+  _normalizeBoxFormat(box) {
+    if (!box || !Array.isArray(box)) return null;
+    
+    // If box is already in the format we want (array of [x,y] pairs)
+    if (box.length >= 4 && Array.isArray(box[0]) && box[0].length === 2) {
+      return box;
+    }
+    
+    // If box is in the format [0: [x,y], 1: [x,y], 2: [x,y], 3: [x,y]]
+    if (box.length === 4 && typeof box[0] === 'object' && '0' in box && '1' in box && '2' in box && '3' in box) {
+      return [box[0], box[1], box[2], box[3]];
+    }
+    
+    // If box is in the format [x1, y1, x2, y2, x3, y3, x4, y4]
+    if (box.length === 8 && typeof box[0] === 'number') {
+      return [
+        [box[0], box[1]],
+        [box[2], box[3]],
+        [box[4], box[5]],
+        [box[6], box[7]]
+      ];
+    }
+    
+    // If box is in another format with numbered indices
+    if ('0' in box && '1' in box && '2' in box && '3' in box) {
+      return [box[0], box[1], box[2], box[3]];
+    }
+    
+    console.warn("Unknown box format:", box);
+    return null;
+  }
+
   // Helper methods for box matching
   _getBoxCenter(box) {
-    if (!box || !Array.isArray(box) || box.length < 4) return {x: 0, y: 0};
-    
-    let sumX = 0, sumY = 0;
-    for (let i = 0; i < box.length; i++) {
-      sumX += box[i][0];
-      sumY += box[i][1];
+    try {
+      if (!box || !Array.isArray(box) || box.length < 4) {
+        return { x: 0, y: 0 };
+      }
+      
+      // Calculate center of the box
+      let sumX = 0, sumY = 0;
+      
+      for (let i = 0; i < box.length; i++) {
+        if (Array.isArray(box[i]) && box[i].length >= 2) {
+          sumX += box[i][0];
+          sumY += box[i][1];
+        }
+      }
+      
+      return {
+        x: sumX / box.length,
+        y: sumY / box.length
+      };
+    } catch (e) {
+      console.error("Error calculating box center:", e);
+      return { x: 0, y: 0 };
     }
-    return {
-      x: sumX / box.length,
-      y: sumY / box.length
-    };
   }
   
   _getDistance(point1, point2) {
@@ -1012,29 +1109,33 @@ export default class BarcodeScanner extends FieldComponent {
     this._lostCounts = newLost;
   }
 
-  _onOverlayClick(evt) {
+  _onOverlayClick(event) {
     try {
-      if (!this._lastBoxes || !this._lastBoxes.length || this._lastCodes.length === 0) {
-        console.log("No boxes or codes available for click");
-        return;
-      }
-
       const overlay = this.refs.quaggaOverlay;
       const rect = overlay.getBoundingClientRect();
-
-      // Calculate click position relative to the overlay
-      const clickX = (evt.clientX - rect.left) * (overlay.width / rect.width);
-      const clickY = (evt.clientY - rect.top) * (overlay.height / rect.height);
+      const clickX = (event.clientX - rect.left) * (overlay.width / rect.width);
+      const clickY = (event.clientY - rect.top) * (overlay.height / rect.height);
       
-      console.log("Click at:", clickX, clickY);
-      console.log("Available boxes:", this._lastBoxes);
-
-      for (const poly of this._lastBoxes) {
+      console.log("Click coordinates:", clickX, clickY);
+      
+      // If we have detected codes but no boxes, create a simple selection UI
+      if (this._lastCodes.length > 0 && (!this._lastBoxes || this._lastBoxes.length === 0)) {
+        // Select the first code if no specific box was clicked
+        const codeToUse = this._lastCodes[0];
+        this.updateValue(codeToUse);
+        this.refs.barcode.value = codeToUse;
+        this.stopQuagga();
+        this.refs.quaggaModal.style.display = "none";
+        return;
+      }
+      
+      // Check if click is inside any of the detected barcode boxes
+      for (const poly of this._lastBoxes || []) {
         try {
           if (this._pointInPolygon(clickX, clickY, poly)) {
             console.log("Box clicked:", poly);
-            // Use the code associated with this box, or the first code if none
-            const codeToUse = poly.code || (this._lastCodes && this._lastCodes.length > 0 ? this._lastCodes[0] : "");
+            // Use the code associated with this box
+            const codeToUse = poly.code || "";
             this.updateValue(codeToUse);
             this.refs.barcode.value = codeToUse;
             this.stopQuagga();
@@ -1051,36 +1152,115 @@ export default class BarcodeScanner extends FieldComponent {
         }
       }
       
-      console.log("No box was clicked");
+      // If no box was clicked but we have detected codes, show a selection UI
+      if (this._lastCodes.length > 0) {
+        this._showCodeSelectionUI();
+      }
     } catch (e) {
-      console.error("Error in _onOverlayClick:", e);
+      console.error("Error in overlay click handler:", e);
     }
   }
-
-  _pointInPolygon(x, y, poly) {
+  
+  // Show a UI for selecting from multiple detected barcodes
+  _showCodeSelectionUI() {
     try {
-      if (!poly || !Array.isArray(poly) || poly.length < 3) {
+      // Create a selection UI if we have multiple codes
+      if (this._lastCodes.length > 0) {
+        const container = this.refs.quaggaContainer;
+        
+        // Create selection UI element
+        const selectionUI = document.createElement('div');
+        selectionUI.className = 'barcode-selection-ui';
+        selectionUI.style.position = 'absolute';
+        selectionUI.style.bottom = '10px';
+        selectionUI.style.left = '10px';
+        selectionUI.style.right = '10px';
+        selectionUI.style.background = 'rgba(0,0,0,0.7)';
+        selectionUI.style.color = 'white';
+        selectionUI.style.padding = '10px';
+        selectionUI.style.borderRadius = '5px';
+        selectionUI.style.zIndex = '20';
+        
+        // Add title
+        const title = document.createElement('div');
+        title.textContent = 'Select a barcode:';
+        title.style.marginBottom = '10px';
+        title.style.fontWeight = 'bold';
+        selectionUI.appendChild(title);
+        
+        // Add buttons for each code
+        this._lastCodes.forEach((code, index) => {
+          const button = document.createElement('button');
+          button.textContent = `${code} (${this._getFormatForCode(code) || 'unknown'})`;
+          button.style.margin = '5px';
+          button.style.padding = '8px 12px';
+          button.style.border = 'none';
+          button.style.borderRadius = '4px';
+          button.style.background = '#4CAF50';
+          button.style.color = 'white';
+          button.style.cursor = 'pointer';
+          
+          button.addEventListener('click', () => {
+            this.updateValue(code);
+            this.refs.barcode.value = code;
+            this.stopQuagga();
+            this.refs.quaggaModal.style.display = "none";
+            this._clearOverlay();
+            this._lastBoxes = null;
+            this._lastCodes = [];
+            this._videoDims = null;
+          });
+          
+          selectionUI.appendChild(button);
+        });
+        
+        // Add to container
+        container.appendChild(selectionUI);
+      }
+    } catch (e) {
+      console.error("Error showing code selection UI:", e);
+    }
+  }
+  
+  // Helper to get format for a code
+  _getFormatForCode(code) {
+    if (!this._lastBoxes) return null;
+    
+    const box = this._lastBoxes.find(b => b.code === code);
+    return box ? box.format : null;
+  }
+
+  _pointInPolygon(x, y, polygon) {
+    try {
+      if (!polygon || !Array.isArray(polygon) || polygon.length < 3) {
         return false;
       }
       
       let inside = false;
-      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-        if (!poly[i] || !poly[j] || !Array.isArray(poly[i]) || !Array.isArray(poly[j])) {
-          continue;
+      
+      // Convert polygon to array of points if needed
+      const points = polygon.map(point => {
+        if (Array.isArray(point) && point.length >= 2) {
+          return { x: point[0], y: point[1] };
+        } else if (point && typeof point === 'object' && 'x' in point && 'y' in point) {
+          return point;
+        } else {
+          console.warn("Invalid point format in polygon:", point);
+          return { x: 0, y: 0 };
         }
+      });
+      
+      // Ray casting algorithm
+      for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        const xi = points[i].x, yi = points[i].y;
+        const xj = points[j].x, yj = points[j].y;
         
-        const xi = poly[i][0], yi = poly[i][1];
-        const xj = poly[j][0], yj = poly[j][1];
+        const intersect = ((yi > y) !== (yj > y)) &&
+          (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
         
-        if (isNaN(xi) || isNaN(yi) || isNaN(xj) || isNaN(yj)) {
-          continue;
-        }
-        
-        const intersect =
-          (yi > y) !== (yj > y) &&
-          x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
         if (intersect) inside = !inside;
       }
+      
       return inside;
     } catch (e) {
       console.error("Error in _pointInPolygon:", e);
@@ -1104,11 +1284,22 @@ export default class BarcodeScanner extends FieldComponent {
   stopQuagga() {
     this._firstOpen = false;
     try {
+      // Clear ZXing interval
+      if (this._zxingInterval) {
+        clearInterval(this._zxingInterval);
+        this._zxingInterval = null;
+      }
+      
+      // Reset ZXing reader
+      if (this._zxingReader) {
+        this._zxingReader.reset();
+      }
+      
       window.Quagga.offProcessed();
       window.Quagga.offDetected();
       window.Quagga.stop();
     } catch (e) {
-      console.error("Error stopping Quagga:", e);
+      console.error("Error stopping barcode scanners:", e);
     }
     
     // Don't remove the overlay from the DOM, just clear it
@@ -1156,6 +1347,16 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   destroy() {
+    if (this._zxingReader) {
+      this._zxingReader.reset();
+      this._zxingReader = null;
+    }
+    
+    if (this._zxingInterval) {
+      clearInterval(this._zxingInterval);
+      this._zxingInterval = null;
+    }
+    
     this.stopQuagga();
     return super.destroy();
   }
