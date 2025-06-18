@@ -6,20 +6,15 @@ const FieldComponent = Components.components.field;
 export default class BarcodeScanner extends FieldComponent {
   static editForm = BarcodeScannerEditForm;
 
-  constructor(component, options, data) {
-    super(component, options, data);
-    this.barcodeScanner = null;
-    this.cvRouter = null;
-    this.cameraEnhancer = null;
-    this.cameraView = null;
-    this.errorMessage = "";
-    this._loadDynamsoftSDK();
-  }
-
   static schema(...extend) {
     return FieldComponent.schema(
-      { type: "barcode", label: "Barcode", key: "" },
-      ...extend
+      {
+        type: "barcode",
+        label: "Barcode",
+        key: "",
+        multiple: true
+      },
+      ...extend,
     );
   }
 
@@ -34,91 +29,413 @@ export default class BarcodeScanner extends FieldComponent {
     };
   }
 
+  constructor(component, options, data) {
+    super(component, options, data);
+    this.errorMessage = "";
+    this.barcodeScanner = null;
+    this.dynamsoft = null;
+    this.modal = null;
+    this.scannedBarcodes = [];
+    
+    // Load Dynamsoft SDK
+    this._loadDynamsoftSDK();
+  }
+
   _loadDynamsoftSDK() {
-    if (window.Dynamsoft) return Promise.resolve();
+    if (window.Dynamsoft) {
+      this.dynamsoft = window.Dynamsoft;
+      return Promise.resolve();
+    }
+
     return new Promise((resolve, reject) => {
-      const s = document.createElement("script");
-      s.src = "https://cdn.jsdelivr.net/npm/dynamsoft-barcode-reader-bundle@10.5.3000/dist/dbr.bundle.js";
-      s.async = true;
-      s.onload = () => window.Dynamsoft ? resolve() : reject(new Error("Dynamsoft.DB unavailable"));
-      s.onerror = () => reject(new Error("Failed to load Dynamsoft SDK"));
-      document.head.appendChild(s);
+      const script = document.createElement('script');
+      script.src = "https://cdn.jsdelivr.net/npm/dynamsoft-barcode-reader-bundle@10.5.3000/dist/dbr.bundle.js";
+      script.async = true;
+      script.onload = () => {
+        this.dynamsoft = window.Dynamsoft;
+        resolve();
+      };
+      script.onerror = () => {
+        reject(new Error('Failed to load Dynamsoft SDK'));
+      };
+      document.head.appendChild(script);
     });
   }
 
   render() {
+    // Determine if we should show multiple barcodes or a single barcode
+    const isMultiple = this.component.multiple === true;
+    let barcodeDisplay = '';
+    
+    if (isMultiple) {
+      // For multiple barcodes, show a list
+      const barcodes = Array.isArray(this.dataValue) ? this.dataValue : [];
+      barcodeDisplay = `
+        <div class="barcode-list" ref="barcodeList">
+          ${barcodes.map((code, index) => `
+            <div class="barcode-item" style="display:flex;align-items:center;margin-bottom:5px;">
+              <input type="text" class="form-control" value="${code}" readonly style="flex:1;margin-right:5px;" />
+              <button type="button" class="btn btn-danger btn-sm" ref="removeBarcode${index}">
+                <i class="fa fa-times"></i>
+              </button>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    } else {
+      // For single barcode, show a simple input
+      barcodeDisplay = `
+        <input
+          ref="barcode"
+          type="text"
+          class="form-control"
+          value="${this.dataValue || ""}"
+          style="flex-grow:1; margin-right:10px;"
+        />
+      `;
+    }
+
     return super.render(`
       <div style="display:flex; flex-direction:column; gap:8px;">
-        <div style="display:flex; align-items:center;">
-          <input ref="barcode" type="text" class="form-control"
-            value="${this.dataValue||''}" style="flex:1;margin-right:5px;"/>
-          <button ref="scanButton" class="btn btn-primary"><i class="fa fa-camera"/></button>
+        <div style="display:flex; align-items:center; justify-content:space-between;">
+          ${barcodeDisplay}
+          <button ref="scanButton" type="button" class="btn btn-primary" style="margin-right:5px;">
+            <i class="fa fa-camera"></i> Scan
+          </button>
         </div>
-        ${this.errorMessage ? `<div class="form-text error">${this.errorMessage}</div>` : ""}
-        <div ref="scannerContainer" style="display:none;width:100%;height:400px;"></div>
-      </div>`);
+        ${
+          this.errorMessage
+            ? `<div class="formio-errors">
+                 <div class="form-text error">${this.errorMessage}</div>
+               </div>`
+            : ""
+        }
+      </div>
+    `);
+  }
+
+  createModal() {
+    // Create modal container
+    const modal = document.createElement('div');
+    modal.className = 'barcode-scanner-modal';
+    modal.style.position = 'fixed';
+    modal.style.top = '0';
+    modal.style.left = '0';
+    modal.style.width = '100%';
+    modal.style.height = '100%';
+    modal.style.backgroundColor = 'rgba(0,0,0,0.7)';
+    modal.style.zIndex = '1050';
+    modal.style.display = 'flex';
+    modal.style.flexDirection = 'column';
+    modal.style.alignItems = 'center';
+    modal.style.justifyContent = 'center';
+
+    // Create modal content
+    const modalContent = document.createElement('div');
+    modalContent.className = 'barcode-scanner-modal-content';
+    modalContent.style.backgroundColor = '#fff';
+    modalContent.style.borderRadius = '5px';
+    modalContent.style.width = '90%';
+    modalContent.style.maxWidth = '800px';
+    modalContent.style.maxHeight = '90%';
+    modalContent.style.display = 'flex';
+    modalContent.style.flexDirection = 'column';
+    modalContent.style.overflow = 'hidden';
+
+    // Create modal header
+    const modalHeader = document.createElement('div');
+    modalHeader.className = 'barcode-scanner-modal-header';
+    modalHeader.style.padding = '15px';
+    modalHeader.style.borderBottom = '1px solid #e5e5e5';
+    modalHeader.style.display = 'flex';
+    modalHeader.style.justifyContent = 'space-between';
+    modalHeader.style.alignItems = 'center';
+
+    const modalTitle = document.createElement('h5');
+    modalTitle.textContent = 'Scan Barcodes';
+    modalTitle.style.margin = '0';
+
+    const closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.className = 'close';
+    closeButton.innerHTML = '&times;';
+    closeButton.style.border = 'none';
+    closeButton.style.background = 'none';
+    closeButton.style.fontSize = '24px';
+    closeButton.style.cursor = 'pointer';
+    closeButton.onclick = () => this.closeModal();
+
+    modalHeader.appendChild(modalTitle);
+    modalHeader.appendChild(closeButton);
+
+    // Create modal body
+    const modalBody = document.createElement('div');
+    modalBody.className = 'barcode-scanner-modal-body';
+    modalBody.style.padding = '15px';
+    modalBody.style.flexGrow = '1';
+    modalBody.style.position = 'relative';
+    modalBody.style.minHeight = '400px';
+    modalBody.style.overflow = 'hidden';
+
+    // Create scanner container
+    const scannerContainer = document.createElement('div');
+    scannerContainer.className = 'scanner-container';
+    scannerContainer.style.width = '100%';
+    scannerContainer.style.height = '100%';
+    scannerContainer.style.minHeight = '400px';
+    modalBody.appendChild(scannerContainer);
+
+    // Create results container
+    const resultsContainer = document.createElement('div');
+    resultsContainer.className = 'results-container';
+    resultsContainer.style.marginTop = '10px';
+    resultsContainer.style.maxHeight = '150px';
+    resultsContainer.style.overflowY = 'auto';
+    resultsContainer.style.display = 'none';
+    resultsContainer.innerHTML = `
+      <h6>Scanned Barcodes:</h6>
+      <ul class="scanned-list" style="padding-left: 20px;"></ul>
+    `;
+    modalBody.appendChild(resultsContainer);
+
+    // Create modal footer
+    const modalFooter = document.createElement('div');
+    modalFooter.className = 'barcode-scanner-modal-footer';
+    modalFooter.style.padding = '15px';
+    modalFooter.style.borderTop = '1px solid #e5e5e5';
+    modalFooter.style.display = 'flex';
+    modalFooter.style.justifyContent = 'space-between';
+
+    const cancelButton = document.createElement('button');
+    cancelButton.type = 'button';
+    cancelButton.className = 'btn btn-secondary';
+    cancelButton.textContent = 'Cancel';
+    cancelButton.onclick = () => this.closeModal();
+
+    const doneButton = document.createElement('button');
+    doneButton.type = 'button';
+    doneButton.className = 'btn btn-primary';
+    doneButton.textContent = 'Done';
+    doneButton.onclick = () => this.saveAndClose();
+
+    modalFooter.appendChild(cancelButton);
+    modalFooter.appendChild(doneButton);
+
+    // Assemble modal
+    modalContent.appendChild(modalHeader);
+    modalContent.appendChild(modalBody);
+    modalContent.appendChild(modalFooter);
+    modal.appendChild(modalContent);
+
+    // Store references
+    this.modal = modal;
+    this.scannerContainer = scannerContainer;
+    this.resultsContainer = resultsContainer;
+    this.scannedList = resultsContainer.querySelector('.scanned-list');
+
+    return modal;
+  }
+
+  closeModal() {
+    if (this.barcodeScanner) {
+      this.barcodeScanner.close();
+      this.barcodeScanner = null;
+    }
+    
+    if (this.modal && this.modal.parentNode) {
+      this.modal.parentNode.removeChild(this.modal);
+    }
+  }
+
+  saveAndClose() {
+    if (this.scannedBarcodes.length > 0) {
+      if (this.component.multiple) {
+        // For multiple barcodes, set the array value
+        this.dataValue = this.scannedBarcodes;
+      } else {
+        // For single barcode, set the first value
+        this.dataValue = this.scannedBarcodes[0];
+      }
+      this.triggerChange();
+      this.redraw();
+    }
+    
+    this.closeModal();
   }
 
   attach(element) {
-    this.loadRefs(element, { barcode: "single", scanButton: "single", scannerContainer: "single" });
+    this.loadRefs(element, {
+      scanButton: "single",
+      barcode: "single",
+      barcodeList: "single",
+    });
+
+    // Add event listener for scan button
     this.addEventListener(this.refs.scanButton, "click", () => this.startScanner());
-    this.addEventListener(this.refs.barcode, "change", () => this.updateValue());
+
+    // Add event listeners for single barcode input if it exists
+    if (this.refs.barcode) {
+      this.addEventListener(this.refs.barcode, "change", () => {
+        this.dataValue = this.refs.barcode.value;
+        this.triggerChange();
+      });
+    }
+
+    // Add event listeners for remove buttons if multiple barcodes
+    if (this.component.multiple && Array.isArray(this.dataValue)) {
+      this.dataValue.forEach((_, index) => {
+        const removeButton = this.refs[`removeBarcode${index}`];
+        if (removeButton) {
+          this.addEventListener(removeButton, "click", () => {
+            const newValue = [...this.dataValue];
+            newValue.splice(index, 1);
+            this.dataValue = newValue;
+            this.triggerChange();
+            this.redraw();
+          });
+        }
+      });
+    }
+
     return super.attach(element);
   }
 
   async startScanner() {
     try {
-      await this._loadDynamsoftSDK();
-      const D = window.Dynamsoft;
-      D.License.LicenseManager.initLicense("DLS2eyJoYW5kc2hha2VDb2RlIjoiMTA0MTYzMjcyLVRYbFhaV0pRY205cSIsIm1haW5TZXJ2ZXJVUkwiOiJodHRwczovL21kbHMuZHluYW1zb2Z0b25saW5lLmNvbSIsIm9yZ2FuaXphdGlvbklEIjoiMTA0MTYzMjcyIiwic3RhbmRieVNlcnZlclVSTCI6Imh0dHBzOi8vc2Rscy5keW5hbXNvZnRvbmxpbmUuY29tIiwiY2hlY2tDb2RlIjotMTM1MzM3ODgwNH0=");  // v10+ license API :contentReference[oaicite:1]{index=1}
+      if (!this.dynamsoft) await this._loadDynamsoftSDK();
+      const modal = this.createModal();
+      document.body.appendChild(modal);
 
-      await D.Core.CoreModule.loadWasm(["dbr"]);  // optional preload :contentReference[oaicite:2]{index=2}
-
-      if (!this.cvRouter) {
-        this.cvRouter = await D.CVR.CaptureVisionRouter.createInstance();  // v10+ new router API :contentReference[oaicite:3]{index=3}
-        this.cameraView = await D.DCE.CameraView.createInstance();
-        this.cameraEnhancer = await D.DCE.CameraEnhancer.createInstance(this.cameraView);
-        this.cvRouter.setInput(this.cameraEnhancer);
-        this.cvRouter.addResultFilter(new D.Utility.MultiFrameResultCrossFilter());
-        this.cvRouter.startCapturing("ReadSingleBarcode");
-        this.cvRouter.addResultReceiver(new class extends D.CVR.CapturedResultReceiver {
-          onDecodedBarcodesReceived = (res) => {
-            if (res.barcodeResults?.length) {
-              const txt = res.barcodeResults[0].barcodeText;
-              this.refs.barcode.value = txt;
-              this.updateValue();
-              this.stopScanner();
-            }
-          };
-        });
+      try {
+        await this.dynamsoft.License.LicenseManager.initLicense("DLS2eyJoYW5kc2hha2VDb2RlIjoiMTA0MTYzMjcyLVRYbFhaV0pRY205cSIsIm1haW5TZXJ2ZXJVUkwiOiJodHRwczovL21kbHMuZHluYW1zb2Z0b25saW5lLmNvbSIsIm9yZ2FuaXphdGlvbklEIjoiMTA0MTYzMjcyIiwic3RhbmRieVNlcnZlclVSTCI6Imh0dHBzOi8vc2Rscy5keW5hbXNvZnRvbmxpbmUuY29tIiwiY2hlY2tDb2RlIjotMTM1MzM3ODgwNH0=");
+      } catch (e) {
+        console.warn("License warning:", e);
       }
 
-      this.refs.scannerContainer.innerHTML = "";
-      this.refs.scannerContainer.append(this.cameraView.getUIElement());
-      this.refs.scannerContainer.style.display = "block";
-      await this.cameraEnhancer.open();
+      this.scannedBarcodes = [];
+      const D = this.dynamsoft;
+      await D.Core.CoreModule.loadWasm(["dbr"]);
+
+      const cvRouter = await D.CVR.CaptureVisionRouter.createInstance();
+      const cameraView = await D.DCE.CameraView.createInstance();
+      const cameraEnhancer = await D.DCE.CameraEnhancer.createInstance(cameraView);
+
+      cvRouter.setInput(cameraEnhancer);
+      cvRouter.addResultFilter(new D.Utility.MultiFrameResultCrossFilter());
+      cvRouter.addResultReceiver(new (class extends D.CVR.CapturedResultReceiver {
+      constructor(parent) { super(); this.parent = parent; }
+        onDecodedBarcodesReceived = (result) => {
+          cameraView.clearUserDefinedDrawingLayers();
+          const drawingLayer = cameraView.getDrawingLayer(2) || cameraView.createDrawingLayer();
+          drawingLayer.clearDrawingItems();          // clear only items on this layer :contentReference[oaicite:5]{index=5}
+
+          drawingLayer.setVisible(true);
+          const styleId = D.DCE.DrawingStyleManager.createDrawingStyle({
+            strokeStyle: "#00FF00", lineWidth: 4, textColor: "#00FF00", font: "16px sans-serif"
+          });
+          const backgroundStyleId = D.DCE.DrawingStyleManager.createDrawingStyle({
+            strokeStyle: "rgba(0, 255, 0, 0)",               // green border
+            lineWidth: 2,
+            fillStyle: "rgba(0, 0, 0, 0.5)",              // transparent black background
+            paintMode: "strokeAndFill",                  // fill and stroke both applied
+            textColor: "#00FF00",                        // green text
+          });
+          drawingLayer.setDefaultStyle(styleId, undefined, D.DCE.EnumDrawingItemMediaType.DIMT_BARCODE);
+console.log("result", result);
+          result.barcodeResultItems?.forEach(item => {
+            const { points } = item.location;
+            const xs = points.map(p => p.x), ys = points.map(p => p.y);
+            const x = Math.min(...xs), y = Math.min(...ys);
+            
+            const width = Math.max(...xs) - x;
+            const height = Math.max(...ys) - y;
+            
+            // Create the text label
+            const textItem = new D.DCE.TextDrawingItem(
+              item.text,
+              { x: x, y: y - 50, width: width, height: 24, isMeasuredInPercentage: false },
+              styleId
+            );
+
+            // Use getTextRect() to get the exact bounds
+            const rect = textItem.getTextRect(); // { x, y, width, height }
+
+            // Create a background rectangle based on that
+            const textBackground = new D.DCE.RectDrawingItem(
+              { x: rect.x, y: rect.y, width: rect.width, height: 50 },
+              backgroundStyleId
+            );
+
+            // Bounding box around the barcode itself
+            const boundingBox = new D.DCE.RectDrawingItem(
+              { x, y, width, height },
+              styleId
+            );
+
+            // Re-set items: remove text first, then draw background, text, and bounding box
+            drawingLayer.addDrawingItems([textBackground, textItem, boundingBox]);
+          });
+
+
+          drawingLayer.renderAll();
+        }
+      })(this));
+
+
+      const template = this.component.multiple ? "ReadBarcodes_Default" : "ReadSingleBarcode";
+      const settings = await cvRouter.getSimplifiedSettings(template);
+      settings.barcodeSettings.expectedBarcodesCount = this.component.multiple ? 0 : 1;
+      await cvRouter.updateSettings(template, settings);
+      await cvRouter.startCapturing(template);
+
+      this.scannerContainer.innerHTML = "";
+      this.scannerContainer.appendChild(cameraView.getUIElement());
+      await cameraEnhancer.open();
+
+      // ✅ Official click listener
+      // cameraView.setDrawingItemClickListener((clicked) => {
+      //   const value = clicked.getText && clicked.getText();
+      //   if (!value) return;
+
+      //   this.scannedBarcodes = this.component.multiple
+      //     ? [...this.scannedBarcodes, value]
+      //     : [value];
+      //   this.saveAndClose();
+      // });
+
+      this.cvRouter = cvRouter;
+      this.cameraEnhancer = cameraEnhancer;
+      this.cameraView = cameraView;
 
     } catch (err) {
-      console.error(err);
-      this.errorMessage = "Failed to start scanner.";
+      console.error("Error starting scanner:", err);
+      this.errorMessage = "Failed to start barcode scanner.";
       this.redraw();
+      this.closeModal();
     }
   }
 
-  stopScanner() {
-    this.cvRouter?.stopCapturing();
-    this.cameraEnhancer?.close();
-    this.refs.scannerContainer.style.display = "none";
-  }
 
   updateValue() {
-    this.dataValue = this.refs.barcode.value;
-    this.triggerChange();
+    if (this.refs.barcode) {
+      this.dataValue = this.refs.barcode.value;
+      this.triggerChange();
+    }
   }
 
   destroy() {
-    this.stopScanner();
-    this.cvRouter = this.cameraEnhancer = this.cameraView = null;
+    this.closeModal();
+    if (this.cvRouter) {
+      this.cvRouter.dispose();
+      this.cvRouter = null;
+    }
+    if (this.cameraEnhancer) {
+      this.cameraEnhancer.close();
+      this.cameraEnhancer = null;
+    }
+    if (this.cameraView) {
+      this.cameraView = null;
+    }
     super.destroy();
   }
 }
