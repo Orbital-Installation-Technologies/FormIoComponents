@@ -45,6 +45,7 @@ export default class BarcodeScanner extends FieldComponent {
     this._MAX_LOST_FRAMES = 10;    // number of frames to keep a polygon after detection lost
     this._onOverlayClick = this._onOverlayClick.bind(this);
     this._zxingReader = null;
+    this._isVideoFrozen = false;  // Track if video is frozen
     window.Quagga = Quagga;
   }
 
@@ -165,7 +166,7 @@ export default class BarcodeScanner extends FieldComponent {
                 height="480"
                 style="
                   position:absolute;
-                  top:0; left:64px !important;
+                  top:0; left:0;
                   width:100%;
                   height:100%;
                   cursor:pointer;
@@ -174,6 +175,28 @@ export default class BarcodeScanner extends FieldComponent {
               </canvas>
             </div>
           </div>
+          
+          <!-- Freeze/capture button - moved outside the container for better positioning -->
+          <button
+            ref="freezeButton"
+            style="
+              position: absolute;
+              bottom: 20px;
+              left: 50%;
+              transform: translateX(-50%);
+              z-index: 9999;
+              background: rgba(255,255,255,0.8);
+              border: none;
+              border-radius: 50%;
+              width: 60px;
+              height: 60px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            ">
+            <i class="fa fa-camera" style="font-size: 24px;"></i>
+          </button>
         </div>
       </div>
     `);
@@ -191,6 +214,7 @@ export default class BarcodeScanner extends FieldComponent {
       quaggaContainer: "single",
       quaggaOverlay: "single",
       closeModal: "single",
+      freezeButton: "single",
     });
 
     if (
@@ -201,7 +225,8 @@ export default class BarcodeScanner extends FieldComponent {
       !this.refs.quaggaModal ||
       !this.refs.quaggaContainer ||
       !this.refs.quaggaOverlay ||
-      !this.refs.closeModal
+      !this.refs.closeModal ||
+      !this.refs.freezeButton
     ) {
       console.warn("Refs not ready—skipping event bindings.");
       return attached;
@@ -237,12 +262,18 @@ export default class BarcodeScanner extends FieldComponent {
         this._lastBoxes = null;
         this._lastCodes = [];  // Reset to empty array
         this._videoDims = null;
+        this._isVideoFrozen = false;
         this.refs.quaggaOverlay.removeEventListener("click", this._onOverlayClick);
         
         // Clear the container when closing
         if (this.refs.quaggaContainer) {
           this.refs.quaggaContainer.innerHTML = '';
         }
+      });
+      
+      // Add freeze button event listener
+      this.refs.freezeButton.addEventListener("click", () => {
+        this._toggleFreezeVideo();
       });
     }
 
@@ -506,24 +537,23 @@ export default class BarcodeScanner extends FieldComponent {
                   ctx.closePath();
                   ctx.stroke();
                   
-                  // Display the code
-                  const xs = box.map(pt => pt[0]);
-                  const ys = box.map(pt => pt[1]);
-                  const x0 = Math.min(...xs);
-                  const y0 = Math.min(...ys);
-                  
-                  // Add background for text
-                  ctx.fillStyle = "rgba(0,0,0,0.7)";
-                  ctx.fillRect(x0, y0 - 30, 200, 25);
-                  
-                  // Draw text
-                  ctx.fillStyle = isZXing ? "rgba(0,0,255,1)" : "rgba(0,255,0,1)";
-                  ctx.font = "bold 20px sans-serif";
-                  ctx.textBaseline = "middle";
-                  
-                  // Show code and source
-                  const codeInfo = `${box.code} (${isZXing ? 'ZXing' : 'Quagga'})`;
-                  ctx.fillText(codeInfo, x0 + 5, y0 - 17, 190);
+                  // Add code label
+                  if (box.code) {
+                    // Get the minimum x and y coordinates to position text above the box
+                    const xs = box.map(pt => pt[0]);
+                    const ys = box.map(pt => pt[1]);
+                    const x0 = Math.min(...xs);
+                    const y0 = Math.min(...ys);
+                    
+                    // Add background for text
+                    ctx.fillStyle = "rgba(0,0,0,0.7)";
+                    ctx.fillRect(x0, y0 - 30, 200, 25);
+                    
+                    // Draw text
+                    ctx.fillStyle = isZXing ? "rgba(0,0,255,1)" : "rgba(0,255,0,1)";
+                    ctx.font = "bold 20px sans-serif";
+                    ctx.fillText(box.code, x0 + 5, y0 - 8);
+                  }
                 });
               } else {
                 // No barcode found
@@ -553,10 +583,17 @@ export default class BarcodeScanner extends FieldComponent {
     this._lastBoxes = null;
     this._lastCodes = [];
     this._videoDims = null;
+    this._isVideoFrozen = false;
     this._clearOverlay();
 
     const overlay = this.refs.quaggaOverlay;
     const container = this.refs.quaggaContainer;
+    const freezeButton = this.refs.freezeButton;
+    
+    // Reset freeze button
+    freezeButton.innerHTML = '<i class="fa fa-camera" style="font-size: 24px;"></i>';
+    freezeButton.style.background = 'rgba(255,255,255,0.8)';
+    freezeButton.style.display = 'flex'; // Ensure button is visible
     
     // Clear any previous content
     container.innerHTML = '';
@@ -564,6 +601,11 @@ export default class BarcodeScanner extends FieldComponent {
     // Make sure the overlay is in the DOM and positioned correctly
     if (!container.contains(overlay)) {
       container.appendChild(overlay);
+    }
+    
+    // Make sure the freeze button is in the DOM
+    if (!container.contains(freezeButton)) {
+      container.appendChild(freezeButton);
     }
     
     overlay.style.pointerEvents = "auto";
@@ -666,6 +708,11 @@ export default class BarcodeScanner extends FieldComponent {
         // Make sure our overlay is on top
         if (container.contains(overlay)) {
           container.appendChild(overlay);
+        }
+        
+        // Add the freeze button to the container
+        if (container.contains(this.refs.freezeButton)) {
+          container.appendChild(this.refs.freezeButton);
         }
         
         // Start Quagga processing first, then ZXing as a backup
@@ -856,7 +903,6 @@ export default class BarcodeScanner extends FieldComponent {
               });
           }
 
-          console.log("Quagga onProcessed called", rawBoxes);
           this._lastBoxes = rawBoxes;
           
           // Draw all boxes
@@ -864,28 +910,36 @@ export default class BarcodeScanner extends FieldComponent {
             this._lastBoxes.forEach((box, index) => {
               try {
                 if (box && box.length >= 4) {
-                  // Use different colors for different sources
-                  ctx.strokeStyle = box.source === 'zxing' ? 
-                    "rgba(0,0,255,1)" : "rgba(0,255,0,1)";
-                  ctx.lineWidth = 3;
-                  
-                  ctx.beginPath();
-                  ctx.moveTo(box[0][0], box[0][1]);
-                  for (let i = 1; i < box.length; i++) {
-                    ctx.lineTo(box[i][0], box[i][1]);
-                  }
-                  ctx.closePath();
-                  ctx.stroke();
-                  
-                  // Add code label
                   if (box.code) {
-                    const center = this._getBoxCenter(box);
-                    ctx.font = "16px Arial";
-                    ctx.fillStyle = "white";
-                    ctx.strokeStyle = "black";
+                    // Use different colors for different sources
+                    ctx.strokeStyle = box.source === 'zxing' ? 
+                      "rgba(0,0,255,1)" : "rgba(0,255,0,1)";
                     ctx.lineWidth = 3;
-                    ctx.strokeText(box.code, center.x, center.y);
-                    ctx.fillText(box.code, center.x, center.y);
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(box[0][0], box[0][1]);
+                    for (let i = 1; i < box.length; i++) {
+                      ctx.lineTo(box[i][0], box[i][1]);
+                    }
+                    ctx.closePath();
+
+                    ctx.stroke();
+                    // Add code label
+                    // Get the minimum x and y coordinates to position text above the box
+                    const xs = box.map(pt => pt[0]);
+                    const ys = box.map(pt => pt[1]);
+                    const x0 = Math.min(...xs);
+                    const y0 = Math.min(...ys);
+                    
+                    // Add background for text
+                    ctx.fillStyle = "rgba(0,0,0,0.7)";
+                    ctx.fillRect(x0, y0 - 30, 200, 25);
+                    
+                    // Draw text
+                    ctx.fillStyle = box.source === 'zxing' ? 
+                      "rgba(0,0,255,1)" : "rgba(0,255,0,1)";
+                    ctx.font = "bold 20px sans-serif";
+                    ctx.fillText(box.code, x0 + 5, y0 - 8);
                   }
                 }
               } catch (e) {
@@ -909,7 +963,6 @@ export default class BarcodeScanner extends FieldComponent {
 
       window.Quagga.onDetected((data) => {
         try {
-          console.log("Quagga detected barcode:", data);
           
           // Add to detected codes if not already present
           if (data.codeResult && data.codeResult.code) {
@@ -1386,5 +1439,62 @@ export default class BarcodeScanner extends FieldComponent {
 
   updateValue(value, flags = {}) {
     return super.updateValue(...arguments);
+  }
+
+  // Toggle between frozen and live video
+  _toggleFreezeVideo() {
+    try {
+      this._isVideoFrozen = !this._isVideoFrozen;
+      
+      // Update button appearance
+      if (this._isVideoFrozen) {
+        this.refs.freezeButton.innerHTML = '<i class="fa fa-play" style="font-size: 24px;"></i>';
+        this.refs.freezeButton.style.background = 'rgba(0,255,0,0.8)';
+        
+        // Capture current frame to canvas
+        const videoEl = this.refs.quaggaContainer.querySelector("video");
+        if (videoEl) {
+          // Create a canvas to capture the current frame
+          const canvas = document.createElement('canvas');
+          canvas.width = videoEl.videoWidth;
+          canvas.height = videoEl.videoHeight;
+          const ctx = canvas.getContext('2d');
+          
+          // Draw the current video frame to the canvas
+          ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+          
+          // Create an image from the canvas
+          const img = new Image();
+          img.src = canvas.toDataURL('image/jpeg', 1.0);
+          
+          // Style the image to match the video
+          img.style.position = 'absolute';
+          img.style.top = '0';
+          img.style.left = '0';
+          img.style.width = '100%';
+          img.style.height = '100%';
+          img.style.objectFit = 'contain';
+          img.style.zIndex = '5';
+          
+          // Add the image to the container
+          this.refs.quaggaContainer.appendChild(img);
+          
+          // Pause Quagga processing
+          window.Quagga.pause();
+        }
+      } else {
+        this.refs.freezeButton.innerHTML = '<i class="fa fa-camera" style="font-size: 24px;"></i>';
+        this.refs.freezeButton.style.background = 'rgba(255,255,255,0.8)';
+        
+        // Remove any frozen frame images
+        const frozenFrames = this.refs.quaggaContainer.querySelectorAll('img');
+        frozenFrames.forEach(img => img.remove());
+        
+        // Resume Quagga processing
+        window.Quagga.start();
+      }
+    } catch (e) {
+      console.error("Error toggling video freeze:", e);
+    }
   }
 }
