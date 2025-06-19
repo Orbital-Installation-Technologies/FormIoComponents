@@ -36,6 +36,7 @@ export default class BarcodeScanner extends FieldComponent {
     this.dynamsoft = null;
     this.modal = null;
     this.scannedBarcodes = [];
+    this.debugUI = true;
     
     // Load Dynamsoft SDK
     this._loadDynamsoftSDK();
@@ -67,24 +68,7 @@ export default class BarcodeScanner extends FieldComponent {
     const isMultiple = this.component.multiple === true;
     let barcodeDisplay = '';
     
-    if (isMultiple) {
-      // For multiple barcodes, show a list
-      const barcodes = Array.isArray(this.dataValue) ? this.dataValue : [];
-      barcodeDisplay = `
-        <div class="barcode-list" ref="barcodeList">
-          ${barcodes.map((code, index) => `
-            <div class="barcode-item" style="display:flex;align-items:center;margin-bottom:5px;">
-              <input type="text" class="form-control" value="${code}" readonly style="flex:1;margin-right:5px;" />
-              <button type="button" class="btn btn-danger btn-sm" ref="removeBarcode${index}">
-                <i class="fa fa-times"></i>
-              </button>
-            </div>
-          `).join('')}
-        </div>
-      `;
-    } else {
-      // For single barcode, show a simple input
-      barcodeDisplay = `
+    barcodeDisplay = `
         <input
           ref="barcode"
           type="text"
@@ -92,8 +76,7 @@ export default class BarcodeScanner extends FieldComponent {
           value="${this.dataValue || ""}"
           style="flex-grow:1; margin-right:10px;"
         />
-      `;
-    }
+    `;
 
     return super.render(`
       <div style="display:flex; flex-direction:column; gap:8px;">
@@ -272,7 +255,7 @@ export default class BarcodeScanner extends FieldComponent {
       this.redraw();
     }
     
-    this.closeModal();
+    
   }
 
   attach(element) {
@@ -486,16 +469,11 @@ export default class BarcodeScanner extends FieldComponent {
     const cameraX = relativeX * videoWidth;
     const cameraY = relativeY * videoHeight;
     
-    console.log('Click at client coords:', clientX, clientY);
-    console.log('Camera element rect:', cameraRect);
-    console.log('Relative position:', relativeX, relativeY);
-    console.log('Video resolution:', videoWidth, videoHeight);
-    console.log('Converted to camera coords:', cameraX, cameraY);
-    
     // Get drawing layer for debug visualization
     const debugLayer = this.cameraView.getDrawingLayer(3) || this.cameraView.createDrawingLayer(3);
     debugLayer.clearDrawingItems();
     debugLayer.setVisible(true);
+    
     
     // Create styles for debug visualization
     const clickStyleId = this.dynamsoft.DCE.DrawingStyleManager.createDrawingStyle({
@@ -518,13 +496,15 @@ export default class BarcodeScanner extends FieldComponent {
       fillStyle: "rgba(255, 0, 255, 0.3)",
       paintMode: "strokeAndFill"
     });
+    if(this.debugUI){
+      // Draw a marker at the click point
+      const clickMarker = new this.dynamsoft.DCE.RectDrawingItem(
+        { x: cameraX - 10, y: cameraY - 10, width: 20, height: 20 },
+        clickStyleId
+      );
+      debugLayer.addDrawingItems([clickMarker]);
+    }
     
-    // Draw a marker at the click point
-    const clickMarker = new this.dynamsoft.DCE.RectDrawingItem(
-      { x: cameraX - 10, y: cameraY - 10, width: 20, height: 20 },
-      clickStyleId
-    );
-    debugLayer.addDrawingItems([clickMarker]);
     
     // Draw all bounding boxes for debugging
     for (const barcode of this.detectedBarcodes) {
@@ -535,41 +515,43 @@ export default class BarcodeScanner extends FieldComponent {
         cameraY >= barcode.y &&
         cameraY <= barcode.y + barcode.height;
       
-      // Use different style based on whether it was hit
-      const styleToUse = isHit ? hitStyleId : bboxStyleId;
+      if(this.debugUI){
+        // Use different style based on whether it was hit
+        const styleToUse = isHit ? hitStyleId : bboxStyleId;
+        
+        // Draw the bounding box
+        const bboxRect = new this.dynamsoft.DCE.RectDrawingItem(
+          { x: barcode.x, y: barcode.y, width: barcode.width, height: barcode.height },
+          styleToUse
+        );
+        
+        // Add text label showing coordinates and barcode text
+        const coordsText = new this.dynamsoft.DCE.TextDrawingItem(
+          `${barcode.text} (x:${Math.round(barcode.x)},y:${Math.round(barcode.y)})`,
+          { x: barcode.x, y: barcode.y - 20, width: barcode.width, height: 20 },
+          styleToUse
+        );
+        
+        debugLayer.addDrawingItems([bboxRect, coordsText]);
+      }
       
-      // Draw the bounding box
-      const bboxRect = new this.dynamsoft.DCE.RectDrawingItem(
-        { x: barcode.x, y: barcode.y, width: barcode.width, height: barcode.height },
-        styleToUse
-      );
-      
-      // Add text label showing coordinates and barcode text
-      const coordsText = new this.dynamsoft.DCE.TextDrawingItem(
-        `${barcode.text} (x:${Math.round(barcode.x)},y:${Math.round(barcode.y)})`,
-        { x: barcode.x, y: barcode.y - 20, width: barcode.width, height: 20 },
-        styleToUse
-      );
-      
-      debugLayer.addDrawingItems([bboxRect, coordsText]);
       
       if (isHit) {
         console.log('Click detected inside barcode:', barcode.text);
         
         // Get the active input element (if any)
-        const activeElement = document.activeElement;
-        if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA')) {
-          console.log('Setting active input value to:', barcode.text);
-          activeElement.value = barcode.text;
-          activeElement.dispatchEvent(new Event('change', { bubbles: true }));
+        if (this.refs.barcode) {
+          console.log('Setting component input value to:', barcode.text);
+          this.refs.barcode.value = barcode.text;
+          this.refs.barcode.dispatchEvent(new Event('change', { bubbles: true }));
           
           // Close the modal
-          this.saveAndClose();
+          this.closeModal();
           return;
         } else {
-          console.log('No active input element found');
+          console.log('Component input element not found');
           
-          // If no active input, just add to scanned barcodes
+          // If no input reference, just add to scanned barcodes
           if (!this.scannedBarcodes.includes(barcode.text)) {
             this.scannedBarcodes.push(barcode.text);
           }
