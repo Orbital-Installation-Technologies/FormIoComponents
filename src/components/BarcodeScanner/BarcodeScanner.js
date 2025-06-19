@@ -163,7 +163,10 @@ export default class BarcodeScanner extends FieldComponent {
     closeButton.style.background = 'none';
     closeButton.style.fontSize = '24px';
     closeButton.style.cursor = 'pointer';
-    closeButton.onclick = () => this.closeModal();
+    closeButton.onclick = () => {
+      console.log('Modal close button clicked');
+      this.closeModal();
+    };
 
     modalHeader.appendChild(modalTitle);
     modalHeader.appendChild(closeButton);
@@ -210,13 +213,19 @@ export default class BarcodeScanner extends FieldComponent {
     cancelButton.type = 'button';
     cancelButton.className = 'btn btn-secondary';
     cancelButton.textContent = 'Cancel';
-    cancelButton.onclick = () => this.closeModal();
+    cancelButton.onclick = () => {
+      console.log('Modal cancel button clicked');
+      this.closeModal();
+    };
 
     const doneButton = document.createElement('button');
     doneButton.type = 'button';
     doneButton.className = 'btn btn-primary';
     doneButton.textContent = 'Done';
-    doneButton.onclick = () => this.saveAndClose();
+    doneButton.onclick = () => {
+      console.log('Modal done button clicked');
+      this.saveAndClose();
+    };
 
     modalFooter.appendChild(cancelButton);
     modalFooter.appendChild(doneButton);
@@ -248,12 +257,15 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   saveAndClose() {
+    console.log('saveAndClose called with scanned barcodes:', this.scannedBarcodes);
     if (this.scannedBarcodes.length > 0) {
       if (this.component.multiple) {
         // For multiple barcodes, set the array value
+        console.log('Setting multiple barcodes:', this.scannedBarcodes);
         this.dataValue = this.scannedBarcodes;
       } else {
         // For single barcode, set the first value
+        console.log('Setting single barcode:', this.scannedBarcodes[0]);
         this.dataValue = this.scannedBarcodes[0];
       }
       this.triggerChange();
@@ -271,11 +283,15 @@ export default class BarcodeScanner extends FieldComponent {
     });
 
     // Add event listener for scan button
-    this.addEventListener(this.refs.scanButton, "click", () => this.startScanner());
+    this.addEventListener(this.refs.scanButton, "click", () => {
+      console.log('Scan button clicked');
+      this.startScanner();
+    });
 
     // Add event listeners for single barcode input if it exists
     if (this.refs.barcode) {
       this.addEventListener(this.refs.barcode, "change", () => {
+        console.log('Barcode input changed:', this.refs.barcode.value);
         this.dataValue = this.refs.barcode.value;
         this.triggerChange();
       });
@@ -287,6 +303,7 @@ export default class BarcodeScanner extends FieldComponent {
         const removeButton = this.refs[`removeBarcode${index}`];
         if (removeButton) {
           this.addEventListener(removeButton, "click", () => {
+            console.log('Remove button clicked for barcode at index:', index);
             const newValue = [...this.dataValue];
             newValue.splice(index, 1);
             this.dataValue = newValue;
@@ -313,6 +330,7 @@ export default class BarcodeScanner extends FieldComponent {
       }
 
       this.scannedBarcodes = [];
+      this.detectedBarcodes = []; // Store detected barcodes with their locations
       const D = this.dynamsoft;
       await D.Core.CoreModule.loadWasm(["dbr"]);
 
@@ -320,27 +338,39 @@ export default class BarcodeScanner extends FieldComponent {
       const cameraView = await D.DCE.CameraView.createInstance();
       const cameraEnhancer = await D.DCE.CameraEnhancer.createInstance(cameraView);
 
+      // Add click event listener to the camera view
+      const cameraElement = cameraView.getUIElement();
+      cameraElement.addEventListener('click', (event) => {
+        console.log('Camera view clicked at:', event.clientX, event.clientY);
+        this.handleCameraViewClick(event.clientX, event.clientY);
+      });
+
       cvRouter.setInput(cameraEnhancer);
       cvRouter.addResultFilter(new D.Utility.MultiFrameResultCrossFilter());
       cvRouter.addResultReceiver(new (class extends D.CVR.CapturedResultReceiver {
-      constructor(parent) { super(); this.parent = parent; }
+        constructor(parent) { super(); this.parent = parent; }
         onDecodedBarcodesReceived = (result) => {
           cameraView.clearUserDefinedDrawingLayers();
           const drawingLayer = cameraView.getDrawingLayer(2) || cameraView.createDrawingLayer();
-          drawingLayer.clearDrawingItems();          // clear only items on this layer :contentReference[oaicite:5]{index=5}
+          drawingLayer.clearDrawingItems();
 
           drawingLayer.setVisible(true);
           const styleId = D.DCE.DrawingStyleManager.createDrawingStyle({
             strokeStyle: "#00FF00", lineWidth: 4, textColor: "#00FF00", font: "16px sans-serif"
           });
           const backgroundStyleId = D.DCE.DrawingStyleManager.createDrawingStyle({
-            strokeStyle: "rgba(0, 255, 0, 0)",               // green border
+            strokeStyle: "rgba(0, 255, 0, 0)",
             lineWidth: 2,
-            fillStyle: "rgba(0, 0, 0, 0.5)",              // transparent black background
-            paintMode: "strokeAndFill",                  // fill and stroke both applied
-            textColor: "#00FF00",                        // green text
+            fillStyle: "rgba(0, 0, 0, 0.5)",
+            paintMode: "strokeAndFill",
+            textColor: "#00FF00",
           });
           drawingLayer.setDefaultStyle(styleId, undefined, D.DCE.EnumDrawingItemMediaType.DIMT_BARCODE);
+          
+          // Clear previous detected barcodes
+          this.parent.detectedBarcodes = [];
+          
+          // Process each barcode result
           result.barcodeResultItems?.forEach(item => {
             const { points } = item.location;
             const xs = points.map(p => p.x), ys = points.map(p => p.y);
@@ -348,6 +378,12 @@ export default class BarcodeScanner extends FieldComponent {
             
             const width = Math.max(...xs) - x;
             const height = Math.max(...ys) - y;
+
+            // Store the barcode with its location for click detection
+            this.parent.detectedBarcodes.push({
+              text: item.text,
+              x, y, width, height
+            });
 
             // Create the text label
             const textItem = new D.DCE.TextDrawingItem(
@@ -357,7 +393,7 @@ export default class BarcodeScanner extends FieldComponent {
             );
 
             // Use getTextRect() to get the exact bounds
-            const rect = textItem.getTextRect(); // { x, y, width, height }
+            const rect = textItem.getTextRect();
 
             // Create a background rectangle based on that
             const textBackground = new D.DCE.RectDrawingItem(
@@ -371,15 +407,18 @@ export default class BarcodeScanner extends FieldComponent {
               styleId
             );
 
-            // Re-set items: remove text first, then draw background, text, and bounding box
+            // Add items to drawing layer
             drawingLayer.addDrawingItems([textBackground, textItem, boundingBox]);
+            
+            // Add the barcode to scanned barcodes
+            if (!this.parent.scannedBarcodes.includes(item.text)) {
+              this.parent.scannedBarcodes.push(item.text);
+            }
           });
-
 
           drawingLayer.renderAll();
         }
       })(this));
-
 
       const template = this.component.multiple ? "ReadBarcodes_Default" : "ReadSingleBarcode";
       const settings = await cvRouter.getSimplifiedSettings(template);
@@ -425,5 +464,126 @@ export default class BarcodeScanner extends FieldComponent {
       this.cameraView = null;
     }
     super.destroy();
+  }
+
+  handleCameraViewClick(clientX, clientY) {
+    if (!this.detectedBarcodes?.length) return;
+
+    // Get camera element and its dimensions
+    const cameraElement = this.cameraView.getUIElement();
+    const cameraRect = cameraElement.getBoundingClientRect();
+    
+    // Calculate relative position within the camera view (0-1 range)
+    const relativeX = (clientX - cameraRect.left) / cameraRect.width;
+    const relativeY = (clientY - cameraRect.top) / cameraRect.height;
+    
+    // Convert to camera coordinates based on the actual video dimensions
+    // Note: We need to account for possible scaling/letterboxing in the view
+    const videoWidth = this.cameraEnhancer.getResolution().width;
+    const videoHeight = this.cameraEnhancer.getResolution().height;
+    
+    // Calculate camera coordinates
+    const cameraX = relativeX * videoWidth;
+    const cameraY = relativeY * videoHeight;
+    
+    console.log('Click at client coords:', clientX, clientY);
+    console.log('Camera element rect:', cameraRect);
+    console.log('Relative position:', relativeX, relativeY);
+    console.log('Video resolution:', videoWidth, videoHeight);
+    console.log('Converted to camera coords:', cameraX, cameraY);
+    
+    // Get drawing layer for debug visualization
+    const debugLayer = this.cameraView.getDrawingLayer(3) || this.cameraView.createDrawingLayer(3);
+    debugLayer.clearDrawingItems();
+    debugLayer.setVisible(true);
+    
+    // Create styles for debug visualization
+    const clickStyleId = this.dynamsoft.DCE.DrawingStyleManager.createDrawingStyle({
+      strokeStyle: "#FF0000", 
+      lineWidth: 4,
+      fillStyle: "rgba(255, 0, 0, 0.3)",
+      paintMode: "strokeAndFill"
+    });
+    
+    const bboxStyleId = this.dynamsoft.DCE.DrawingStyleManager.createDrawingStyle({
+      strokeStyle: "#0000FF", 
+      lineWidth: 2,
+      fillStyle: "rgba(0, 0, 255, 0.2)",
+      paintMode: "strokeAndFill"
+    });
+    
+    const hitStyleId = this.dynamsoft.DCE.DrawingStyleManager.createDrawingStyle({
+      strokeStyle: "#FF00FF", 
+      lineWidth: 3,
+      fillStyle: "rgba(255, 0, 255, 0.3)",
+      paintMode: "strokeAndFill"
+    });
+    
+    // Draw a marker at the click point
+    const clickMarker = new this.dynamsoft.DCE.RectDrawingItem(
+      { x: cameraX - 10, y: cameraY - 10, width: 20, height: 20 },
+      clickStyleId
+    );
+    debugLayer.addDrawingItems([clickMarker]);
+    
+    // Draw all bounding boxes for debugging
+    for (const barcode of this.detectedBarcodes) {
+      // Check if click is inside this barcode
+      const isHit = 
+        cameraX >= barcode.x &&
+        cameraX <= barcode.x + barcode.width &&
+        cameraY >= barcode.y &&
+        cameraY <= barcode.y + barcode.height;
+      
+      // Use different style based on whether it was hit
+      const styleToUse = isHit ? hitStyleId : bboxStyleId;
+      
+      // Draw the bounding box
+      const bboxRect = new this.dynamsoft.DCE.RectDrawingItem(
+        { x: barcode.x, y: barcode.y, width: barcode.width, height: barcode.height },
+        styleToUse
+      );
+      
+      // Add text label showing coordinates and barcode text
+      const coordsText = new this.dynamsoft.DCE.TextDrawingItem(
+        `${barcode.text} (x:${Math.round(barcode.x)},y:${Math.round(barcode.y)})`,
+        { x: barcode.x, y: barcode.y - 20, width: barcode.width, height: 20 },
+        styleToUse
+      );
+      
+      debugLayer.addDrawingItems([bboxRect, coordsText]);
+      
+      if (isHit) {
+        console.log('Click detected inside barcode:', barcode.text);
+        
+        // Get the active input element (if any)
+        const activeElement = document.activeElement;
+        if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA')) {
+          console.log('Setting active input value to:', barcode.text);
+          activeElement.value = barcode.text;
+          activeElement.dispatchEvent(new Event('change', { bubbles: true }));
+          
+          // Close the modal
+          this.saveAndClose();
+          return;
+        } else {
+          console.log('No active input element found');
+          
+          // If no active input, just add to scanned barcodes
+          if (!this.scannedBarcodes.includes(barcode.text)) {
+            this.scannedBarcodes.push(barcode.text);
+          }
+        }
+      }
+    }
+    
+    // Render all debug visualizations
+    debugLayer.renderAll();
+    
+    // Keep debug visualization visible for a few seconds
+    setTimeout(() => {
+      debugLayer.clearDrawingItems();
+      debugLayer.renderAll();
+    }, 5000);
   }
 }
