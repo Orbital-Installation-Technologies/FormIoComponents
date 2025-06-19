@@ -23,6 +23,9 @@
     "@formio/js": "^5.0.1",
     "@zxing/browser": "^0.1.5",
     "dotenv": "^16.4.5",
-    "quagga": "^0.12.1"
+    "quagga": "^0.12.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-icons": "^5.5.0"
   }
 }
