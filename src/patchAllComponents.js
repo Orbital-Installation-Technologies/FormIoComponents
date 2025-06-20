@@ -9,11 +9,8 @@ setTimeout(() => {
   }
 
   Object.entries(Components.components).forEach(([name, Component]) => {
-    console.log(Component);
-
     if (typeof Component?.editForm === "function") {
       const originalEditForm = Component.editForm;
-      console.log(originalEditForm);
 
       Component.editForm = (...args) => {
         const form = originalEditForm(...args);
@@ -42,7 +39,7 @@ setTimeout(() => {
 
     // Patch updateValue to avoid full re-render that causes scroll reset
     const proto = Component.prototype;
-    if (!proto || proto._patchedUpdateValue) return;
+    // if (!proto || proto._patchedUpdateValue) return;
 
     const originalUpdateValue = proto.updateValue;
     console.log("originalUpdateValue", originalUpdateValue);
