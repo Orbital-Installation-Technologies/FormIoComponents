@@ -39,7 +39,21 @@ setTimeout(() => {
 
       Component._patchedForReview = true;
     }
+
+    // Patch updateValue to avoid full re-render that causes scroll reset
+    const proto = Component.prototype;
+    if (!proto || proto._patchedUpdateValue) return;
+
+    const originalUpdateValue = proto.updateValue;
+    console.log("originalUpdateValue", originalUpdateValue);
+
+    proto.updateValue = function (value, flags = {}) {
+      flags = { noUpdateEvent: true, fromUser: true, ...flags };
+      return originalUpdateValue.call(this, value, flags);
+    };
+
+    proto._patchedUpdateValue = true;
   });
 
-  console.log("✅ ReviewVisible checkbox injected.");
+  console.log("ReviewVisible checkbox injected.");
 }, 1000); // Delay to let builder load first
