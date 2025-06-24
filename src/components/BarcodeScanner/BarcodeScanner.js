@@ -1,12 +1,29 @@
 import { Components } from "@formio/js";
-import Quagga from "quagga";
-import { BrowserMultiFormatReader, DecodeHintType, BarcodeFormat } from "@zxing/library";
 import BarcodeScannerEditForm from "./BarcodeScanner.form";
-import React from "react";
-import { FaCamera, FaFileImage } from "react-icons/fa";
-import { renderToStaticMarkup } from "react-dom/server";
+import {
+  BarcodeCaptureSettings,
+  BarcodeCapture,
+  Symbology,
+  barcodeCaptureLoader,
+  BarcodeTracking,
+  BarcodeTrackingSettings
+} from "@scandit/web-datacapture-barcode";
+import {
+  DataCaptureView,
+  DataCaptureContext,
+  FrameSourceState,
+  Camera,
+  configure
+} from "@scandit/web-datacapture-core";
 
 const FieldComponent = Components.components.field;
+
+// Global flag to track if Scandit has been configured
+let scanditConfigured = false;
+
+
+
+
 
 export default class BarcodeScanner extends FieldComponent {
   static editForm = BarcodeScannerEditForm;
@@ -37,58 +54,35 @@ export default class BarcodeScanner extends FieldComponent {
     super(component, options, data);
     this._firstOpen = true;
     this.errorMessage = "";
-    this._lastBoxes = null;
-    this._lastCodes = []; // Changed from _lastCode to _lastCodes array
-    this._videoDims = null;
-    this._smoothedBoxes = null;
-    this._lostCounts = null;
-    this._boxColors = {}; // Store colors by box ID
-    this._nextBoxId = 1; // Counter for generating unique box IDs
-    this._SMOOTH_ALPHA = 0.075; // lower alpha = smoother, less responsive
-    this._MAX_LOST_FRAMES = 10; // number of frames to keep a polygon after detection lost
-    this._onOverlayClick = this._onOverlayClick.bind(this);
-    this._zxingReader = null;
-    this._isVideoFrozen = false; // Track if video is frozen
-    window.Quagga = Quagga;
+    this._lastCodes = [];
+    this._currentBarcodes = [];
+    this._isVideoFrozen = false;
+    this._dataCaptureContext = null;
+    this._barcodeCapture = null;
+    this._camera = null;
+    this._dataCaptureView = null;
+    this._drawingPending = false;
+    
+    // License key for Scandit
+    this._licenseKey = "Av8GN2+eSVonBPcwmMJJB3INUu9TRPN5u0Grz34h7shTbBFjBW4vSCxFPgVyeShmblQbx50lOAgsa45NqFzQpWMVu3YTZZKBwDft++BuYhMjRaMrAhDyRPwLncPPYf2s+nQo8yd+S4t1V6zhjRuqx0BJ0JXyFYeYhHubaWIVUJIwXSauaGR369dLw+fiZmNF6GjXExlTUI40aM4Oi2NyDD1dnL3ASdNo43U67g5XrA79biccYk8rVAZdbEO4RzOIHU+P9zdr/zXNY2Za4E/3o8Zs6c0Ge27KYxZZt6h55trZIiqPon2b3mxiJyBeZVGehXqknVtorReOedJ9P06qzMlHb5RIEf41jkdeLoFaRuFmXK2981M7A1pssNR5ZBcue3zaEXR1KWyQUJWHs1RdudErSTboXfX/K2Gm8X5rNW3Ef4MGpn+ArGlznVmcUk5jp3hxKQVCnpmTUxG82WDkI8lubfnmLgthFHvRep5TeO4BZ9zduERwdt1zkYXmZLwoRUq+CtRhK7KrXDyHZkBrtTgzx6Wmn/FPXXP+/h4Cuhrs5dGRML19Tea51F63+EQ91USoQC2M0HkIse1NgUwUXjfGDM2P2EFl9hCM+syYLOuyN966CE+0Ie+rYld+pAC/2AXerR148Zo5RntvNIr+Nb+09fG6wA2ZkLSpsCNh/fiaUUfa0OBV2rmBe+5MAYIj2Bj2xO2/urZy+vvJaue9yUdA+J+5MTdzE6WilYgPZWOL4hs4natnI7727wo/j9WLvBdGFFCnV5+I4tJZcLDUAlUJNHIQoOlhQoBWECFmTgRY37dHVQ7qQMMxL3/d6CiccOLqRCsF9EKpe15zCvSY97eXtoTBVCPe6vV8JbMZhNPH+I7mdM9dYhWZJuL7PlXOtmJBNE4AOMwMQnqea6ptkR1XaDto9SMLshjLaKjTVTMT8uK102AbzWIsMkruvSYdaE/FIPQ5dqlxlTB6UhFk9o+7iOuyM1J5XtJO54gi8TafoiIV9xu1oNx7SmnZiF7hAMXUnKVOOXQn8kLLfDqWbUpAx8I8Z7kP9AZ6TRNpk26equ6hn7npqkzKF7hNieqyVjRItOBeU3DE/hcfu3qy+i3vD7QjvgON1qglM2UVp6fUjpX74YvhqGvlhiwm0ItgQSLwZRuFZOAEdYh4aiSgAv3r/TNua3alkoR6J70TAW8hqP1mWChSAieZmTrdUr3nY/4=";
   }
 
   init() {
     super.init();
   }
 
-  conditionallyHidden(data) {
-    if (!this.component.customConditional) return false;
+  render() {
+    // Camera icon SVG
+    const cameraSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="16" height="16" fill="currentColor">
+      <path d="M149.1 64.8L138.7 96H64C28.7 96 0 124.7 0 160V416c0 35.3 28.7 64 64 64H448c35.3 0 64-28.7 64-64V160c0-35.3-28.7-64-64-64H373.3L362.9 64.8C356.4 45.2 338.1 32 317.4 32H194.6c-20.7 0-39 13.2-45.5 32.8zM256 192a96 96 0 1 1 0 192 96 96 0 1 1 0-192z"/>
+    </svg>`;
 
-    try {
-      return !this.evaluate(
-        this.component.customConditional,
+    // File image icon SVG
+    const fileImageSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512" width="16" height="16" fill="currentColor">
+      <path d="M64 0C28.7 0 0 28.7 0 64V448c0 35.3 28.7 64 64 64H320c35.3 0 64-28.7 64-64V160H256c-17.7 0-32-14.3-32-32V0H64zM256 0V128H384L256 0zM64 256a32 32 0 1 1 64 0 32 32 0 1 1 -64 0zm152 32c5.3 0 10.2 2.6 13.2 6.9l88 128c3.4 4.9 3.7 11.3 1 16.5s-8.2 8.6-14.2 8.6H216 176 128 80c-5.8 0-11.1-3.1-13.9-8.1s-2.8-11.2 .2-16.1l48-80c2.9-4.8 8.1-7.8 13.7-7.8s10.8 2.9 13.7 7.8l12.8 21.4 48.3-70.2c3-4.3 7.9-6.9 13.2-6.9z"/>
+    </svg>`;
 
-        {
-          ...this.data,
-          ...data,
-        },
-        this.data,
-      );
-    } catch (e) {
-      console.warn("Conditional logic error:", e);
-      return false;
-    }
-  }
 
-  get inputInfo() {
-    const info = super.inputInfo;
-    return info;
-  }
-  render(content) {
-    const cameraSVG = renderToStaticMarkup(React.createElement(FaCamera)).replace(
-      "<svg",
-      '<svg style="fill:white;"',
-    );
-
-    const fileImageSVG = renderToStaticMarkup(React.createElement(FaFileImage)).replace(
-      "<svg",
-      '<svg style="fill:white;"',
-    );
 
     return super.render(`
       <div style="display:flex; flex-direction:column; gap:8px;">
@@ -115,51 +109,14 @@ export default class BarcodeScanner extends FieldComponent {
                </div>`
             : ""
         }
-        <!-- Full-screen dark backdrop -->
-        <div
-          ref="quaggaModal"
-          style="
-            display:none;
-            position:fixed;
-            top:0; left:0;
-            width:100%; height:100%;
-            background:rgba(0,0,0,0.8);
-            z-index:9999;
-            align-items:center;
-            justify-content:center;
-          ">
-          <div
-            style="
-              position: relative;
-              max-width: 90vw;
-              max-height: 80vh;
-              width: auto;
-              height: auto;
-              background-color: #333;
-              border-radius: 8px;
-              box-shadow: 0 0 10px rgba(0,0,0,0.5);
-              overflow: hidden;
-              display: inline-block;
-            ">
-            <!-- Close button -->
-            <button
-              ref="closeModal"
-              style="
-                position: absolute;
-                top: 8px;
-                right: 8px;
-                z-index: 20;
-                background: white;
-                border: none;
-                border-radius: 4px;
-                padding: 5px 10px;
-              ">
-              Close
-            </button>
+        <div ref="quaggaModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1000; flex-direction:column; align-items:center; justify-content:center;">
+          <div style="position:relative; width:90%; max-width:640px; height:80%; max-height:480px; background:black; border-radius:8px; overflow:hidden;">
+            <button ref="closeModal" style="position:absolute; top:10px; right:10px; z-index:1001; background:rgba(255,255,255,0.8); border:none; border-radius:50%; width:36px; height:36px; display:flex; align-items:center; justify-content:center; font-size:18px; cursor:pointer;">×</button>
 
-            <!-- Container for Quagga’s <video> + overlay <canvas> -->
+            
+            <!-- Container for Scandit's DataCaptureView -->
             <div
-              ref="quaggaContainer"
+              ref="scanditContainer"
               style="
                 width: 100%;
                 height: 100%;
@@ -170,24 +127,10 @@ export default class BarcodeScanner extends FieldComponent {
                 justify-content: center;
                 overflow: hidden;
               ">
-              <!-- Overlay canvas for drawing boxes -->
-              <canvas
-                ref="quaggaOverlay"
-                width="640"
-                height="480"
-                style="
-                  position:absolute;
-                  top:0; left:0;
-                  width:100%;
-                  height:100%;
-                  cursor:pointer;
-                  z-index:10;
-                ">
-              </canvas>
             </div>
           </div>
           
-          <!-- Freeze/capture button - moved outside the container for better positioning -->
+          <!-- Freeze/capture button -->
           <button
             ref="freezeButton"
             style="
@@ -222,8 +165,7 @@ export default class BarcodeScanner extends FieldComponent {
       fileButton: "single",
       fileInput: "single",
       quaggaModal: "single",
-      quaggaContainer: "single",
-      quaggaOverlay: "single",
+      scanditContainer: "single",
       closeModal: "single",
       freezeButton: "single",
     });
@@ -234,8 +176,7 @@ export default class BarcodeScanner extends FieldComponent {
       !this.refs.fileButton ||
       !this.refs.fileInput ||
       !this.refs.quaggaModal ||
-      !this.refs.quaggaContainer ||
-      !this.refs.quaggaOverlay ||
+      !this.refs.scanditContainer ||
       !this.refs.closeModal ||
       !this.refs.freezeButton
     ) {
@@ -253,7 +194,7 @@ export default class BarcodeScanner extends FieldComponent {
       });
 
       this.refs.scanButton.addEventListener("click", () => {
-        this.openQuaggaModal();
+        this.openScanditModal();
       });
 
       this.refs.fileButton.addEventListener("click", () => {
@@ -267,1187 +208,796 @@ export default class BarcodeScanner extends FieldComponent {
       });
 
       this.refs.closeModal.addEventListener("click", () => {
-        this.stopQuagga();
-        this.refs.quaggaModal.style.display = "none";
-        this._clearOverlay();
-        this._lastBoxes = null;
-        this._lastCodes = []; // Reset to empty array
-        this._videoDims = null;
+        this.stopScanner();
+        this._lastCodes = [];
         this._isVideoFrozen = false;
-        this.refs.quaggaOverlay.removeEventListener("click", this._onOverlayClick);
-
-        // Clear the container when closing
-        if (this.refs.quaggaContainer) {
-          this.refs.quaggaContainer.innerHTML = "";
-        }
       });
 
       // Add freeze button event listener
       this.refs.freezeButton.addEventListener("click", () => {
         this._toggleFreezeVideo();
       });
+
     }
 
     return attached;
   }
 
-  processImageFile(file) {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        this.scanImageForBarcodes(img);
-      };
-      img.src = e.target.result;
-    };
-    reader.readAsDataURL(file);
+  detach() {
+    return super.detach();
   }
 
-  // Initialize ZXing reader
-  _initZXingReader() {
-    if (!this._zxingReader) {
-      const hints = new Map();
-      const formats = [
-        BarcodeFormat.CODE_128,
-        BarcodeFormat.EAN_13,
-        BarcodeFormat.EAN_8,
-        BarcodeFormat.UPC_A,
-        BarcodeFormat.UPC_E,
-        BarcodeFormat.CODE_39,
-        BarcodeFormat.CODABAR,
-        BarcodeFormat.ITF,
-        BarcodeFormat.CODE_93,
-      ];
-      hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
-      this._zxingReader = new BrowserMultiFormatReader(hints);
-    }
-    return this._zxingReader;
-  }
-
-  // Process image with ZXing
-  async _processWithZXing(imageSource) {
+  async processImageFile(file) {
     try {
-      const reader = this._initZXingReader();
-      const result = await reader.decodeFromImage(imageSource);
-      return {
-        code: result.getText(),
-        format: result.getBarcodeFormat().toString(),
-        resultPoints: result.getResultPoints(),
+      const imageData = await this._fileToImageData(file);
+      this.scanImageWithScandit(imageData);
+    } catch (error) {
+      console.error("Error processing image file:", error);
+      this.errorMessage = "Failed to process image file";
+    }
+  }
+
+  async _fileToImageData(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          resolve(img);
+        };
+        img.onerror = reject;
+        img.src = e.target.result;
       };
-    } catch (e) {
-      console.log("ZXing could not detect barcode:", e);
-      return null;
-    }
-  }
-
-  // Convert ZXing points to Quagga-compatible box format
-  _zxingPointsToBox(points) {
-    if (!points || points.length < 3) return null;
-
-    // ZXing typically returns 4 corner points for QR codes, but may return fewer for 1D barcodes
-    // We'll create a rectangle from the points we have
-    const box = [];
-
-    if (points.length >= 4) {
-      // Use all 4 points
-      for (let i = 0; i < 4; i++) {
-        box.push([points[i].getX(), points[i].getY()]);
-      }
-    } else {
-      // For 1D barcodes, create a rectangle from the available points
-      const xs = points.map((p) => p.getX());
-      const ys = points.map((p) => p.getY());
-      const minX = Math.min(...xs);
-      const maxX = Math.max(...xs);
-      const minY = Math.min(...ys);
-      const maxY = Math.max(...ys);
-
-      box.push([minX, minY]);
-      box.push([maxX, minY]);
-      box.push([maxX, maxY]);
-      box.push([minX, maxY]);
-    }
-
-    return box;
-  }
-
-  async scanImageForBarcodes(img) {
-    try {
-      // Setup UI as before
-      this.refs.quaggaModal.style.display = "flex";
-      this._lastBoxes = null;
-      this._lastCodes = [];
-      this._videoDims = null;
-      this._clearOverlay();
-
-      const container = this.refs.quaggaContainer;
-      const overlay = this.refs.quaggaOverlay;
-
-      // Clear previous content
-      container.innerHTML = "";
-
-      // Set dimensions based on image
-      this._videoDims = {
-        width: img.naturalWidth,
-        height: img.naturalHeight,
-      };
-
-      // Create a canvas to draw the image
-      const canvas = document.createElement("canvas");
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0);
-
-      // Display the image in the container
-      container.appendChild(img);
-      img.style.maxWidth = "100%";
-      img.style.height = "auto";
-      img.style.objectFit = "contain";
-
-      // Add the overlay to the container
-      container.appendChild(overlay);
-
-      // Show a loading message on the overlay
-      try {
-        const loadingCtx = overlay.getContext("2d");
-        overlay.width = img.naturalWidth;
-        overlay.height = img.naturalHeight;
-        loadingCtx.fillStyle = "rgba(0,0,0,0.7)";
-        loadingCtx.fillRect(overlay.width / 2 - 150, overlay.height / 2 - 20, 300, 40);
-        loadingCtx.fillStyle = "rgba(255,255,255,1)";
-        loadingCtx.font = "bold 24px sans-serif";
-        loadingCtx.textAlign = "center";
-        loadingCtx.fillText("Scanning barcodes...", overlay.width / 2, overlay.height / 2);
-      } catch (e) {
-        console.error("Error drawing loading message:", e);
-      }
-
-      // Setup overlay
-      overlay.style.position = "absolute";
-      overlay.style.left = "0";
-      overlay.style.top = "0";
-      overlay.style.width = "100%";
-      overlay.style.height = "100%";
-      overlay.style.pointerEvents = "auto";
-      overlay.style.zIndex = "10";
-
-      // Add click listener
-      try {
-        overlay.removeEventListener("click", this._onOverlayClick);
-        overlay.addEventListener("click", this._onOverlayClick);
-      } catch (e) {
-        console.error("Error setting up click listener:", e);
-      }
-
-      // Process with both libraries
-      setTimeout(async () => {
-        try {
-          // First try with ZXing
-          const zxingResult = await this._processWithZXing(img);
-
-          // Then try with Quagga
-          Quagga.decodeSingle(
-            {
-              decoder: {
-                readers: [
-                  "code_128_reader",
-                  "ean_reader",
-                  "ean_8_reader",
-                  "upc_reader",
-                  "upc_e_reader",
-                  "code_39_reader",
-                  "code_39_vin_reader",
-                  "codabar_reader",
-                  "i2of5_reader",
-                  "2of5_reader",
-                  "code_93_reader",
-                ],
-                multiple: true,
-                debug: {
-                  showCanvas: true,
-                  showPatches: true,
-                  showFoundPatches: true,
-                },
-              },
-              locate: true,
-              src: canvas.toDataURL("image/jpeg", 1.0),
-              locator: {
-                patchSize: "medium",
-                halfSample: true,
-              },
-              frequency: 1,
-            },
-            (quaggaResult) => {
-              try {
-                console.log("Quagga result:", quaggaResult);
-                console.log("ZXing result:", zxingResult);
-
-                // Make sure the overlay is still in the DOM
-                if (!container.contains(overlay)) {
-                  container.appendChild(overlay);
-                }
-
-                // Clear the overlay
-                const ctx = overlay.getContext("2d");
-                ctx.clearRect(0, 0, overlay.width, overlay.height);
-
-                // Combine results from both libraries
-                let detectedCodes = [];
-                let detectedBoxes = [];
-
-                // Process Quagga results
-                if (quaggaResult && quaggaResult.codeResult) {
-                  detectedCodes.push({
-                    code: quaggaResult.codeResult.code,
-                    format: quaggaResult.codeResult.format,
-                    source: "quagga",
-                  });
-
-                  if (quaggaResult.box) {
-                    const boxCopy = quaggaResult.box.slice();
-                    boxCopy.code = quaggaResult.codeResult.code;
-                    detectedBoxes.push(boxCopy);
-                  }
-                }
-
-                // Process ZXing results
-                if (zxingResult) {
-                  // Only add if not already detected by Quagga
-                  if (!detectedCodes.some((c) => c.code === zxingResult.code)) {
-                    detectedCodes.push({
-                      code: zxingResult.code,
-                      format: zxingResult.format,
-                      source: "zxing",
-                    });
-
-                    const zxingBox = this._zxingPointsToBox(zxingResult.resultPoints);
-                    if (zxingBox) {
-                      zxingBox.code = zxingResult.code;
-                      detectedBoxes.push(zxingBox);
-                    }
-                  }
-                }
-
-                // Update state with detected codes
-                this._lastCodes = detectedCodes.map((c) => c.code);
-                this._lastBoxes = detectedBoxes;
-
-                // Draw results
-                if (detectedCodes.length > 0) {
-                  // Draw boxes
-                  detectedBoxes.forEach((box, index) => {
-                    // Use different colors for different sources
-                    const isZXing = detectedCodes[index]?.source === "zxing";
-                    ctx.strokeStyle = isZXing ? "rgba(0,0,255,1)" : "rgba(0,255,0,1)";
-                    ctx.lineWidth = 5;
-
-                    ctx.beginPath();
-                    ctx.moveTo(box[0][0], box[0][1]);
-                    for (let i = 1; i < box.length; i++) {
-                      ctx.lineTo(box[i][0], box[i][1]);
-                    }
-                    ctx.closePath();
-                    ctx.stroke();
-
-                    // Add code label
-                    if (box.code) {
-                      // Get the minimum x and y coordinates to position text above the box
-                      const xs = box.map((pt) => pt[0]);
-                      const ys = box.map((pt) => pt[1]);
-                      const x0 = Math.min(...xs);
-                      const y0 = Math.min(...ys);
-
-                      // Add background for text
-                      ctx.fillStyle = "rgba(0,0,0,0.7)";
-                      ctx.fillRect(x0, y0 - 30, 200, 25);
-
-                      // Draw text
-                      ctx.fillStyle = isZXing ? "rgba(0,0,255,1)" : "rgba(0,255,0,1)";
-                      ctx.font = "bold 20px sans-serif";
-                      ctx.fillText(box.code, x0 + 5, y0 - 8);
-                    }
-                  });
-                } else {
-                  // No barcode found
-                  ctx.fillStyle = "rgba(0,0,0,0.7)";
-                  ctx.fillRect(overlay.width / 2 - 150, overlay.height / 2 - 20, 300, 40);
-
-                  ctx.fillStyle = "rgba(255,0,0,1)";
-                  ctx.font = "bold 24px sans-serif";
-                  ctx.textAlign = "center";
-                  ctx.fillText("No barcode detected", overlay.width / 2, overlay.height / 2);
-                }
-              } catch (e) {
-                console.error("Error processing results:", e);
-              }
-            },
-          );
-        } catch (e) {
-          console.error("Error in barcode processing:", e);
-        }
-      }, 500);
-    } catch (e) {
-      console.error("Error in scanImageForBarcodes:", e);
-    }
-  }
-
-  openQuaggaModal() {
-    this.refs.quaggaModal.style.display = "flex";
-    this._lastBoxes = null;
-    this._lastCodes = [];
-    this._videoDims = null;
-    this._isVideoFrozen = false;
-    this._clearOverlay();
-
-    const overlay = this.refs.quaggaOverlay;
-    const container = this.refs.quaggaContainer;
-    const freezeButton = this.refs.freezeButton;
-
-    // Reset freeze button
-    freezeButton.innerHTML = '<i class="fa fa-camera" style="font-size: 24px;"></i>';
-    freezeButton.style.background = "rgba(255,255,255,0.8)";
-    freezeButton.style.display = "flex"; // Ensure button is visible
-
-    // Clear any previous content
-    container.innerHTML = "";
-
-    // Make sure the overlay is in the DOM and positioned correctly
-    if (!container.contains(overlay)) {
-      container.appendChild(overlay);
-    }
-
-    // Make sure the freeze button is in the DOM
-    if (!container.contains(freezeButton)) {
-      container.appendChild(freezeButton);
-    }
-
-    overlay.style.pointerEvents = "auto";
-    overlay.style.zIndex = "10";
-    overlay.addEventListener("click", this._onOverlayClick);
-
-    // Initialize ZXing reader
-    this._initZXingReader();
-
-    const config = {
-      inputStream: {
-        name: "Live",
-        type: "LiveStream",
-        target: this.refs.quaggaContainer,
-        constraints: {
-          audio: false,
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-        },
-        area: { top: "0%", right: "0%", left: "0%", bottom: "0%" },
-        willReadFrequently: true,
-      },
-      locator: {
-        patchSize: "medium",
-        halfSample: true,
-      },
-      decoder: {
-        readers: [
-          "code_128_reader",
-          "ean_reader",
-          "ean_8_reader",
-          "upc_reader",
-          "upc_e_reader",
-          "code_39_reader",
-          "code_39_vin_reader",
-          "codabar_reader",
-          "i2of5_reader",
-          "2of5_reader",
-          "code_93_reader",
-        ],
-        multiple: true,
-        debug: {
-          showCanvas: false,
-          showPatches: false,
-          showFoundPatches: false,
-        },
-        frequency: 10,
-      },
-      locate: true,
-      numOfWorkers: 2,
-    };
-
-    window.Quagga.init(config, (err) => {
-      if (err) {
-        console.error("Quagga init error:", err);
-        const container = this.refs.quaggaContainer;
-        container.innerHTML = `
-          <div style="
-            color: white;
-            text-align: center;
-            padding: 20px;
-            font-size: 1rem;
-          ">
-            🚫 Camera failed to start:<br>
-            ${err.name || err.message}
-          </div>`;
-        return;
-      }
-
-      // Get video dimensions before starting
-      setTimeout(() => {
-        const videoEl = container.querySelector("video");
-        if (videoEl) {
-          // Store reference to video element
-          this._videoElement = videoEl;
-
-          this._videoDims = {
-            width: videoEl.videoWidth || 640,
-            height: videoEl.videoHeight || 480,
-          };
-
-          // Set overlay dimensions to match video
-          overlay.width = this._videoDims.width;
-          overlay.height = this._videoDims.height;
-
-          console.log("Video dimensions set to:", this._videoDims);
-        }
-
-        window.Quagga.start();
-
-        // Hide the drawingBuffer canvas that Quagga creates
-        setTimeout(() => {
-          const canvas = document.querySelector("canvas.drawingBuffer");
-          if (canvas) canvas.style.display = "none";
-        }, 50);
-
-        // Make sure our overlay is on top
-        if (container.contains(overlay)) {
-          container.appendChild(overlay);
-        }
-
-        // Add the freeze button to the container
-        if (container.contains(this.refs.freezeButton)) {
-          container.appendChild(this.refs.freezeButton);
-        }
-
-        // Start Quagga processing first, then ZXing as a backup
-        this._startQuaggaProcessing();
-
-        // Delay ZXing setup to ensure Quagga is running smoothly first
-        setTimeout(() => {
-          this._setupZXingVideoProcessing();
-        }, 1000);
-      }, 300);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
     });
   }
 
-  // Setup ZXing to process video frames
-  _setupZXingVideoProcessing() {
+  async scanImageWithScandit(_imageSource) {
     try {
-      // Clear any existing interval
-      if (this._zxingInterval) {
-        clearInterval(this._zxingInterval);
-        this._zxingInterval = null;
-      }
-
-      // Since ZXing is having trouble detecting barcodes that Quagga can detect,
-      // we'll reduce the frequency of ZXing processing to avoid performance issues
-      // and rely more on Quagga for primary detection
-
-      const container = this.refs.quaggaContainer;
-      const videoEl = container.querySelector("video");
-
-      if (!videoEl) {
-        console.warn("No video element found for ZXing processing");
-        return;
-      }
-
-      // Create a canvas for capturing video frames
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-
-      // Process video frames with ZXing at a lower frequency (every 1.5 seconds)
-      this._zxingInterval = setInterval(async () => {
-        try {
-          // Skip ZXing processing if we already have detected codes from Quagga
-          if (this._lastCodes.length > 0) {
-            return;
-          }
-
-          if (videoEl.readyState === videoEl.HAVE_ENOUGH_DATA) {
-            // Capture a frame from the video
-            canvas.width = videoEl.videoWidth;
-            canvas.height = videoEl.videoHeight;
-            ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
-
-            // Convert canvas to image URL
-            const imageUrl = canvas.toDataURL("image/jpeg", 0.8);
-
-            // Create an image element
-            const img = new Image();
-            img.onload = async () => {
-              try {
-                // Use decodeFromImage
-                const zxingResult = await this._zxingReader.decodeFromImage(img);
-
-                if (zxingResult) {
-                  console.log("ZXing detected barcode:", zxingResult);
-
-                  // Create a box from ZXing result points
-                  const box = this._zxingPointsToBox(zxingResult.getResultPoints());
-
-                  if (box) {
-                    // Add code to the box
-                    box.code = zxingResult.getText();
-                    box.format = zxingResult.getBarcodeFormat().toString();
-                    box.source = "zxing";
-
-                    // Add to detected codes if not already present
-                    if (!this._lastCodes.includes(box.code)) {
-                      this._lastCodes.push(box.code);
-                    }
-
-                    // Add to boxes if not already present
-                    if (!this._lastBoxes) {
-                      this._lastBoxes = [];
-                    }
-
-                    // Check if we already have this box
-                    const boxExists = this._lastBoxes.some(
-                      (existingBox) =>
-                        existingBox.code === box.code && existingBox.source === "zxing",
-                    );
-
-                    if (!boxExists) {
-                      this._lastBoxes.push(box);
-                    }
-                  }
-                }
-              } catch (e) {
-                // ZXing throws when no barcode is found, so we can ignore this error
-                if (e.name !== "NotFoundException") {
-                  console.error("Error in ZXing image processing:", e);
-                }
-              }
-            };
-            img.src = imageUrl;
-          }
-        } catch (e) {
-          console.error("Error in ZXing processing:", e);
-        }
-      }, 1500); // Process every 1.5 seconds to reduce load
-    } catch (e) {
-      console.error("Error setting up ZXing video processing:", e);
+      // For now, let's use a simpler approach and show an error message
+      // The Scandit Web SDK doesn't have a straightforward way to process
+      // arbitrary image files directly. The SingleImageUploader is designed
+      // to present its own UI for image selection.
+      this.errorMessage = "Image file processing not yet implemented with Scandit SDK";
+      setTimeout(() => {
+        this.errorMessage = "";
+        this.redraw();
+      }, 3000);
+    } catch (error) {
+      console.error("Error scanning image with Scandit:", error);
+      this.errorMessage = "Failed to scan image";
+      setTimeout(() => {
+        this.errorMessage = "";
+        this.redraw();
+      }, 3000);
     }
   }
 
-  _startQuaggaProcessing() {
+  async _initializeScandit() {
     try {
-      const overlay = this.refs.quaggaOverlay;
-      const container = this.refs.quaggaContainer;
-      const videoEl = container.querySelector("video");
+      // Configure Scandit SDK if not already configured
+      if (!scanditConfigured) {
+        await configure({
+          licenseKey: this._licenseKey,
+          // Use CDN for now since serving sdc-lib files requires special webpack configuration
+          libraryLocation: "https://cdn.jsdelivr.net/npm/@scandit/web-datacapture-barcode@7.4.0/sdc-lib/",
+          moduleLoaders: [barcodeCaptureLoader()]
+        });
+        scanditConfigured = true;
+      }
 
-      // Debug info
-      console.log("Starting Quagga processing");
-      console.log("Overlay exists:", !!overlay);
-      console.log("Container exists:", !!container);
-      console.log("Video element exists:", !!videoEl);
+      // Create data capture context
+      this._dataCaptureContext = await DataCaptureContext.create();
+      
+      // Configure barcode capture settings for continuous tracking
+      const settings = new BarcodeCaptureSettings();
 
-      if (!videoEl) {
-        console.warn("No video element found, cannot start processing");
+      // Enable common symbologies (using the exact names from Scandit documentation)
+      try {
+        settings.enableSymbologies([
+          Symbology.Code128,
+          Symbology.Code39,
+          Symbology.QR,
+          Symbology.EAN8,
+          Symbology.UPCE,
+          Symbology.EAN13UPCA,
+          Symbology.DataMatrix
+        ]);
+        console.log("Symbologies enabled successfully");
+      } catch (symbologyError) {
+        console.error("Error enabling symbologies:", symbologyError);
+        throw symbologyError;
+      }
+
+      // Configure for continuous tracking
+      try {
+        // Enable continuous scanning without stopping after detection
+        settings.codeDuplicateFilter = 0; // Allow immediate re-detection of same codes
+
+        // Set location selection to maximize tracking area
+        if (settings.locationSelection) {
+          settings.locationSelection = null; // Use full camera view
+        }
+
+        console.log("Continuous tracking settings applied");
+      } catch (settingsError) {
+        console.warn("Some tracking settings not available:", settingsError);
+      }
+      
+      // Create barcode capture instance
+      try {
+        console.log("Creating BarcodeCapture with context:", this._dataCaptureContext);
+        this._barcodeCapture = await BarcodeCapture.forContext(this._dataCaptureContext, settings);
+        console.log("BarcodeCapture created successfully:", this._barcodeCapture);
+      } catch (captureError) {
+        console.error("Error creating BarcodeCapture:", captureError);
+        throw captureError;
+      }
+      
+      // Setup barcode capture listener
+      this._barcodeCapture.addListener({
+        didUpdateSession: (_, session) => {
+          // This is called for every frame, allowing continuous tracking
+          try {
+            if (!session) return;
+
+            // Update last barcode time to keep tracking active
+            this._lastBarcodeTime = Date.now();
+
+            // Get ALL tracked barcodes from the session
+            const trackedBarcodes = session.trackedBarcodes || new Map();
+            const allVisibleBarcodes = Array.from(trackedBarcodes.values());
+
+            console.log("didUpdateSession - tracked barcodes:", trackedBarcodes.size, "visible:", allVisibleBarcodes.length);
+
+            if (allVisibleBarcodes.length > 0) {
+              // Extract the actual barcode objects from tracked barcodes
+              const barcodeObjects = allVisibleBarcodes.map(tracked => tracked.barcode).filter(b => b);
+              console.log("Extracted barcode objects:", barcodeObjects.length);
+
+              // Log details of each barcode for debugging
+              barcodeObjects.forEach((barcode, index) => {
+                console.log(`Barcode ${index}: ${barcode.data} at location:`, barcode.location);
+              });
+
+              if (barcodeObjects.length > 0) {
+                this._drawBoundingBoxes(barcodeObjects);
+                return; // Don't clear if we have barcodes
+              }
+            }
+
+            // Also check for newly recognized barcodes as fallback
+            const newlyRecognizedBarcodes = session.newlyRecognizedBarcodes || [];
+            if (newlyRecognizedBarcodes.length > 0) {
+              console.log("Using newly recognized barcodes:", newlyRecognizedBarcodes.length);
+              this._drawBoundingBoxes(newlyRecognizedBarcodes);
+              return;
+            }
+
+            // Try to get all barcodes from the session in different ways
+            if (session.newlyRecognizedBarcode) {
+              console.log("Using single newly recognized barcode");
+              this._drawBoundingBoxes([session.newlyRecognizedBarcode]);
+              return;
+            }
+
+            // Don't clear bounding boxes automatically - let them persist for continuous tracking
+            // Only clear if we haven't had any barcode activity for a longer time
+            if (!this._lastBarcodeTime || Date.now() - this._lastBarcodeTime > 1000) {
+              this._clearBoundingBoxes();
+            }
+          } catch (error) {
+            console.warn("Error in didUpdateSession:", error);
+          }
+        },
+        didScan: (_, session) => {
+          try {
+            // Check if session exists
+            if (!session) {
+              console.warn("Invalid session");
+              return;
+            }
+
+            const newlyRecognized = session.newlyRecognizedBarcode;
+
+            if (newlyRecognized) {
+              // Log barcode value to console
+              console.log("Barcode detected:", newlyRecognized.data);
+              console.log("Barcode location:", newlyRecognized.location);
+
+              // Try drawing the newly recognized barcode immediately
+              if (newlyRecognized.location) {
+                console.log("Drawing newly recognized barcode");
+                this._drawBoundingBoxes([newlyRecognized]);
+              }
+
+              // Store detected barcode for potential selection (avoid duplicates)
+              const existingCode = this._lastCodes.find(c => c.code === newlyRecognized.data);
+              if (!existingCode) {
+                this._lastCodes.push({
+                  code: newlyRecognized.data,
+                  format: newlyRecognized.symbology
+                });
+              }
+
+              // Show brief visual feedback for newly detected barcodes
+              if (this.refs.quaggaModal) {
+                this.refs.quaggaModal.style.border = "4px solid lime";
+                setTimeout(() => {
+                  if (this.refs.quaggaModal) {
+                    this.refs.quaggaModal.style.border = "";
+                  }
+                }, 200);
+              }
+            }
+
+            // Don't draw bounding boxes here - let didUpdateSession handle all drawing
+            // This prevents conflicts between the two callbacks
+
+          } catch (error) {
+            console.error("Error in didScan callback:", error);
+          }
+        }
+      });
+      
+      // Create data capture view
+      this._dataCaptureView = await DataCaptureView.forContext(this._dataCaptureContext);
+
+      // Connect barcode capture to view
+      this._dataCaptureView.connectToElement(this.refs.scanditContainer);
+
+      // Create bounding box overlay
+      this._createBoundingBoxOverlay();
+
+      // Start continuous bounding box clearing for live scanning
+      this._startLiveScanningMode();
+
+      // Start aggressive continuous tracking
+      this._startContinuousTracking();
+    } catch (error) {
+      console.error("Error initializing Scandit:", error);
+      this.errorMessage = "Failed to initialize barcode scanner";
+    }
+  }
+
+  async openScanditModal() {
+    this.refs.quaggaModal.style.display = "flex";
+    this._lastCodes = [];
+    this._isVideoFrozen = false;
+
+    // Reset freeze button
+    this.refs.freezeButton.innerHTML = '<i class="fa fa-camera" style="font-size: 24px;"></i>';
+    this.refs.freezeButton.style.background = "rgba(255,255,255,0.8)";
+    this.refs.freezeButton.style.display = "flex"; // Ensure button is visible
+
+    try {
+      // Initialize Scandit if not already done
+      if (!this._dataCaptureContext) {
+        await this._initializeScandit();
+      }
+
+      // Setup camera
+      await this._setupCamera();
+    } catch (error) {
+      console.error("Error opening Scandit modal:", error);
+      this.errorMessage = "Failed to initialize scanner";
+      this.refs.quaggaModal.style.display = "none";
+    }
+  }
+  
+  async _setupCamera() {
+    try {
+      // Get recommended camera settings for barcode capture
+      const cameraSettings = BarcodeCapture.recommendedCameraSettings;
+
+      // Get camera
+      this._camera = Camera.default;
+      if (this._camera) {
+        // Set camera settings
+        await this._camera.applySettings(cameraSettings);
+
+        // Set camera as frame source
+        await this._dataCaptureContext.setFrameSource(this._camera);
+
+        // Switch camera on
+        await this._camera.switchToDesiredState(FrameSourceState.On);
+
+        // Start scanning
+        if (this._barcodeCapture) {
+          await this._barcodeCapture.setEnabled(true);
+        } else {
+          throw new Error("BarcodeCapture instance is null");
+        }
+      } else {
+        console.error("No camera available");
+        this.errorMessage = "No camera available";
+      }
+    } catch (error) {
+      console.error("Error setting up camera:", error);
+      this.errorMessage = "Failed to access camera";
+      
+      // Show error in the container
+      this.refs.scanditContainer.innerHTML = `
+        <div style="
+          color: white;
+          text-align: center;
+          padding: 20px;
+          font-size: 1rem;
+        ">
+          🚫 Camera failed to start:<br>
+          ${error.name || error.message}
+        </div>`;
+    }
+  }
+
+  _showBarcodeSelectionUI() {
+    if (this._lastCodes.length === 0) return;
+    
+    // Create selection UI
+    const selectionUI = document.createElement("div");
+    selectionUI.style.position = "absolute";
+    selectionUI.style.top = "50%";
+    selectionUI.style.left = "50%";
+    selectionUI.style.transform = "translate(-50%, -50%)";
+    selectionUI.style.background = "white";
+    selectionUI.style.padding = "20px";
+    selectionUI.style.borderRadius = "8px";
+    selectionUI.style.zIndex = "1002";
+    selectionUI.style.display = "flex";
+    selectionUI.style.flexDirection = "column";
+    selectionUI.style.alignItems = "center";
+    
+    // Add title
+    const title = document.createElement("div");
+    title.textContent = "Select a barcode:";
+    title.style.marginBottom = "10px";
+    title.style.fontWeight = "bold";
+    selectionUI.appendChild(title);
+    
+    // Add buttons for each code
+    this._lastCodes.forEach((codeInfo) => {
+      const button = document.createElement("button");
+      button.textContent = `${codeInfo.code} (${codeInfo.format})`;
+      button.style.margin = "5px";
+      button.style.padding = "8px 12px";
+      button.style.border = "none";
+      button.style.borderRadius = "4px";
+      button.style.background = "#4CAF50";
+      button.style.color = "white";
+      button.style.cursor = "pointer";
+      
+      button.addEventListener("click", () => {
+        this.updateValue(codeInfo.code);
+        this.refs.barcode.value = codeInfo.code;
+        this.stopScanner();
+        this._lastCodes = [];
+
+        // Remove selection UI
+        if (selectionUI.parentNode) {
+          selectionUI.parentNode.removeChild(selectionUI);
+        }
+      });
+      
+      selectionUI.appendChild(button);
+    });
+    
+    // Add to modal
+    this.refs.quaggaModal.appendChild(selectionUI);
+  }
+
+  _toggleFreezeVideo() {
+    try {
+      this._isVideoFrozen = !this._isVideoFrozen;
+      
+      // Update button appearance
+      if (this._isVideoFrozen) {
+        this.refs.freezeButton.innerHTML = '<i class="fa fa-play" style="font-size: 24px;"></i>';
+        this.refs.freezeButton.style.background = "rgba(0,255,0,0.8)";
+        
+        // Pause camera
+        if (this._camera) {
+          this._camera.switchToDesiredState(FrameSourceState.Off);
+        }
+        
+        // If we have detected codes, show selection UI
+        if (this._lastCodes.length > 0) {
+          this._showBarcodeSelectionUI();
+        }
+      } else {
+        this.refs.freezeButton.innerHTML = '<i class="fa fa-camera" style="font-size: 24px;"></i>';
+        this.refs.freezeButton.style.background = "rgba(255,255,255,0.8)";
+        
+        // Resume camera
+        if (this._camera) {
+          this._camera.switchToDesiredState(FrameSourceState.On);
+        }
+        
+        // Remove any selection UI
+        const selectionUI = this.refs.quaggaModal.querySelector("div[style*='z-index: 1002']");
+        if (selectionUI) {
+          selectionUI.parentNode.removeChild(selectionUI);
+        }
+      }
+    } catch (e) {
+      console.error("Error toggling video freeze:", e);
+    }
+  }
+
+
+
+
+
+
+
+
+
+
+
+
+  async stopScanner() {
+    try {
+      if (this._camera) {
+        await this._camera.switchToDesiredState(FrameSourceState.Off);
+      }
+
+      if (this._barcodeCapture) {
+        await this._barcodeCapture.setEnabled(false);
+      }
+
+      // Stop live scanning mode
+      this._stopLiveScanningMode();
+
+      // Stop continuous tracking
+      this._stopContinuousTracking();
+
+      // Clear bounding boxes
+      this._clearBoundingBoxes();
+
+      // Properly close the modal
+      if (this.refs.quaggaModal) {
+        setTimeout(() => {
+          //this.refs.quaggaModal.style.display = "none";
+        }, 500);
+      }
+
+      this._isVideoFrozen = false;
+    } catch (e) {
+      console.error("Error stopping scanner:", e);
+    }
+  }
+
+  _createBoundingBoxOverlay() {
+    // Create overlay canvas for bounding boxes
+    this._boundingBoxCanvas = document.createElement('canvas');
+    this._boundingBoxCanvas.style.position = 'absolute';
+    this._boundingBoxCanvas.style.top = '0';
+    this._boundingBoxCanvas.style.left = '0';
+    this._boundingBoxCanvas.style.width = '100%';
+    this._boundingBoxCanvas.style.height = '100%';
+    this._boundingBoxCanvas.style.pointerEvents = 'auto'; // Enable clicks
+    this._boundingBoxCanvas.style.zIndex = '1000';
+    this._boundingBoxCanvas.style.cursor = 'pointer';
+
+    this._boundingBoxContext = this._boundingBoxCanvas.getContext('2d');
+
+    // Add canvas to the scandit container
+    this.refs.scanditContainer.appendChild(this._boundingBoxCanvas);
+
+    // Add click handler for bounding box selection
+    this._boundingBoxCanvas.addEventListener('click', (event) => {
+      this._handleBoundingBoxClick(event);
+    });
+
+    // Use simple event-based approach for resize handling
+    this._resizeHandler = () => {
+      if (this._boundingBoxCanvas) {
+        requestAnimationFrame(() => this._resizeBoundingBoxCanvas());
+      }
+    };
+
+    // Add event listeners for various size change scenarios
+    window.addEventListener('resize', this._resizeHandler);
+    window.addEventListener('orientationchange', this._resizeHandler);
+
+    // Initial sizing
+    this._resizeBoundingBoxCanvas();
+
+    // Test canvas by drawing a small test rectangle
+    setTimeout(() => {
+      if (this._boundingBoxContext) {
+        console.log("Drawing test rectangle on canvas");
+        this._boundingBoxContext.strokeStyle = 'red';
+        this._boundingBoxContext.lineWidth = 2;
+        this._boundingBoxContext.strokeRect(10, 10, 100, 50);
+        this._boundingBoxContext.fillStyle = 'rgba(255, 0, 0, 0.3)';
+        this._boundingBoxContext.fillRect(10, 10, 100, 50);
+
+        // Clear test rectangle after 3 seconds
+        setTimeout(() => {
+          if (this._boundingBoxContext) {
+            this._boundingBoxContext.clearRect(0, 0, this._boundingBoxCanvas.width, this._boundingBoxCanvas.height);
+          }
+        }, 3000);
+      }
+    }, 1000);
+  }
+
+  _resizeBoundingBoxCanvas() {
+    try {
+      if (!this._boundingBoxCanvas || !this.refs.scanditContainer) return;
+
+      const container = this.refs.scanditContainer;
+      const rect = container.getBoundingClientRect();
+
+      // Validate dimensions
+      if (!rect || rect.width <= 0 || rect.height <= 0) return;
+
+      // Set canvas size to match the actual display size
+      const newWidth = Math.floor(rect.width);
+      const newHeight = Math.floor(rect.height);
+
+      // Set both the canvas internal size and display size
+      if (this._boundingBoxCanvas.width !== newWidth || this._boundingBoxCanvas.height !== newHeight) {
+        this._boundingBoxCanvas.width = newWidth;
+        this._boundingBoxCanvas.height = newHeight;
+
+        // Also set the CSS size to match exactly
+        this._boundingBoxCanvas.style.width = newWidth + 'px';
+        this._boundingBoxCanvas.style.height = newHeight + 'px';
+
+        console.log("Canvas resized to:", newWidth, "x", newHeight);
+      }
+    } catch (error) {
+      console.warn('Resize canvas error:', error);
+    }
+  }
+
+  _drawBoundingBoxes(barcodes) {
+    try {
+      if (!this._boundingBoxContext || !this._boundingBoxCanvas) {
+        console.warn("Canvas or context not available for drawing");
         return;
       }
 
-      // Wait for video dimensions if not already set
-      if (!this._videoDims && videoEl) {
-        this._videoDims = {
-          width: videoEl.videoWidth || 640,
-          height: videoEl.videoHeight || 480,
-        };
+      // Store barcodes for click detection
+      this._currentBarcodes = barcodes || [];
+
+      // Debug logging
+      console.log("Drawing bounding boxes for", barcodes?.length || 0, "barcodes");
+      if (barcodes && barcodes.length > 0) {
+        console.log("First barcode location:", barcodes[0].location);
       }
 
-      console.log("Video dimensions:", this._videoDims);
+      // Throttle drawing to avoid excessive redraws
+      if (this._drawingPending) return;
+      this._drawingPending = true;
 
-      // Ensure overlay is properly sized and positioned
-      overlay.width = this._videoDims.width;
-      overlay.height = this._videoDims.height;
-
-      // Position overlay exactly over the video
-      overlay.style.position = "absolute";
-      overlay.style.left = "0";
-      overlay.style.top = "0";
-      overlay.style.width = "100%";
-      overlay.style.height = "100%";
-
-      // Force overlay to be visible
-      overlay.style.display = "block";
-      overlay.style.pointerEvents = "auto";
-      overlay.style.zIndex = "10";
-
-      // Reduce processing frequency to prevent performance issues
-      let processCount = 0;
-
-      window.Quagga.onProcessed((result) => {
+      // Use requestAnimationFrame for smooth updates
+      requestAnimationFrame(() => {
         try {
-          // Only process every 3rd frame to reduce load
-          processCount++;
-          if (processCount % 3 !== 0) return;
+          this._drawingPending = false;
 
-          const ctx = overlay.getContext("2d");
-          if (!ctx) {
-            console.error("Could not get overlay context");
+          const width = this._boundingBoxCanvas.width;
+          const height = this._boundingBoxCanvas.height;
+
+          if (width <= 0 || height <= 0) {
+            this._resizeBoundingBoxCanvas();
             return;
           }
 
           // Clear the entire canvas
-          ctx.clearRect(0, 0, overlay.width, overlay.height);
+          this._boundingBoxContext.clearRect(0, 0, width, height);
 
-          // Process boxes from the result
-          let rawBoxes = [];
+          if (!barcodes || barcodes.length === 0) return;
 
-          if (result && Array.isArray(result)) {
-            rawBoxes = result
-              .filter((item) => item && item.box && Array.isArray(item.box))
-              .map((item) => {
-                const boxCopy = item.box.slice();
-                if (item.codeResult && item.codeResult.code) {
-                  boxCopy.code = item.codeResult.code || "test";
-                  //boxCopy.format = item.codeResult.format;
-                }
-                return boxCopy;
-              });
+          // Set drawing styles
+          this._boundingBoxContext.strokeStyle = '#00ff00';
+          this._boundingBoxContext.lineWidth = 3;
+          this._boundingBoxContext.fillStyle = 'rgba(0, 255, 0, 0.2)';
+          this._boundingBoxContext.font = '14px Arial';
+          this._boundingBoxContext.textAlign = 'left';
+
+          // Get scaling factors for coordinate transformation
+          const videoElement = this.refs.scanditContainer?.querySelector('video');
+          let scaleX = 1, scaleY = 1;
+
+          if (videoElement && videoElement.videoWidth && videoElement.videoHeight) {
+            scaleX = width / videoElement.videoWidth;
+            scaleY = height / videoElement.videoHeight;
+            console.log(`Video dimensions: ${videoElement.videoWidth}x${videoElement.videoHeight}`);
+            console.log(`Canvas dimensions: ${width}x${height}`);
+            console.log(`Scale factors: ${scaleX}, ${scaleY}`);
           }
 
-          this._lastBoxes = rawBoxes;
+          // Draw all barcodes
+          for (const barcode of barcodes) {
+            if (!barcode.location || !barcode.location.topLeft) continue;
 
-          // Draw all boxes
-          if (this._lastBoxes && this._lastBoxes.length > 0) {
-            this._lastBoxes.forEach((box, index) => {
-              try {
-                if (box && box.length >= 4) {
-                  if (box.code) {
-                    // Use different colors for different sources
-                    ctx.strokeStyle =
-                      box.source === "zxing" ? "rgba(0,0,255,1)" : "rgba(0,255,0,1)";
-                    ctx.lineWidth = 3;
+            const { topLeft, topRight, bottomRight, bottomLeft } = barcode.location;
 
-                    ctx.beginPath();
-                    ctx.moveTo(box[0][0], box[0][1]);
-                    for (let i = 1; i < box.length; i++) {
-                      ctx.lineTo(box[i][0], box[i][1]);
-                    }
-                    ctx.closePath();
+            // Apply scaling to coordinates
+            const scaledTopLeft = { x: topLeft.x * scaleX, y: topLeft.y * scaleY };
+            const scaledTopRight = { x: topRight.x * scaleX, y: topRight.y * scaleY };
+            const scaledBottomRight = { x: bottomRight.x * scaleX, y: bottomRight.y * scaleY };
+            const scaledBottomLeft = { x: bottomLeft.x * scaleX, y: bottomLeft.y * scaleY };
 
-                    ctx.stroke();
-                    // Add code label
-                    // Get the minimum x and y coordinates to position text above the box
-                    const xs = box.map((pt) => pt[0]);
-                    const ys = box.map((pt) => pt[1]);
-                    const x0 = Math.min(...xs);
-                    const y0 = Math.min(...ys);
+            console.log(`Barcode ${barcode.data}: original=(${topLeft.x},${topLeft.y}) scaled=(${scaledTopLeft.x},${scaledTopLeft.y})`);
 
-                    // Add background for text
-                    ctx.fillStyle = "rgba(0,0,0,0.7)";
-                    ctx.fillRect(x0, y0 - 30, 200, 25);
+            // Draw the bounding box
+            this._boundingBoxContext.beginPath();
+            this._boundingBoxContext.moveTo(scaledTopLeft.x, scaledTopLeft.y);
+            this._boundingBoxContext.lineTo(scaledTopRight.x, scaledTopRight.y);
+            this._boundingBoxContext.lineTo(scaledBottomRight.x, scaledBottomRight.y);
+            this._boundingBoxContext.lineTo(scaledBottomLeft.x, scaledBottomLeft.y);
+            this._boundingBoxContext.closePath();
+            this._boundingBoxContext.fill();
+            this._boundingBoxContext.stroke();
 
-                    // Draw text
-                    ctx.fillStyle = box.source === "zxing" ? "rgba(0,0,255,1)" : "rgba(0,255,0,1)";
-                    ctx.font = "bold 20px sans-serif";
-                    ctx.fillText(box.code, x0 + 5, y0 - 8);
-                  }
-                }
-              } catch (e) {
-                console.error(`Error drawing box:`, e);
-              }
-            });
+            // Draw the label
+            const text = `${barcode.symbology}: ${barcode.data}`;
+            const textX = Math.min(scaledTopLeft.x, scaledBottomLeft.x);
+            const textY = Math.min(scaledTopLeft.y, scaledTopRight.y) - 5;
+
+            const textMetrics = this._boundingBoxContext.measureText(text);
+            this._boundingBoxContext.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            this._boundingBoxContext.fillRect(textX, textY - 16, textMetrics.width + 8, 20);
+
+            this._boundingBoxContext.fillStyle = '#ffffff';
+            this._boundingBoxContext.fillText(text, textX + 4, textY - 2);
+            this._boundingBoxContext.fillStyle = 'rgba(0, 255, 0, 0.2)';
           }
-
-          // If we have detected codes but no boxes, show a message
-          if (this._lastCodes.length > 0 && (!this._lastBoxes || this._lastBoxes.length === 0)) {
-            ctx.font = "20px Arial";
-            ctx.fillStyle = "white";
-            ctx.textAlign = "center";
-            ctx.fillText(
-              `${this._lastCodes.length} barcode(s) detected`,
-              overlay.width / 2,
-              overlay.height / 2 - 20,
-            );
-            ctx.fillText("Tap to select", overlay.width / 2, overlay.height / 2 + 20);
-          }
-        } catch (e) {
-          console.error("Error in onProcessed:", e);
+        } catch (error) {
+          console.error("Error in drawing frame:", error);
+          this._drawingPending = false;
         }
       });
+    } catch (error) {
+      console.error("Error drawing bounding boxes:", error);
+    }
+  }
 
-      window.Quagga.onDetected((data) => {
+  _clearBoundingBoxes() {
+    if (this._boundingBoxContext && this._boundingBoxCanvas) {
+      this._boundingBoxContext.clearRect(0, 0, this._boundingBoxCanvas.width, this._boundingBoxCanvas.height);
+    }
+  }
+
+  _handleBoundingBoxClick(event) {
+    if (!this._currentBarcodes || this._currentBarcodes.length === 0) return;
+
+    // Get click coordinates relative to canvas
+    const rect = this._boundingBoxCanvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+
+    // Check if click is inside any barcode bounding box
+    for (const barcode of this._currentBarcodes) {
+      if (!barcode.location || !barcode.location.topLeft) continue;
+
+      const { topLeft, topRight, bottomRight, bottomLeft } = barcode.location;
+
+      // Simple point-in-polygon test for the barcode rectangle
+      if (this._isPointInBoundingBox(x, y, topLeft, topRight, bottomRight, bottomLeft)) {
+        // Barcode clicked - select it
+        console.log("Barcode clicked:", barcode.data);
+        this.updateValue(barcode.data);
+        if (this.refs.barcode) {
+          this.refs.barcode.value = barcode.data;
+        }
+        this.stopScanner();
+        break;
+      }
+    }
+  }
+
+  _isPointInBoundingBox(x, y, topLeft, topRight, bottomRight, bottomLeft) {
+    // Simple bounding rectangle check
+    const minX = Math.min(topLeft.x, topRight.x, bottomRight.x, bottomLeft.x);
+    const maxX = Math.max(topLeft.x, topRight.x, bottomRight.x, bottomLeft.x);
+    const minY = Math.min(topLeft.y, topRight.y, bottomRight.y, bottomLeft.y);
+    const maxY = Math.max(topLeft.y, topRight.y, bottomRight.y, bottomLeft.y);
+
+    return x >= minX && x <= maxX && y >= minY && y <= maxY;
+  }
+
+  _startLiveScanningMode() {
+    // Clear any existing interval
+    if (this._liveScanInterval) {
+      clearInterval(this._liveScanInterval);
+    }
+
+    // Minimal cleanup - let didUpdateSession handle most of the work
+    this._liveScanInterval = setInterval(() => {
+      if (!this._isVideoFrozen && this._boundingBoxContext) {
+        // Only clear if no barcode activity for a very short time
+        if (!this._lastBarcodeTime || Date.now() - this._lastBarcodeTime > 100) {
+          // Don't clear immediately - let the session callbacks handle it
+        }
+      }
+    }, 50); // Very frequent checks for responsiveness
+  }
+
+  _stopLiveScanningMode() {
+    if (this._liveScanInterval) {
+      clearInterval(this._liveScanInterval);
+      this._liveScanInterval = null;
+    }
+  }
+
+  _startContinuousTracking() {
+    // Clear any existing tracking interval
+    if (this._continuousTrackingInterval) {
+      clearInterval(this._continuousTrackingInterval);
+    }
+
+    // Aggressive continuous tracking - check for barcodes every frame
+    this._continuousTrackingInterval = setInterval(() => {
+      if (!this._isVideoFrozen && this._barcodeCapture && this._dataCaptureContext) {
         try {
-          // Add to detected codes if not already present
-          if (data.codeResult && data.codeResult.code) {
-            const newCode = data.codeResult.code;
-
-            if (!this._lastCodes.includes(newCode)) {
-              this._lastCodes.push(newCode);
-
-              // Visual feedback
-              this.refs.quaggaModal.style.border = "4px solid lime";
-              setTimeout(() => {
-                this.refs.quaggaModal.style.border = "";
-              }, 400);
-            }
-
-            // Add box if available
-            if (data.box) {
-              // Normalize box format
-              const normalizedBox = this._normalizeBoxFormat(data.box);
-
-              if (normalizedBox) {
-                // Add code and format info to the box
-                normalizedBox.code = newCode;
-                normalizedBox.format = data.codeResult.format;
-                normalizedBox.source = "quagga";
-
-                if (!this._lastBoxes) {
-                  this._lastBoxes = [];
-                }
-
-                // Check if we already have this box
-                const boxExists = this._lastBoxes.some(
-                  (existingBox) =>
-                    existingBox.code === normalizedBox.code && existingBox.source === "quagga",
-                );
-
-                if (!boxExists) {
-                  this._lastBoxes.push(normalizedBox);
-                }
-              }
-            }
+          // Force the barcode capture to stay enabled
+          if (this._barcodeCapture.isEnabled === false) {
+            this._barcodeCapture.setEnabled(true);
           }
-        } catch (e) {
-          console.error("Error in onDetected:", e);
-        }
-      });
-    } catch (e) {
-      console.error("Error in _startQuaggaProcessing:", e);
-    }
-  }
 
-  // Normalize box format to ensure consistent structure
-  _normalizeBoxFormat(box) {
-    if (!box || !Array.isArray(box)) return null;
-
-    // If box is already in the format we want (array of [x,y] pairs)
-    if (box.length >= 4 && Array.isArray(box[0]) && box[0].length === 2) {
-      return box;
-    }
-
-    // If box is in the format [0: [x,y], 1: [x,y], 2: [x,y], 3: [x,y]]
-    if (
-      box.length === 4 &&
-      typeof box[0] === "object" &&
-      "0" in box &&
-      "1" in box &&
-      "2" in box &&
-      "3" in box
-    ) {
-      return [box[0], box[1], box[2], box[3]];
-    }
-
-    // If box is in the format [x1, y1, x2, y2, x3, y3, x4, y4]
-    if (box.length === 8 && typeof box[0] === "number") {
-      return [
-        [box[0], box[1]],
-        [box[2], box[3]],
-        [box[4], box[5]],
-        [box[6], box[7]],
-      ];
-    }
-
-    // If box is in another format with numbered indices
-    if ("0" in box && "1" in box && "2" in box && "3" in box) {
-      return [box[0], box[1], box[2], box[3]];
-    }
-
-    console.warn("Unknown box format:", box);
-    return null;
-  }
-
-  // Helper methods for box matching
-  _getBoxCenter(box) {
-    try {
-      if (!box || !Array.isArray(box) || box.length < 4) {
-        return { x: 0, y: 0 };
-      }
-
-      // Calculate center of the box
-      let sumX = 0,
-        sumY = 0;
-
-      for (let i = 0; i < box.length; i++) {
-        if (Array.isArray(box[i]) && box[i].length >= 2) {
-          sumX += box[i][0];
-          sumY += box[i][1];
-        }
-      }
-
-      return {
-        x: sumX / box.length,
-        y: sumY / box.length,
-      };
-    } catch (e) {
-      console.error("Error calculating box center:", e);
-      return { x: 0, y: 0 };
-    }
-  }
-
-  _getDistance(point1, point2) {
-    const dx = point1.x - point2.x;
-    const dy = point1.y - point2.y;
-    return Math.sqrt(dx * dx + dy * dy);
-  }
-
-  _matchAndSmoothBoxes(rawBoxes) {
-    const α = this._SMOOTH_ALPHA;
-    const maxLost = this._MAX_LOST_FRAMES;
-
-    if (!this._smoothedBoxes) {
-      this._smoothedBoxes = rawBoxes.map((b) => b.slice());
-      this._lostCounts = new Array(rawBoxes.length).fill(0);
-      return;
-    }
-
-    const oldBoxes = this._smoothedBoxes;
-    const oldLost = this._lostCounts || new Array(oldBoxes.length).fill(0);
-    const newSmoothed = [];
-    const newLost = [];
-
-    const rawCentroids = rawBoxes.map((box) => {
-      const cx = (box[0][0] + box[1][0] + box[2][0] + box[3][0]) / 4;
-      const cy = (box[0][1] + box[1][1] + box[2][1] + box[3][1]) / 4;
-      return [cx, cy];
-    });
-    const oldCentroids = oldBoxes.map((box) => {
-      const cx = (box[0][0] + box[1][0] + box[2][0] + box[3][0]) / 4;
-      const cy = (box[0][1] + box[1][1] + box[2][1] + box[3][1]) / 4;
-      return [cx, cy];
-    });
-
-    const usedRaw = new Set();
-    const matches = new Array(oldBoxes.length).fill(-1);
-
-    oldCentroids.forEach((oldC, i) => {
-      let bestJ = -1;
-      let bestDist = Infinity;
-      rawCentroids.forEach((rawC, j) => {
-        if (usedRaw.has(j)) return;
-        const dx = oldC[0] - rawC[0];
-        const dy = oldC[1] - rawC[1];
-        const d2 = dx * dx + dy * dy;
-        if (d2 < bestDist) {
-          bestDist = d2;
-          bestJ = j;
-        }
-      });
-      const MAX_CENTROID_DIST_SQ = 250 * 250;
-      if (bestJ >= 0 && bestDist < MAX_CENTROID_DIST_SQ) {
-        matches[i] = bestJ;
-        usedRaw.add(bestJ);
-      }
-    });
-
-    oldBoxes.forEach((oldBox, i) => {
-      const rawIdx = matches[i];
-      if (rawIdx >= 0) {
-        const rawBox = rawBoxes[rawIdx];
-        const smBox = oldBox.slice();
-
-        for (let k = 0; k < 4; k++) {
-          smBox[k][0] = smBox[k][0] * (1 - α) + rawBox[k][0] * α;
-          smBox[k][1] = smBox[k][1] * (1 - α) + rawBox[k][1] * α;
-        }
-
-        newSmoothed.push(smBox);
-        newLost.push(0);
-      } else {
-        const lostCount = (oldLost[i] || 0) + 1;
-        if (lostCount < maxLost) {
-          newSmoothed.push(oldBox);
-          newLost.push(lostCount);
-        }
-      }
-    });
-
-    rawBoxes.forEach((rawBox, j) => {
-      if (!usedRaw.has(j)) {
-        const newPoly = rawBox.map((pt) => pt.slice());
-        newSmoothed.push(newPoly);
-        newLost.push(0);
-      }
-    });
-
-    this._smoothedBoxes = newSmoothed;
-    this._lostCounts = newLost;
-  }
-
-  _onOverlayClick(event) {
-    try {
-      const overlay = this.refs.quaggaOverlay;
-      const rect = overlay.getBoundingClientRect();
-      const clickX = (event.clientX - rect.left) * (overlay.width / rect.width);
-      const clickY = (event.clientY - rect.top) * (overlay.height / rect.height);
-
-      console.log("Click coordinates:", clickX, clickY);
-
-      // If we have detected codes but no boxes, create a simple selection UI
-      if (this._lastCodes.length > 0 && (!this._lastBoxes || this._lastBoxes.length === 0)) {
-        // Select the first code if no specific box was clicked
-        const codeToUse = this._lastCodes[0];
-        this.updateValue(codeToUse);
-        this.refs.barcode.value = codeToUse;
-        this.stopQuagga();
-        this.refs.quaggaModal.style.display = "none";
-        return;
-      }
-
-      // Check if click is inside any of the detected barcode boxes
-      for (const poly of this._lastBoxes || []) {
-        try {
-          if (this._pointInPolygon(clickX, clickY, poly)) {
-            console.log("Box clicked:", poly);
-            // Use the code associated with this box
-            const codeToUse = poly.code || "";
-            this.updateValue(codeToUse);
-            this.refs.barcode.value = codeToUse;
-            this.stopQuagga();
-            this.refs.quaggaModal.style.display = "none";
-            this._clearOverlay();
-            this._lastBoxes = null;
-            this._lastCodes = [];
-            this._videoDims = null;
-            overlay.removeEventListener("click", this._onOverlayClick);
-            return;
+          // Keep the last barcode time updated to prevent clearing
+          if (this._currentBarcodes && this._currentBarcodes.length > 0) {
+            this._lastBarcodeTime = Date.now();
           }
-        } catch (e) {
-          console.error("Error checking if point is in polygon:", e, poly);
+        } catch (error) {
+          console.warn("Error in continuous tracking:", error);
         }
       }
-
-      // If no box was clicked but we have detected codes, show a selection UI
-      if (this._lastCodes.length > 0) {
-        this._showCodeSelectionUI();
-      }
-    } catch (e) {
-      console.error("Error in overlay click handler:", e);
-    }
+    }, 16); // ~60fps for smooth tracking
   }
 
-  // Show a UI for selecting from multiple detected barcodes
-  _showCodeSelectionUI() {
-    try {
-      // Create a selection UI if we have multiple codes
-      if (this._lastCodes.length > 0) {
-        const container = this.refs.quaggaContainer;
-
-        // Create selection UI element
-        const selectionUI = document.createElement("div");
-        selectionUI.className = "barcode-selection-ui";
-        selectionUI.style.position = "absolute";
-        selectionUI.style.bottom = "10px";
-        selectionUI.style.left = "10px";
-        selectionUI.style.right = "10px";
-        selectionUI.style.background = "rgba(0,0,0,0.7)";
-        selectionUI.style.color = "white";
-        selectionUI.style.padding = "10px";
-        selectionUI.style.borderRadius = "5px";
-        selectionUI.style.zIndex = "20";
-
-        // Add title
-        const title = document.createElement("div");
-        title.textContent = "Select a barcode:";
-        title.style.marginBottom = "10px";
-        title.style.fontWeight = "bold";
-        selectionUI.appendChild(title);
-
-        // Add buttons for each code
-        this._lastCodes.forEach((code, index) => {
-          const button = document.createElement("button");
-          button.textContent = `${code} (${this._getFormatForCode(code) || "unknown"})`;
-          button.style.margin = "5px";
-          button.style.padding = "8px 12px";
-          button.style.border = "none";
-          button.style.borderRadius = "4px";
-          button.style.background = "#4CAF50";
-          button.style.color = "white";
-          button.style.cursor = "pointer";
-
-          button.addEventListener("click", () => {
-            this.updateValue(code);
-            this.refs.barcode.value = code;
-            this.stopQuagga();
-            this.refs.quaggaModal.style.display = "none";
-            this._clearOverlay();
-            this._lastBoxes = null;
-            this._lastCodes = [];
-            this._videoDims = null;
-          });
-
-          selectionUI.appendChild(button);
-        });
-
-        // Add to container
-        container.appendChild(selectionUI);
-      }
-    } catch (e) {
-      console.error("Error showing code selection UI:", e);
-    }
-  }
-
-  // Helper to get format for a code
-  _getFormatForCode(code) {
-    if (!this._lastBoxes) return null;
-
-    const box = this._lastBoxes.find((b) => b.code === code);
-    return box ? box.format : null;
-  }
-
-  _pointInPolygon(x, y, polygon) {
-    try {
-      if (!polygon || !Array.isArray(polygon) || polygon.length < 3) {
-        return false;
-      }
-
-      let inside = false;
-
-      // Convert polygon to array of points if needed
-      const points = polygon.map((point) => {
-        if (Array.isArray(point) && point.length >= 2) {
-          return { x: point[0], y: point[1] };
-        } else if (point && typeof point === "object" && "x" in point && "y" in point) {
-          return point;
-        } else {
-          console.warn("Invalid point format in polygon:", point);
-          return { x: 0, y: 0 };
-        }
-      });
-
-      // Ray casting algorithm
-      for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
-        const xi = points[i].x,
-          yi = points[i].y;
-        const xj = points[j].x,
-          yj = points[j].y;
-
-        const intersect = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
-
-        if (intersect) inside = !inside;
-      }
-
-      return inside;
-    } catch (e) {
-      console.error("Error in _pointInPolygon:", e);
-      return false;
-    }
-  }
-
-  _clearOverlay() {
-    try {
-      if (this.refs.quaggaOverlay) {
-        const ctx = this.refs.quaggaOverlay.getContext("2d");
-        if (ctx) {
-          ctx.clearRect(0, 0, this.refs.quaggaOverlay.width, this.refs.quaggaOverlay.height);
-        }
-      }
-    } catch (e) {
-      console.error("Error in _clearOverlay:", e);
-    }
-  }
-
-  stopQuagga() {
-    this._firstOpen = false;
-    try {
-      // Clear ZXing interval
-      if (this._zxingInterval) {
-        clearInterval(this._zxingInterval);
-        this._zxingInterval = null;
-      }
-
-      // Reset ZXing reader
-      if (this._zxingReader) {
-        this._zxingReader.reset();
-      }
-
-      window.Quagga.offProcessed();
-      window.Quagga.offDetected();
-      window.Quagga.stop();
-    } catch (e) {
-      console.error("Error stopping barcode scanners:", e);
-    }
-
-    // Don't remove the overlay from the DOM, just clear it
-    this._clearOverlay();
-
-    // Clear the container when stopping, but preserve the overlay
-    if (this.refs.quaggaContainer) {
-      const overlay = this.refs.quaggaOverlay;
-      const container = this.refs.quaggaContainer;
-
-      // Remove overlay from container temporarily
-      if (container.contains(overlay)) {
-        container.removeChild(overlay);
-      }
-
-      // Clear container
-      container.innerHTML = "";
+  _stopContinuousTracking() {
+    if (this._continuousTrackingInterval) {
+      clearInterval(this._continuousTrackingInterval);
+      this._continuousTrackingInterval = null;
     }
   }
 
   detach() {
-    if (this.refs.barcode) {
-      this.refs.barcode.removeEventListener("change", () =>
-        this.updateValue(this.refs.barcode.value),
-      );
+    // Stop live scanning mode
+    this._stopLiveScanningMode();
+
+    // Stop continuous tracking
+    this._stopContinuousTracking();
+
+    // Clean up resize handler
+    if (this._resizeHandler) {
+      window.removeEventListener('resize', this._resizeHandler);
+      window.removeEventListener('orientationchange', this._resizeHandler);
+      this._resizeHandler = null;
     }
-    if (this.refs.scanButton) {
-      this.refs.scanButton.removeEventListener("click", this.openQuaggaModal);
+
+    // Clean up bounding box canvas
+    if (this._boundingBoxCanvas && this._boundingBoxCanvas.parentNode) {
+      this._boundingBoxCanvas.parentNode.removeChild(this._boundingBoxCanvas);
+      this._boundingBoxCanvas = null;
+      this._boundingBoxContext = null;
     }
-    if (this.refs.fileButton) {
-      this.refs.fileButton.removeEventListener("click", () => this.refs.fileInput.click());
-    }
-    if (this.refs.fileInput) {
-      this.refs.fileInput.removeEventListener("change", this.processImageFile);
-    }
-    if (this.refs.closeModal) {
-      this.refs.closeModal.removeEventListener("click", this.stopQuagga);
-    }
-    if (this.refs.quaggaOverlay) {
-      this.refs.quaggaOverlay.removeEventListener("click", this._onOverlayClick);
-    }
+
     return super.detach();
   }
 
   destroy() {
-    if (this._zxingReader) {
-      this._zxingReader.reset();
-      this._zxingReader = null;
+    // Clean up Scandit resources
+    if (this._barcodeCapture) {
+      this._barcodeCapture.removeFromContext();
     }
-
-    if (this._zxingInterval) {
-      clearInterval(this._zxingInterval);
-      this._zxingInterval = null;
+    
+    if (this._dataCaptureContext) {
+      this._dataCaptureContext.dispose();
+      this._dataCaptureContext = null;
     }
-
-    this.stopQuagga();
+    
+    this._barcodeCapture = null;
+    this._camera = null;
+    this._dataCaptureView = null;
+    
     return super.destroy();
-  }
-
-  normalizeValue(value, flags = {}) {
-    return super.normalizeValue(value, flags);
-  }
-
-  getValue() {
-    return super.getValue();
-  }
-
-  getValueAt(index) {
-    return super.getValueAt(index);
   }
 
   setValue(value, flags = {}) {
@@ -1457,68 +1007,6 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
-  setValueAt(index, value, flags = {}) {
-    return super.setValueAt(index, value, flags);
-  }
 
-  updateValue(value, flags = {}) {
-    return super.updateValue(...arguments);
-  }
-
-  // Toggle between frozen and live video
-  _toggleFreezeVideo() {
-    try {
-      this._isVideoFrozen = !this._isVideoFrozen;
-
-      // Update button appearance
-      if (this._isVideoFrozen) {
-        this.refs.freezeButton.innerHTML = '<i class="fa fa-play" style="font-size: 24px;"></i>';
-        this.refs.freezeButton.style.background = "rgba(0,255,0,0.8)";
-
-        // Capture current frame to canvas
-        const videoEl = this.refs.quaggaContainer.querySelector("video");
-        if (videoEl) {
-          // Create a canvas to capture the current frame
-          const canvas = document.createElement("canvas");
-          canvas.width = videoEl.videoWidth;
-          canvas.height = videoEl.videoHeight;
-          const ctx = canvas.getContext("2d");
-
-          // Draw the current video frame to the canvas
-          ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
-
-          // Create an image from the canvas
-          const img = new Image();
-          img.src = canvas.toDataURL("image/jpeg", 1.0);
-
-          // Style the image to match the video
-          img.style.position = "absolute";
-          img.style.top = "0";
-          img.style.left = "0";
-          img.style.width = "100%";
-          img.style.height = "100%";
-          img.style.objectFit = "contain";
-          img.style.zIndex = "5";
-
-          // Add the image to the container
-          this.refs.quaggaContainer.appendChild(img);
-
-          // Pause Quagga processing
-          window.Quagga.pause();
-        }
-      } else {
-        this.refs.freezeButton.innerHTML = '<i class="fa fa-camera" style="font-size: 24px;"></i>';
-        this.refs.freezeButton.style.background = "rgba(255,255,255,0.8)";
-
-        // Remove any frozen frame images
-        const frozenFrames = this.refs.quaggaContainer.querySelectorAll("img");
-        frozenFrames.forEach((img) => img.remove());
-
-        // Resume Quagga processing
-        window.Quagga.start();
-      }
-    } catch (e) {
-      console.error("Error toggling video freeze:", e);
-    }
-  }
+  
 }
