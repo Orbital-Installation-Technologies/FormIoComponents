@@ -799,61 +799,6 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
-  _showBarcodeSelectionUI() {
-    if (this._lastCodes.length === 0) return;
-    
-    // Create selection UI
-    const selectionUI = document.createElement("div");
-    selectionUI.style.position = "absolute";
-    selectionUI.style.top = "50%";
-    selectionUI.style.left = "50%";
-    selectionUI.style.transform = "translate(-50%, -50%)";
-    selectionUI.style.background = "white";
-    selectionUI.style.padding = "20px";
-    selectionUI.style.borderRadius = "8px";
-    selectionUI.style.zIndex = "1002";
-    selectionUI.style.display = "flex";
-    selectionUI.style.flexDirection = "column";
-    selectionUI.style.alignItems = "center";
-    
-    // Add title
-    const title = document.createElement("div");
-    title.textContent = "Select a barcode:";
-    title.style.marginBottom = "10px";
-    title.style.fontWeight = "bold";
-    selectionUI.appendChild(title);
-    
-    // Add buttons for each code
-    this._lastCodes.forEach((codeInfo) => {
-      const button = document.createElement("button");
-      button.textContent = `${codeInfo.code} (${codeInfo.format})`;
-      button.style.margin = "5px";
-      button.style.padding = "8px 12px";
-      button.style.border = "none";
-      button.style.borderRadius = "4px";
-      button.style.background = "#4CAF50";
-      button.style.color = "white";
-      button.style.cursor = "pointer";
-      
-      button.addEventListener("click", () => {
-        this.updateValue(codeInfo.code);
-        this.refs.barcode.value = codeInfo.code;
-        this.stopScanner();
-        this._lastCodes = [];
-
-        // Remove selection UI
-        if (selectionUI.parentNode) {
-          selectionUI.parentNode.removeChild(selectionUI);
-        }
-      });
-      
-      selectionUI.appendChild(button);
-    });
-    
-    // Add to modal
-    this.refs.quaggaModal.appendChild(selectionUI);
-  }
-
   _toggleFreezeVideo() {
     try {
       this._isVideoFrozen = !this._isVideoFrozen;
@@ -868,9 +813,11 @@ export default class BarcodeScanner extends FieldComponent {
           this._camera.switchToDesiredState(FrameSourceState.Off);
         }
         
-        // If we have detected codes, show selection UI
-        if (this._lastCodes.length > 0) {
-          this._showBarcodeSelectionUI();
+        // Remove the selection UI code - no longer showing selection dialog
+        // If we have a single barcode, select it automatically
+        if (this._lastCodes.length === 1) {
+          this.updateValue(this._lastCodes[0].code);
+          this.refs.barcode.value = this._lastCodes[0].code;
         }
       } else {
         this.refs.freezeButton.innerHTML = '<i class="fa fa-camera" style="font-size: 24px;"></i>';
@@ -879,12 +826,6 @@ export default class BarcodeScanner extends FieldComponent {
         // Resume camera
         if (this._camera) {
           this._camera.switchToDesiredState(FrameSourceState.On);
-        }
-        
-        // Remove any selection UI
-        const selectionUI = this.refs.quaggaModal.querySelector("div[style*='z-index: 1002']");
-        if (selectionUI) {
-          selectionUI.parentNode.removeChild(selectionUI);
         }
       }
     } catch (e) {
