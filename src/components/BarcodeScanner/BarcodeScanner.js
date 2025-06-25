@@ -634,7 +634,7 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   async openScanditModal() {
-    this.refs.quaggaModal.style.display = "flex";
+    this._openModal();
     this._lastCodes = [];
     this._isVideoFrozen = false;
 
@@ -837,10 +837,8 @@ export default class BarcodeScanner extends FieldComponent {
       // Clear bounding boxes
       this._clearBoundingBoxes();
 
-      // Properly close the modal
-      if (this.refs.quaggaModal) {
-        //this.refs.quaggaModal.style.display = "none";
-      }
+      // Properly close the modal to avoid ResizeObserver errors
+      this._closeModal();
 
       this._isVideoFrozen = false;
     } catch (e) {
@@ -1050,6 +1048,87 @@ export default class BarcodeScanner extends FieldComponent {
       });
     } catch (error) {
       console.error("Error drawing bounding boxes:", error);
+    }
+  }
+
+  _closeModal() {
+    if (!this.refs.quaggaModal) return;
+
+    try {
+      // Method 1: Use CSS class-based approach to avoid ResizeObserver issues
+      // This is the most reliable method to prevent layout thrashing
+
+      // Add a CSS class for hiding instead of direct style manipulation
+      if (!document.getElementById('barcode-modal-styles')) {
+        const style = document.createElement('style');
+        style.id = 'barcode-modal-styles';
+        style.textContent = `
+          .barcode-modal-hidden {
+            opacity: 0 !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
+            transition: opacity 0.2s ease-out !important;
+          }
+          .barcode-modal-closing {
+            opacity: 0 !important;
+            transition: opacity 0.2s ease-out !important;
+          }
+        `;
+        document.head.appendChild(style);
+      }
+
+      // Use requestAnimationFrame to avoid ResizeObserver conflicts
+      requestAnimationFrame(() => {
+        try {
+          this.refs.quaggaModal.style.visibility = "hidden";
+        } catch (error) {
+          console.warn("Error in modal CSS transition:", error);
+          // Fallback: use visibility instead of display
+          if (this.refs.quaggaModal) {
+            this.refs.quaggaModal.style.visibility = "hidden";
+            this.refs.quaggaModal.style.pointerEvents = "none";
+            setTimeout(() => {
+              if (this.refs.quaggaModal) {
+                this.refs.quaggaModal.style.display = "none";
+                this.refs.quaggaModal.style.visibility = "visible";
+                this.refs.quaggaModal.style.pointerEvents = "auto";
+              }
+            }, 50);
+          }
+        }
+      });
+    } catch (error) {
+      console.warn("Error closing modal:", error);
+      // Ultimate fallback - use visibility to avoid ResizeObserver issues
+      if (this.refs.quaggaModal) {
+        this.refs.quaggaModal.style.visibility = "hidden";
+        this.refs.quaggaModal.style.pointerEvents = "none";
+      }
+    }
+  }
+
+  _openModal() {
+    if (!this.refs.quaggaModal) return;
+
+    try {
+      // Remove any hiding classes
+      this.refs.quaggaModal.classList.remove('barcode-modal-hidden', 'barcode-modal-closing');
+
+      // Reset styles
+      this.refs.quaggaModal.style.visibility = "visible";
+      this.refs.quaggaModal.style.pointerEvents = "auto";
+      this.refs.quaggaModal.style.opacity = "1";
+
+      // Show the modal
+      this.refs.quaggaModal.style.display = "flex";
+
+      console.log("Modal opened successfully");
+    } catch (error) {
+      console.warn("Error opening modal:", error);
+      // Fallback
+      if (this.refs.quaggaModal) {
+        this.refs.quaggaModal.style.display = "flex";
+      }
     }
   }
 
