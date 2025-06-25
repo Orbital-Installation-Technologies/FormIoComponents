@@ -329,31 +329,115 @@ export default class BarcodeScanner extends FieldComponent {
         console.log("Attempting to enable symbologies...");
 
         try {
-          // Method 1: Try the standard enableSymbologies method with just basic symbologies
-          console.log("Method 1: Using enableSymbologies with basic set");
-          settings.enableSymbologies([
+          // Method 1: Try enabling ALL available symbologies for maximum compatibility
+          console.log("Method 1: Enabling ALL available symbologies");
+          const allSymbologies = [
+            // 1D Barcodes
             Symbology.Code128,
-            Symbology.QR
-          ]);
-          console.log("Method 1 successful");
+            Symbology.Code39,
+            Symbology.Code93,
+            Symbology.Code11,
+            Symbology.Codabar,
+            Symbology.EAN13UPCA,
+            Symbology.EAN8,
+            Symbology.UPCE,
+            Symbology.ITF,
+            Symbology.MSIPlessey,
+
+            // 2D Barcodes
+            Symbology.QR,
+            Symbology.DataMatrix,
+            Symbology.PDF417,
+            Symbology.Aztec,
+            Symbology.MaxiCode,
+
+            // Postal Codes
+            Symbology.KIX,
+            Symbology.RM4SCC,
+
+            // Additional formats
+            Symbology.GS1Databar,
+            Symbology.GS1DatabarExpanded,
+            Symbology.GS1DatabarLimited,
+            Symbology.MicroPDF417,
+            Symbology.MicroQR,
+            Symbology.DotCode,
+            Symbology.ArUco,
+
+            // Additional rare/specialized formats (if available)
+            Symbology.Code25,
+            Symbology.Code32,
+            Symbology.Pharmacode,
+            Symbology.TwoDigitAddOn,
+            Symbology.FiveDigitAddOn,
+            Symbology.Matrix2of5,
+            Symbology.IATA2of5,
+            Symbology.Industrial2of5
+          ];
+
+          // Filter out any undefined symbologies (in case some aren't available in this SDK version)
+          const availableSymbologies = allSymbologies.filter(sym => sym !== undefined);
+
+          settings.enableSymbologies(availableSymbologies);
+          console.log(`Method 1 successful - enabled ${availableSymbologies.length} symbologies:`, availableSymbologies.map(s => s.toString()));
         } catch (method1Error) {
           console.warn("Method 1 failed:", method1Error);
 
           try {
-            // Method 2: Try enabling symbologies individually
+            // Method 2: Try enabling symbologies individually with comprehensive list
             console.log("Method 2: Enabling symbologies individually");
-            const symbologySettings128 = settings.settingsForSymbology(Symbology.Code128);
-            if (symbologySettings128) {
-              symbologySettings128.isEnabled = true;
-              console.log("Code128 enabled individually");
-            }
+            const symbologyList = [
+              { name: 'Code128', symbology: Symbology.Code128 },
+              { name: 'Code39', symbology: Symbology.Code39 },
+              { name: 'Code93', symbology: Symbology.Code93 },
+              { name: 'Code11', symbology: Symbology.Code11 },
+              { name: 'Codabar', symbology: Symbology.Codabar },
+              { name: 'EAN13UPCA', symbology: Symbology.EAN13UPCA },
+              { name: 'EAN8', symbology: Symbology.EAN8 },
+              { name: 'UPCE', symbology: Symbology.UPCE },
+              { name: 'ITF', symbology: Symbology.ITF },
+              { name: 'MSIPlessey', symbology: Symbology.MSIPlessey },
+              { name: 'QR', symbology: Symbology.QR },
+              { name: 'DataMatrix', symbology: Symbology.DataMatrix },
+              { name: 'PDF417', symbology: Symbology.PDF417 },
+              { name: 'Aztec', symbology: Symbology.Aztec },
+              { name: 'MaxiCode', symbology: Symbology.MaxiCode },
+              { name: 'KIX', symbology: Symbology.KIX },
+              { name: 'RM4SCC', symbology: Symbology.RM4SCC },
+              { name: 'GS1Databar', symbology: Symbology.GS1Databar },
+              { name: 'GS1DatabarExpanded', symbology: Symbology.GS1DatabarExpanded },
+              { name: 'GS1DatabarLimited', symbology: Symbology.GS1DatabarLimited },
+              { name: 'MicroPDF417', symbology: Symbology.MicroPDF417 },
+              { name: 'MicroQR', symbology: Symbology.MicroQR },
+              { name: 'DotCode', symbology: Symbology.DotCode },
+              { name: 'ArUco', symbology: Symbology.ArUco },
+              { name: 'Code25', symbology: Symbology.Code25 },
+              { name: 'Code32', symbology: Symbology.Code32 },
+              { name: 'Pharmacode', symbology: Symbology.Pharmacode },
+              { name: 'TwoDigitAddOn', symbology: Symbology.TwoDigitAddOn },
+              { name: 'FiveDigitAddOn', symbology: Symbology.FiveDigitAddOn },
+              { name: 'Matrix2of5', symbology: Symbology.Matrix2of5 },
+              { name: 'IATA2of5', symbology: Symbology.IATA2of5 },
+              { name: 'Industrial2of5', symbology: Symbology.Industrial2of5 }
+            ];
 
-            const symbologySettingsQR = settings.settingsForSymbology(Symbology.QR);
-            if (symbologySettingsQR) {
-              symbologySettingsQR.isEnabled = true;
-              console.log("QR enabled individually");
-            }
-            console.log("Method 2 successful");
+            let enabledCount = 0;
+            symbologyList.forEach(({ name, symbology }) => {
+              try {
+                if (symbology) {
+                  const symbologySettings = settings.settingsForSymbology(symbology);
+                  if (symbologySettings) {
+                    symbologySettings.isEnabled = true;
+                    enabledCount++;
+                    console.log(`${name} enabled individually`);
+                  }
+                }
+              } catch (symError) {
+                console.warn(`Failed to enable ${name}:`, symError);
+              }
+            });
+
+            console.log(`Method 2 successful - enabled ${enabledCount} symbologies individually`);
           } catch (method2Error) {
             console.warn("Method 2 failed:", method2Error);
             console.log("Continuing with default symbologies...");
@@ -381,6 +465,9 @@ export default class BarcodeScanner extends FieldComponent {
           settings.batterySaving = false;
           console.log("Battery saving disabled for maximum performance");
         }
+
+        // Configure advanced symbology settings for better detection
+        this._configureAdvancedSymbologySettings(settings);
 
         // Validate DataCaptureContext before creating BarcodeCapture
         if (!this._dataCaptureContext) {
@@ -1276,6 +1363,82 @@ export default class BarcodeScanner extends FieldComponent {
       });
     } catch (error) {
       console.error("Error drawing bounding boxes:", error);
+    }
+  }
+
+  _configureAdvancedSymbologySettings(settings) {
+    try {
+      console.log("Configuring advanced symbology settings for maximum compatibility...");
+
+      // Configure Code 39 settings
+      try {
+        const code39Settings = settings.settingsForSymbology(Symbology.Code39);
+        if (code39Settings) {
+          // Enable checksum for better accuracy if available
+          if (typeof code39Settings.checksumType !== 'undefined') {
+            code39Settings.checksumType = 'mod43';
+          }
+          console.log("Code39 settings configured");
+        }
+      } catch (e) { console.warn("Code39 config failed:", e); }
+
+      // Configure Code 128 settings
+      try {
+        const code128Settings = settings.settingsForSymbology(Symbology.Code128);
+        if (code128Settings) {
+          console.log("Code128 settings verified");
+        }
+      } catch (e) { console.warn("Code128 config failed:", e); }
+
+      // Configure QR Code settings
+      try {
+        const qrSettings = settings.settingsForSymbology(Symbology.QR);
+        if (qrSettings) {
+          console.log("QR Code settings verified");
+        }
+      } catch (e) { console.warn("QR config failed:", e); }
+
+      // Configure Data Matrix settings
+      try {
+        const dataMatrixSettings = settings.settingsForSymbology(Symbology.DataMatrix);
+        if (dataMatrixSettings) {
+          console.log("DataMatrix settings verified");
+        }
+      } catch (e) { console.warn("DataMatrix config failed:", e); }
+
+      // Configure PDF417 settings
+      try {
+        const pdf417Settings = settings.settingsForSymbology(Symbology.PDF417);
+        if (pdf417Settings) {
+          console.log("PDF417 settings verified");
+        }
+      } catch (e) { console.warn("PDF417 config failed:", e); }
+
+      // Configure UPC/EAN settings for retail barcodes
+      try {
+        const ean13Settings = settings.settingsForSymbology(Symbology.EAN13UPCA);
+        if (ean13Settings) {
+          console.log("EAN13/UPC-A settings verified");
+        }
+      } catch (e) { console.warn("EAN13/UPC-A config failed:", e); }
+
+      try {
+        const ean8Settings = settings.settingsForSymbology(Symbology.EAN8);
+        if (ean8Settings) {
+          console.log("EAN8 settings verified");
+        }
+      } catch (e) { console.warn("EAN8 config failed:", e); }
+
+      try {
+        const upceSettings = settings.settingsForSymbology(Symbology.UPCE);
+        if (upceSettings) {
+          console.log("UPC-E settings verified");
+        }
+      } catch (e) { console.warn("UPC-E config failed:", e); }
+
+      console.log("Advanced symbology configuration completed");
+    } catch (error) {
+      console.warn("Error in advanced symbology configuration:", error);
     }
   }
 
