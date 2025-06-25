@@ -1,12 +1,12 @@
 import { Components } from "@formio/js";
 import BarcodeScannerEditForm from "./BarcodeScanner.form";
 import {
-  BarcodeCaptureSettings,
-  BarcodeCapture,
   Symbology,
   barcodeCaptureLoader,
-  BarcodeTracking,
-  BarcodeTrackingSettings
+  BarcodeBatch,
+  BarcodeBatchSettings,
+  BarcodeCapture,
+  BarcodeCaptureSettings
 } from "@scandit/web-datacapture-barcode";
 import {
   DataCaptureView,
@@ -58,8 +58,10 @@ export default class BarcodeScanner extends FieldComponent {
     this._currentBarcodes = [];
     this._isVideoFrozen = false;
     this._dataCaptureContext = null;
-    this._barcodeCapture = null;
+    this._barcodeBatch = null;
+    this._barcodeCapture = null; // Fallback option
     this._camera = null;
+    this._usingBatch = false; // Track which mode we're using
     this._dataCaptureView = null;
     this._drawingPending = false;
     
@@ -276,8 +278,32 @@ export default class BarcodeScanner extends FieldComponent {
 
   async _initializeScandit() {
     try {
+      console.log("Starting Scandit initialization...");
+
+      // Check if all required imports are available
+      console.log("Checking imports:", {
+        configure: typeof configure,
+        DataCaptureContext: typeof DataCaptureContext,
+        BarcodeCapture: typeof BarcodeCapture,
+        BarcodeCaptureSettings: typeof BarcodeCaptureSettings,
+        Symbology: typeof Symbology,
+        barcodeCaptureLoader: typeof barcodeCaptureLoader
+      });
+
+      // Check available symbologies
+      console.log("Available symbologies:", {
+        Code128: Symbology.Code128,
+        Code39: Symbology.Code39,
+        QR: Symbology.QR,
+        EAN8: Symbology.EAN8,
+        UPCE: Symbology.UPCE,
+        EAN13UPCA: Symbology.EAN13UPCA,
+        DataMatrix: Symbology.DataMatrix
+      });
+
       // Configure Scandit SDK if not already configured
       if (!scanditConfigured) {
+        console.log("Configuring Scandit SDK...");
         await configure({
           licenseKey: this._licenseKey,
           // Use CDN for now since serving sdc-lib files requires special webpack configuration
@@ -285,161 +311,160 @@ export default class BarcodeScanner extends FieldComponent {
           moduleLoaders: [barcodeCaptureLoader()]
         });
         scanditConfigured = true;
+        console.log("Scandit SDK configured successfully");
       }
 
       // Create data capture context
+      console.log("Creating DataCaptureContext...");
       this._dataCaptureContext = await DataCaptureContext.create();
+      console.log("DataCaptureContext created:", this._dataCaptureContext);
       
-      // Configure barcode capture settings for continuous tracking
-      const settings = new BarcodeCaptureSettings();
+      // Try BarcodeBatch first for multiple barcode detection, fallback to BarcodeCapture
+      let settings;
 
-      // Enable common symbologies (using the exact names from Scandit documentation)
       try {
-        settings.enableSymbologies([
-          Symbology.Code128,
-          Symbology.Code39,
-          Symbology.QR,
-          Symbology.EAN8,
-          Symbology.UPCE,
-          Symbology.EAN13UPCA,
-          Symbology.DataMatrix
-        ]);
-        console.log("Symbologies enabled successfully");
-      } catch (symbologyError) {
-        console.error("Error enabling symbologies:", symbologyError);
-        throw symbologyError;
-      }
+        // Use BarcodeCapture for reliable barcode detection
+        console.log("Creating BarcodeCaptureSettings...");
+        settings = new BarcodeCaptureSettings();
+        console.log("BarcodeCaptureSettings created:", settings);
 
-      // Configure for continuous tracking
-      try {
-        // Enable continuous scanning without stopping after detection
-        settings.codeDuplicateFilter = 0; // Allow immediate re-detection of same codes
+        // Try different approaches to enable symbologies
+        console.log("Attempting to enable symbologies...");
 
-        // Set location selection to maximize tracking area
+        try {
+          // Method 1: Try the standard enableSymbologies method with just basic symbologies
+          console.log("Method 1: Using enableSymbologies with basic set");
+          settings.enableSymbologies([
+            Symbology.Code128,
+            Symbology.QR
+          ]);
+          console.log("Method 1 successful");
+        } catch (method1Error) {
+          console.warn("Method 1 failed:", method1Error);
+
+          try {
+            // Method 2: Try enabling symbologies individually
+            console.log("Method 2: Enabling symbologies individually");
+            const symbologySettings128 = settings.settingsForSymbology(Symbology.Code128);
+            if (symbologySettings128) {
+              symbologySettings128.isEnabled = true;
+              console.log("Code128 enabled individually");
+            }
+
+            const symbologySettingsQR = settings.settingsForSymbology(Symbology.QR);
+            if (symbologySettingsQR) {
+              symbologySettingsQR.isEnabled = true;
+              console.log("QR enabled individually");
+            }
+            console.log("Method 2 successful");
+          } catch (method2Error) {
+            console.warn("Method 2 failed:", method2Error);
+            console.log("Continuing with default symbologies...");
+          }
+        }
+
+        // Configure for multiple detection and better performance
+        settings.codeDuplicateFilter = 0; // Allow immediate re-detection
+        console.log("Duplicate filter set to 0");
+
+        // Enable location selection for full camera view
         if (settings.locationSelection) {
           settings.locationSelection = null; // Use full camera view
+          console.log("Location selection set to null (full camera view)");
         }
 
-        console.log("Continuous tracking settings applied");
-      } catch (settingsError) {
-        console.warn("Some tracking settings not available:", settingsError);
-      }
-      
-      // Create barcode capture instance
-      try {
-        console.log("Creating BarcodeCapture with context:", this._dataCaptureContext);
+        // Try to enable multiple barcode detection if available
+        if (typeof settings.maxNumberOfCodesPerFrame !== 'undefined') {
+          settings.maxNumberOfCodesPerFrame = 10; // Allow up to 10 barcodes per frame
+          console.log("Max codes per frame set to 10");
+        }
+
+        // Disable battery saving for maximum performance
+        if (typeof settings.batterySaving !== 'undefined') {
+          settings.batterySaving = false;
+          console.log("Battery saving disabled for maximum performance");
+        }
+
+        // Validate DataCaptureContext before creating BarcodeCapture
+        if (!this._dataCaptureContext) {
+          throw new Error("DataCaptureContext is null - cannot create BarcodeCapture");
+        }
+
+        console.log("Creating BarcodeCapture with context and settings...");
+        console.log("Context:", this._dataCaptureContext);
+        console.log("Settings:", settings);
+
+        // Create BarcodeCapture instance
         this._barcodeCapture = await BarcodeCapture.forContext(this._dataCaptureContext, settings);
+
+        if (!this._barcodeCapture) {
+          throw new Error("BarcodeCapture.forContext returned null");
+        }
+
+        this._usingBatch = false;
         console.log("BarcodeCapture created successfully:", this._barcodeCapture);
+
       } catch (captureError) {
-        console.error("Error creating BarcodeCapture:", captureError);
-        throw captureError;
+        console.error("BarcodeCapture creation failed:", captureError);
+        console.error("Error details:", {
+          name: captureError.name,
+          message: captureError.message,
+          stack: captureError.stack
+        });
+
+        // Don't throw the error, instead set a flag and continue with error handling
+        this._barcodeCapture = null;
+        this._initializationError = captureError;
+        console.warn("Continuing without BarcodeCapture - will show error to user");
       }
       
-      // Setup barcode capture listener
-      this._barcodeCapture.addListener({
-        didUpdateSession: (_, session) => {
-          // This is called for every frame, allowing continuous tracking
-          try {
-            if (!session) return;
+      // Setup BarcodeCapture listener (enhanced for multiple barcode support)
+      if (this._barcodeCapture) {
+        console.log("Setting up BarcodeCapture listeners...");
+        this._barcodeCapture.addListener({
+          didUpdateSession: (_, session) => {
+            this._handleBarcodeSession(session, "BarcodeCapture");
+          },
+          didScan: (_, session) => {
+            // Handle individual scans for BarcodeCapture
+            try {
+              if (!session) return;
 
-            // Update last barcode time to keep tracking active
-            this._lastBarcodeTime = Date.now();
+              const newlyRecognized = session.newlyRecognizedBarcode;
+              if (newlyRecognized) {
+                console.log("BarcodeCapture - didScan - Single barcode detected:", newlyRecognized.data);
 
-            // Get ALL tracked barcodes from the session
-            const trackedBarcodes = session.trackedBarcodes || new Map();
-            const allVisibleBarcodes = Array.from(trackedBarcodes.values());
+                // Store detected barcode
+                const existingCode = this._lastCodes.find(c => c.code === newlyRecognized.data);
+                if (!existingCode) {
+                  this._lastCodes.push({
+                    code: newlyRecognized.data,
+                    format: newlyRecognized.symbology
+                  });
+                }
 
-            console.log("didUpdateSession - tracked barcodes:", trackedBarcodes.size, "visible:", allVisibleBarcodes.length);
-
-            if (allVisibleBarcodes.length > 0) {
-              // Extract the actual barcode objects from tracked barcodes
-              const barcodeObjects = allVisibleBarcodes.map(tracked => tracked.barcode).filter(b => b);
-              console.log("Extracted barcode objects:", barcodeObjects.length);
-
-              // Log details of each barcode for debugging
-              barcodeObjects.forEach((barcode, index) => {
-                console.log(`Barcode ${index}: ${barcode.data} at location:`, barcode.location);
-              });
-
-              if (barcodeObjects.length > 0) {
-                this._drawBoundingBoxes(barcodeObjects);
-                return; // Don't clear if we have barcodes
+                // Show visual feedback
+                if (this.refs.quaggaModal) {
+                  this.refs.quaggaModal.style.border = "4px solid lime";
+                  setTimeout(() => {
+                    if (this.refs.quaggaModal) {
+                      this.refs.quaggaModal.style.border = "";
+                    }
+                  }, 200);
+                }
               }
+            } catch (error) {
+              console.error("Error in BarcodeCapture didScan:", error);
             }
-
-            // Also check for newly recognized barcodes as fallback
-            const newlyRecognizedBarcodes = session.newlyRecognizedBarcodes || [];
-            if (newlyRecognizedBarcodes.length > 0) {
-              console.log("Using newly recognized barcodes:", newlyRecognizedBarcodes.length);
-              this._drawBoundingBoxes(newlyRecognizedBarcodes);
-              return;
-            }
-
-            // Try to get all barcodes from the session in different ways
-            if (session.newlyRecognizedBarcode) {
-              console.log("Using single newly recognized barcode");
-              this._drawBoundingBoxes([session.newlyRecognizedBarcode]);
-              return;
-            }
-
-            // Don't clear bounding boxes automatically - let them persist for continuous tracking
-            // Only clear if we haven't had any barcode activity for a longer time
-            if (!this._lastBarcodeTime || Date.now() - this._lastBarcodeTime > 1000) {
-              this._clearBoundingBoxes();
-            }
-          } catch (error) {
-            console.warn("Error in didUpdateSession:", error);
           }
-        },
-        didScan: (_, session) => {
-          try {
-            // Check if session exists
-            if (!session) {
-              console.warn("Invalid session");
-              return;
-            }
-
-            const newlyRecognized = session.newlyRecognizedBarcode;
-
-            if (newlyRecognized) {
-              // Log barcode value to console
-              console.log("Barcode detected:", newlyRecognized.data);
-              console.log("Barcode location:", newlyRecognized.location);
-
-              // Try drawing the newly recognized barcode immediately
-              if (newlyRecognized.location) {
-                console.log("Drawing newly recognized barcode");
-                this._drawBoundingBoxes([newlyRecognized]);
-              }
-
-              // Store detected barcode for potential selection (avoid duplicates)
-              const existingCode = this._lastCodes.find(c => c.code === newlyRecognized.data);
-              if (!existingCode) {
-                this._lastCodes.push({
-                  code: newlyRecognized.data,
-                  format: newlyRecognized.symbology
-                });
-              }
-
-              // Show brief visual feedback for newly detected barcodes
-              if (this.refs.quaggaModal) {
-                this.refs.quaggaModal.style.border = "4px solid lime";
-                setTimeout(() => {
-                  if (this.refs.quaggaModal) {
-                    this.refs.quaggaModal.style.border = "";
-                  }
-                }, 200);
-              }
-            }
-
-            // Don't draw bounding boxes here - let didUpdateSession handle all drawing
-            // This prevents conflicts between the two callbacks
-
-          } catch (error) {
-            console.error("Error in didScan callback:", error);
-          }
+        });
+        console.log("BarcodeCapture listeners set up successfully");
+      } else {
+        console.error("No BarcodeCapture instance available for listener setup");
+        if (this._initializationError) {
+          console.error("Initialization error:", this._initializationError);
         }
-      });
+      }
       
       // Create data capture view
       this._dataCaptureView = await DataCaptureView.forContext(this._dataCaptureContext);
@@ -458,6 +483,153 @@ export default class BarcodeScanner extends FieldComponent {
     } catch (error) {
       console.error("Error initializing Scandit:", error);
       this.errorMessage = "Failed to initialize barcode scanner";
+    }
+  }
+
+  _handleBarcodeSession(session, mode) {
+    // Shared session handler for both BarcodeBatch and BarcodeCapture
+    try {
+      if (!session) {
+        console.log(`${mode} - No session provided`);
+        return;
+      }
+
+      // Update last barcode time to keep tracking active
+      this._lastBarcodeTime = Date.now();
+
+      let allBarcodes = [];
+
+      // Log session details for debugging
+      console.log(`${mode} - Session received:`, {
+        trackedBarcodes: session.trackedBarcodes?.size || 0,
+        addedTrackedBarcodes: session.addedTrackedBarcodes?.length || 0,
+        newlyRecognizedBarcodes: session.newlyRecognizedBarcodes?.length || 0,
+        newlyRecognizedBarcode: !!session.newlyRecognizedBarcode
+      });
+
+      // BarcodeCapture mode - comprehensive barcode collection
+
+      // Maintain a persistent barcode cache for multiple detection
+      if (!this._persistentBarcodes) {
+        this._persistentBarcodes = new Map();
+      }
+
+      // 1. Check for tracked barcodes (continuous tracking)
+      const trackedBarcodes = session.trackedBarcodes || new Map();
+      if (trackedBarcodes.size > 0) {
+        const tracked = Array.from(trackedBarcodes.values())
+          .map(tracked => tracked.barcode)
+          .filter(b => b && b.data && b.location);
+
+        // Add to persistent cache
+        tracked.forEach(barcode => {
+          this._persistentBarcodes.set(barcode.data, {
+            barcode: barcode,
+            lastSeen: Date.now()
+          });
+        });
+
+        console.log(`${mode} - Found ${tracked.length} tracked barcodes`);
+      }
+
+      // 2. Check for newly recognized barcodes (fresh detections)
+      const newlyRecognizedBarcodes = session.newlyRecognizedBarcodes || [];
+      if (newlyRecognizedBarcodes.length > 0) {
+        const validNewBarcodes = newlyRecognizedBarcodes.filter(b => b && b.data && b.location);
+
+        // Add to persistent cache
+        validNewBarcodes.forEach(barcode => {
+          this._persistentBarcodes.set(barcode.data, {
+            barcode: barcode,
+            lastSeen: Date.now()
+          });
+        });
+
+        console.log(`${mode} - Found ${validNewBarcodes.length} newly recognized barcodes`);
+      }
+
+      // 3. Check for single newly recognized barcode (most common case)
+      if (session.newlyRecognizedBarcode && session.newlyRecognizedBarcode.data && session.newlyRecognizedBarcode.location) {
+        this._persistentBarcodes.set(session.newlyRecognizedBarcode.data, {
+          barcode: session.newlyRecognizedBarcode,
+          lastSeen: Date.now()
+        });
+        console.log(`${mode} - Found single newly recognized barcode: ${session.newlyRecognizedBarcode.data}`);
+      }
+
+      // 4. Check for added tracked barcodes (if available)
+      const addedTrackedBarcodes = session.addedTrackedBarcodes || [];
+      if (addedTrackedBarcodes.length > 0) {
+        const newBarcodes = addedTrackedBarcodes
+          .map(tracked => tracked.barcode)
+          .filter(b => b && b.data && b.location);
+
+        // Add to persistent cache
+        newBarcodes.forEach(barcode => {
+          this._persistentBarcodes.set(barcode.data, {
+            barcode: barcode,
+            lastSeen: Date.now()
+          });
+        });
+
+        console.log(`${mode} - Found ${newBarcodes.length} newly added tracked barcodes`);
+      }
+
+      // Clean up old barcodes (remove if not seen for 2 seconds)
+      const now = Date.now();
+      for (const [key, value] of this._persistentBarcodes.entries()) {
+        if (now - value.lastSeen > 2000) {
+          this._persistentBarcodes.delete(key);
+        }
+      }
+
+      // Get all current barcodes from persistent cache
+      allBarcodes = Array.from(this._persistentBarcodes.values()).map(item => item.barcode);
+
+      if (allBarcodes.length > 0) {
+        // Fast deduplication - use a more lenient approach for better tracking
+        // const uniqueBarcodes = [];
+        // const seenCodes = new Set();
+
+        // for (const barcode of allBarcodes) {
+        //   // Use only barcode data for deduplication to allow position updates
+        //   const key = barcode.data;
+        //   if (!seenCodes.has(key)) {
+        //     seenCodes.add(key);
+        //     uniqueBarcodes.push(barcode);
+        //   }
+        // }
+
+        console.log(`${mode} - Drawing ${allBarcodes.length} unique barcodes`);
+        // uniqueBarcodes.forEach((barcode, index) => {
+        //   console.log(`  Barcode ${index + 1}: "${barcode.data}" (${barcode.symbology})`);
+        // });
+
+        // Draw all detected barcodes
+        this._drawBoundingBoxes(allBarcodes);
+
+        // Store all detected barcodes for selection (avoid duplicates)
+        allBarcodes.forEach(barcode => {
+          const existingCode = this._lastCodes.find(c => c.code === barcode.data);
+          if (!existingCode) {
+            this._lastCodes.push({
+              code: barcode.data,
+              format: barcode.symbology
+            });
+          }
+        });
+
+        return; // Don't clear if we have barcodes
+      } else {
+        console.log(`${mode} - No barcodes found in session`);
+      }
+
+      // Only clear if we haven't had any barcode activity for a short time
+      if (!this._lastBarcodeTime || Date.now() - this._lastBarcodeTime > 200) {
+        this._clearBoundingBoxes();
+      }
+    } catch (error) {
+      console.error(`Error in ${mode} session handler:`, error);
     }
   }
 
@@ -482,32 +654,41 @@ export default class BarcodeScanner extends FieldComponent {
     } catch (error) {
       console.error("Error opening Scandit modal:", error);
       this.errorMessage = "Failed to initialize scanner";
-      this.refs.quaggaModal.style.display = "none";
+      //this.refs.quaggaModal.style.display = "none";
     }
   }
   
   async _setupCamera() {
     try {
-      // Get recommended camera settings for barcode capture
+      // Get recommended camera settings for BarcodeCapture
       const cameraSettings = BarcodeCapture.recommendedCameraSettings;
+      console.log("Using BarcodeCapture recommended camera settings");
 
       // Get camera
       this._camera = Camera.default;
       if (this._camera) {
         // Set camera settings
         await this._camera.applySettings(cameraSettings);
+        console.log("Camera settings applied");
 
         // Set camera as frame source
         await this._dataCaptureContext.setFrameSource(this._camera);
+        console.log("Camera set as frame source");
 
         // Switch camera on
         await this._camera.switchToDesiredState(FrameSourceState.On);
+        console.log("Camera switched on");
 
-        // Start scanning
+        // Start BarcodeCapture scanning
         if (this._barcodeCapture) {
           await this._barcodeCapture.setEnabled(true);
+          console.log("BarcodeCapture enabled successfully");
         } else {
-          throw new Error("BarcodeCapture instance is null");
+          const errorMsg = this._initializationError
+            ? `BarcodeCapture initialization failed: ${this._initializationError.message}`
+            : "BarcodeCapture instance is null";
+          console.error(errorMsg);
+          throw new Error(errorMsg);
         }
       } else {
         console.error("No camera available");
@@ -516,7 +697,7 @@ export default class BarcodeScanner extends FieldComponent {
     } catch (error) {
       console.error("Error setting up camera:", error);
       this.errorMessage = "Failed to access camera";
-      
+
       // Show error in the container
       this.refs.scanditContainer.innerHTML = `
         <div style="
@@ -641,8 +822,10 @@ export default class BarcodeScanner extends FieldComponent {
         await this._camera.switchToDesiredState(FrameSourceState.Off);
       }
 
+      // Stop BarcodeCapture
       if (this._barcodeCapture) {
         await this._barcodeCapture.setEnabled(false);
+        console.log("BarcodeCapture disabled");
       }
 
       // Stop live scanning mode
@@ -656,9 +839,7 @@ export default class BarcodeScanner extends FieldComponent {
 
       // Properly close the modal
       if (this.refs.quaggaModal) {
-        setTimeout(() => {
-          //this.refs.quaggaModal.style.display = "none";
-        }, 500);
+        //this.refs.quaggaModal.style.display = "none";
       }
 
       this._isVideoFrozen = false;
@@ -746,6 +927,9 @@ export default class BarcodeScanner extends FieldComponent {
         this._boundingBoxCanvas.style.width = newWidth + 'px';
         this._boundingBoxCanvas.style.height = newHeight + 'px';
 
+        // Clear cached scale factors when canvas resizes
+        this._cachedScaleFactors = null;
+
         console.log("Canvas resized to:", newWidth, "x", newHeight);
       }
     } catch (error) {
@@ -763,33 +947,41 @@ export default class BarcodeScanner extends FieldComponent {
       // Store barcodes for click detection
       this._currentBarcodes = barcodes || [];
 
-      // Debug logging
-      console.log("Drawing bounding boxes for", barcodes?.length || 0, "barcodes");
-      if (barcodes && barcodes.length > 0) {
-        console.log("First barcode location:", barcodes[0].location);
+      console.log("_drawBoundingBoxes called with", barcodes?.length || 0, "barcodes");
+
+      if (!barcodes || barcodes.length === 0) {
+        console.log("No barcodes to draw, clearing canvas");
+        this._clearBoundingBoxes();
+        return;
       }
 
-      // Throttle drawing to avoid excessive redraws
-      if (this._drawingPending) return;
-      this._drawingPending = true;
+      // Use requestAnimationFrame for smooth rendering but with faster response
+      if (this._animationFrameId) {
+        cancelAnimationFrame(this._animationFrameId);
+      }
 
-      // Use requestAnimationFrame for smooth updates
-      requestAnimationFrame(() => {
+      this._animationFrameId = requestAnimationFrame(() => {
         try {
-          this._drawingPending = false;
 
           const width = this._boundingBoxCanvas.width;
           const height = this._boundingBoxCanvas.height;
 
+          console.log("Canvas dimensions:", width, "x", height);
+
           if (width <= 0 || height <= 0) {
+            console.log("Canvas has invalid dimensions, resizing...");
             this._resizeBoundingBoxCanvas();
             return;
           }
 
           // Clear the entire canvas
           this._boundingBoxContext.clearRect(0, 0, width, height);
+          console.log("Canvas cleared");
 
-          if (!barcodes || barcodes.length === 0) return;
+          if (!barcodes || barcodes.length === 0) {
+            console.log("No barcodes to draw after clearing");
+            return;
+          }
 
           // Set drawing styles
           this._boundingBoxContext.strokeStyle = '#00ff00';
@@ -798,46 +990,51 @@ export default class BarcodeScanner extends FieldComponent {
           this._boundingBoxContext.font = '14px Arial';
           this._boundingBoxContext.textAlign = 'left';
 
-          // Get scaling factors for coordinate transformation
-          const videoElement = this.refs.scanditContainer?.querySelector('video');
-          let scaleX = 1, scaleY = 1;
-
-          if (videoElement && videoElement.videoWidth && videoElement.videoHeight) {
-            scaleX = width / videoElement.videoWidth;
-            scaleY = height / videoElement.videoHeight;
-            console.log(`Video dimensions: ${videoElement.videoWidth}x${videoElement.videoHeight}`);
-            console.log(`Canvas dimensions: ${width}x${height}`);
-            console.log(`Scale factors: ${scaleX}, ${scaleY}`);
+          // Get scaling factors for coordinate transformation (cached for performance)
+          if (!this._cachedScaleFactors) {
+            const videoElement = this.refs.scanditContainer?.querySelector('video');
+            if (videoElement && videoElement.videoWidth && videoElement.videoHeight) {
+              this._cachedScaleFactors = {
+                scaleX: width / videoElement.videoWidth,
+                scaleY: height / videoElement.videoHeight
+              };
+            } else {
+              this._cachedScaleFactors = { scaleX: 1, scaleY: 1 };
+            }
           }
 
-          // Draw all barcodes
+          const { scaleX, scaleY } = this._cachedScaleFactors;
+
+          // Draw all barcodes with optimized rendering
           for (const barcode of barcodes) {
             if (!barcode.location || !barcode.location.topLeft) continue;
 
             const { topLeft, topRight, bottomRight, bottomLeft } = barcode.location;
 
-            // Apply scaling to coordinates
-            const scaledTopLeft = { x: topLeft.x * scaleX, y: topLeft.y * scaleY };
-            const scaledTopRight = { x: topRight.x * scaleX, y: topRight.y * scaleY };
-            const scaledBottomRight = { x: bottomRight.x * scaleX, y: bottomRight.y * scaleY };
-            const scaledBottomLeft = { x: bottomLeft.x * scaleX, y: bottomLeft.y * scaleY };
+            // Apply scaling to coordinates (inline for speed)
+            const x1 = topLeft.x * scaleX;
+            const y1 = topLeft.y * scaleY;
+            const x2 = topRight.x * scaleX;
+            const y2 = topRight.y * scaleY;
+            const x3 = bottomRight.x * scaleX;
+            const y3 = bottomRight.y * scaleY;
+            const x4 = bottomLeft.x * scaleX;
+            const y4 = bottomLeft.y * scaleY;
 
-            console.log(`Barcode ${barcode.data}: original=(${topLeft.x},${topLeft.y}) scaled=(${scaledTopLeft.x},${scaledTopLeft.y})`);
-
-            // Draw the bounding box
+            // Draw the bounding box (optimized path)
             this._boundingBoxContext.beginPath();
-            this._boundingBoxContext.moveTo(scaledTopLeft.x, scaledTopLeft.y);
-            this._boundingBoxContext.lineTo(scaledTopRight.x, scaledTopRight.y);
-            this._boundingBoxContext.lineTo(scaledBottomRight.x, scaledBottomRight.y);
-            this._boundingBoxContext.lineTo(scaledBottomLeft.x, scaledBottomLeft.y);
+            this._boundingBoxContext.moveTo(x1, y1);
+            this._boundingBoxContext.lineTo(x2, y2);
+            this._boundingBoxContext.lineTo(x3, y3);
+            this._boundingBoxContext.lineTo(x4, y4);
             this._boundingBoxContext.closePath();
             this._boundingBoxContext.fill();
             this._boundingBoxContext.stroke();
 
-            // Draw the label
+            // Draw the label (optimized)
             const text = `${barcode.symbology}: ${barcode.data}`;
-            const textX = Math.min(scaledTopLeft.x, scaledBottomLeft.x);
-            const textY = Math.min(scaledTopLeft.y, scaledTopRight.y) - 5;
+            const textX = Math.min(x1, x4);
+            const textY = Math.min(y1, y2) - 5;
 
             const textMetrics = this._boundingBoxContext.measureText(text);
             this._boundingBoxContext.fillStyle = 'rgba(0, 0, 0, 0.7)';
@@ -849,7 +1046,6 @@ export default class BarcodeScanner extends FieldComponent {
           }
         } catch (error) {
           console.error("Error in drawing frame:", error);
-          this._drawingPending = false;
         }
       });
     } catch (error) {
@@ -868,8 +1064,13 @@ export default class BarcodeScanner extends FieldComponent {
 
     // Get click coordinates relative to canvas
     const rect = this._boundingBoxCanvas.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
+    const clickX = event.clientX - rect.left;
+    const clickY = event.clientY - rect.top;
+
+    console.log(`Click detected at: (${clickX}, ${clickY})`);
+
+    // Get the same scale factors used for drawing
+    const { scaleX, scaleY } = this._cachedScaleFactors || { scaleX: 1, scaleY: 1 };
 
     // Check if click is inside any barcode bounding box
     for (const barcode of this._currentBarcodes) {
@@ -877,14 +1078,26 @@ export default class BarcodeScanner extends FieldComponent {
 
       const { topLeft, topRight, bottomRight, bottomLeft } = barcode.location;
 
-      // Simple point-in-polygon test for the barcode rectangle
-      if (this._isPointInBoundingBox(x, y, topLeft, topRight, bottomRight, bottomLeft)) {
-        // Barcode clicked - select it
+      // Apply the same scaling used for drawing
+      const scaledTopLeft = { x: topLeft.x * scaleX, y: topLeft.y * scaleY };
+      const scaledTopRight = { x: topRight.x * scaleX, y: topRight.y * scaleY };
+      const scaledBottomRight = { x: bottomRight.x * scaleX, y: bottomRight.y * scaleY };
+      const scaledBottomLeft = { x: bottomLeft.x * scaleX, y: bottomLeft.y * scaleY };
+
+      // Check if click is inside this barcode's bounding box
+      if (this._isPointInBoundingBox(clickX, clickY, scaledTopLeft, scaledTopRight, scaledBottomRight, scaledBottomLeft)) {
+        // Barcode clicked - select it and send to outer input
         console.log("Barcode clicked:", barcode.data);
-        this.updateValue(barcode.data);
+
+        // Use setValue to properly update the component value and trigger events
+        this.setValue(barcode.data);
+
+        // Also update the internal input field
         if (this.refs.barcode) {
           this.refs.barcode.value = barcode.data;
         }
+
+        // Stop the scanner
         this.stopScanner();
         break;
       }
@@ -892,13 +1105,19 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   _isPointInBoundingBox(x, y, topLeft, topRight, bottomRight, bottomLeft) {
-    // Simple bounding rectangle check
+    // Simple bounding rectangle check with scaled coordinates
     const minX = Math.min(topLeft.x, topRight.x, bottomRight.x, bottomLeft.x);
     const maxX = Math.max(topLeft.x, topRight.x, bottomRight.x, bottomLeft.x);
     const minY = Math.min(topLeft.y, topRight.y, bottomRight.y, bottomLeft.y);
     const maxY = Math.max(topLeft.y, topRight.y, bottomRight.y, bottomLeft.y);
 
-    return x >= minX && x <= maxX && y >= minY && y <= maxY;
+    const isInside = x >= minX && x <= maxX && y >= minY && y <= maxY;
+
+    if (isInside) {
+      console.log(`Click (${x}, ${y}) is inside bounding box: (${minX}, ${minY}) to (${maxX}, ${maxY})`);
+    }
+
+    return isInside;
   }
 
   _startLiveScanningMode() {
@@ -933,22 +1152,31 @@ export default class BarcodeScanner extends FieldComponent {
 
     // Aggressive continuous tracking - check for barcodes every frame
     this._continuousTrackingInterval = setInterval(() => {
-      if (!this._isVideoFrozen && this._barcodeCapture && this._dataCaptureContext) {
+      if (!this._isVideoFrozen && this._dataCaptureContext && this._barcodeCapture) {
         try {
-          // Force the barcode capture to stay enabled
+          // Force BarcodeCapture to stay enabled
           if (this._barcodeCapture.isEnabled === false) {
             this._barcodeCapture.setEnabled(true);
+            console.log("Re-enabled BarcodeCapture");
           }
 
           // Keep the last barcode time updated to prevent clearing
           if (this._currentBarcodes && this._currentBarcodes.length > 0) {
             this._lastBarcodeTime = Date.now();
           }
+
+          // Force redraw of persistent barcodes to maintain multiple detection
+          if (this._persistentBarcodes && this._persistentBarcodes.size > 0) {
+            const allBarcodes = Array.from(this._persistentBarcodes.values()).map(item => item.barcode);
+            if (allBarcodes.length > 0) {
+              this._drawBoundingBoxes(allBarcodes);
+            }
+          }
         } catch (error) {
           console.warn("Error in continuous tracking:", error);
         }
       }
-    }, 16); // ~60fps for smooth tracking
+    }, 33); // 30fps for smooth tracking with multiple barcode persistence
   }
 
   _stopContinuousTracking() {
@@ -984,19 +1212,24 @@ export default class BarcodeScanner extends FieldComponent {
 
   destroy() {
     // Clean up Scandit resources
+    if (this._barcodeBatch) {
+      this._barcodeBatch.removeFromContext();
+    }
+
     if (this._barcodeCapture) {
       this._barcodeCapture.removeFromContext();
     }
-    
+
     if (this._dataCaptureContext) {
       this._dataCaptureContext.dispose();
       this._dataCaptureContext = null;
     }
-    
+
+    this._barcodeBatch = null;
     this._barcodeCapture = null;
     this._camera = null;
     this._dataCaptureView = null;
-    
+
     return super.destroy();
   }
 
