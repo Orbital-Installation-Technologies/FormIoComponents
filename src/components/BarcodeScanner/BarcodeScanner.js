@@ -834,6 +834,12 @@ export default class BarcodeScanner extends FieldComponent {
       // Stop continuous tracking
       this._stopContinuousTracking();
 
+      // Stop camera monitoring
+      if (this._cameraMonitoringInterval) {
+        clearInterval(this._cameraMonitoringInterval);
+        this._cameraMonitoringInterval = null;
+      }
+
       // Clear bounding boxes
       this._clearBoundingBoxes();
 
@@ -850,37 +856,49 @@ export default class BarcodeScanner extends FieldComponent {
     try {
       if (!this.refs.scanditContainer) return;
 
-      // Add CSS to ensure camera view fits properly and container sizes to camera
+      // Add CSS to ensure container matches camera size exactly
       const style = document.createElement('style');
       style.id = 'scandit-camera-responsive-styles';
       if (!document.getElementById('scandit-camera-responsive-styles')) {
         style.textContent = `
-          /* Container should size to fit camera */
-          .scandit-container {
-            display: inline-block !important;
-            position: relative !important;
+          /* Modal should center the camera container */
+          .barcode-modal-content {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            width: 100% !important;
+            height: 100% !important;
           }
 
-          /* Video should maintain its natural aspect ratio */
+          /* Container should size exactly to camera */
+          .scandit-container {
+            position: relative !important;
+            display: inline-block !important;
+            background: black !important;
+            border-radius: 8px !important;
+            overflow: hidden !important;
+          }
+
+          /* Video should display at its natural size */
           .scandit-container video {
             display: block !important;
-            max-width: 100vw !important;
-            max-height: 80vh !important;
             width: auto !important;
             height: auto !important;
+            max-width: 90vw !important;
+            max-height: 80vh !important;
           }
 
-          /* DataCaptureView should match video size exactly */
+          /* DataCaptureView should match video exactly */
           .scandit-container > div {
             position: relative !important;
             display: inline-block !important;
           }
 
-          /* Mobile specific fixes */
+          /* Mobile optimizations */
           @media (max-width: 768px) {
             .scandit-container video {
               max-width: 95vw !important;
-              max-height: 70vh !important;
+              max-height: 75vh !important;
             }
           }
 
@@ -898,88 +916,109 @@ export default class BarcodeScanner extends FieldComponent {
       // Add responsive class to container
       this.refs.scanditContainer.classList.add('scandit-container');
 
-      // Wait for video to load and then size container to match
-      this._waitForVideoAndResize();
+      // Add class to modal container for centering
+      if (this.refs.modalContainer) {
+        this.refs.modalContainer.classList.add('barcode-modal-content');
+      }
 
-      console.log("Camera view configured for responsive sizing");
+      // Start monitoring for video and auto-resize
+      this._startCameraMonitoring();
+
+      console.log("Camera view configured for dynamic sizing");
     } catch (error) {
       console.warn("Error configuring camera view:", error);
     }
   }
 
-  _waitForVideoAndResize() {
-    // Poll for video element and resize when found
-    const checkForVideo = () => {
-      const video = this.refs.scanditContainer?.querySelector('video');
-      if (video) {
-        console.log("Video element found, setting up sizing");
+  _startCameraMonitoring() {
+    // Continuous monitoring for video element and size changes
+    this._cameraMonitoringInterval = setInterval(() => {
+      this._checkAndResizeCamera();
+    }, 200); // Check every 200ms for responsive updates
 
-        // Wait for video metadata to load
-        if (video.videoWidth && video.videoHeight) {
-          this._sizeContainerToCamera(video);
-        } else {
-          video.addEventListener('loadedmetadata', () => {
-            this._sizeContainerToCamera(video);
-          });
-        }
-
-        // Set up resize observer for the video
-        if (window.ResizeObserver) {
-          this._cameraResizeObserver = new ResizeObserver(() => {
-            clearTimeout(this._resizeTimeout);
-            this._resizeTimeout = setTimeout(() => {
-              this._sizeContainerToCamera(video);
-              this._handleCameraResize();
-            }, 100);
-          });
-          this._cameraResizeObserver.observe(video);
-        }
-      } else {
-        // Keep checking for video element
-        setTimeout(checkForVideo, 100);
-      }
-    };
-
-    checkForVideo();
+    // Also check immediately
+    this._checkAndResizeCamera();
   }
 
-  _sizeContainerToCamera(video) {
+  _checkAndResizeCamera() {
     try {
-      if (!video || !video.videoWidth || !video.videoHeight) return;
+      const video = this.refs.scanditContainer?.querySelector('video');
+      if (!video) return;
 
-      const videoAspectRatio = video.videoWidth / video.videoHeight;
-      const maxWidth = Math.min(window.innerWidth * 0.95, 800);
-      const maxHeight = Math.min(window.innerHeight * 0.8, 600);
+      // Check if video has valid dimensions
+      if (video.videoWidth && video.videoHeight) {
+        // Get the actual displayed video size
+        const videoRect = video.getBoundingClientRect();
 
+        if (videoRect.width > 0 && videoRect.height > 0) {
+          this._sizeContainerToCamera(video, videoRect);
+        }
+      }
+    } catch (error) {
+      console.warn("Error in camera monitoring:", error);
+    }
+  }
+
+  _sizeContainerToCamera(video, videoRect = null) {
+    try {
+      if (!video) return;
+
+      // Get actual video dimensions
+      const videoWidth = video.videoWidth || 640;
+      const videoHeight = video.videoHeight || 480;
+
+      // Get displayed video size
+      const displayRect = videoRect || video.getBoundingClientRect();
+      const displayWidth = displayRect.width;
+      const displayHeight = displayRect.height;
+
+      // Use the actual displayed size if available, otherwise calculate from stream size
       let containerWidth, containerHeight;
 
-      // Calculate optimal size maintaining aspect ratio
-      if (maxWidth / maxHeight > videoAspectRatio) {
-        // Height is the limiting factor
-        containerHeight = maxHeight;
-        containerWidth = containerHeight * videoAspectRatio;
+      if (displayWidth > 0 && displayHeight > 0) {
+        // Use the actual displayed video size
+        containerWidth = Math.round(displayWidth);
+        containerHeight = Math.round(displayHeight);
       } else {
-        // Width is the limiting factor
-        containerWidth = maxWidth;
-        containerHeight = containerWidth / videoAspectRatio;
+        // Fallback: calculate from video stream dimensions
+        const videoAspectRatio = videoWidth / videoHeight;
+        const maxWidth = Math.min(window.innerWidth * 0.9, 1200);
+        const maxHeight = Math.min(window.innerHeight * 0.8, 800);
+
+        if (maxWidth / maxHeight > videoAspectRatio) {
+          containerHeight = maxHeight;
+          containerWidth = containerHeight * videoAspectRatio;
+        } else {
+          containerWidth = maxWidth;
+          containerHeight = containerWidth / videoAspectRatio;
+        }
       }
 
-      // Apply size to modal container
-      if (this.refs.modalContainer) {
-        this.refs.modalContainer.style.width = `${containerWidth}px`;
-        this.refs.modalContainer.style.height = `${containerHeight}px`;
+      // Only update if size has changed significantly (avoid constant micro-adjustments)
+      const currentWidth = parseInt(this.refs.scanditContainer.style.width) || 0;
+      const currentHeight = parseInt(this.refs.scanditContainer.style.height) || 0;
+
+      if (Math.abs(currentWidth - containerWidth) > 5 || Math.abs(currentHeight - containerHeight) > 5) {
+        // Apply size to scandit container
+        this.refs.scanditContainer.style.width = `${containerWidth}px`;
+        this.refs.scanditContainer.style.height = `${containerHeight}px`;
+
+        // Remove fixed sizing from modal container - let it size to content
+        if (this.refs.modalContainer) {
+          this.refs.modalContainer.style.width = 'auto';
+          this.refs.modalContainer.style.height = 'auto';
+        }
+
+        console.log(`Container resized to: ${containerWidth}x${containerHeight} (video: ${videoWidth}x${videoHeight}, display: ${displayWidth}x${displayHeight})`);
+
+        // Clear cached scale factors to force recalculation
+        this._cachedScaleFactors = null;
+
+        // Force canvas resize after container resize
+        setTimeout(() => {
+          this._resizeBoundingBoxCanvas();
+        }, 50);
       }
-
-      // Apply size to scandit container
-      this.refs.scanditContainer.style.width = `${containerWidth}px`;
-      this.refs.scanditContainer.style.height = `${containerHeight}px`;
-
-      console.log(`Container sized to: ${containerWidth}x${containerHeight} (aspect ratio: ${videoAspectRatio})`);
-
-      // Force canvas resize after container resize
-      setTimeout(() => {
-        this._resizeBoundingBoxCanvas();
-      }, 50);
 
     } catch (error) {
       console.warn("Error sizing container to camera:", error);
@@ -1160,36 +1199,28 @@ export default class BarcodeScanner extends FieldComponent {
           this._boundingBoxContext.font = '14px Arial';
           this._boundingBoxContext.textAlign = 'left';
 
-          // Get scaling factors for coordinate transformation (iOS-compatible)
+          // Get scaling factors for coordinate transformation (dynamic container compatible)
           if (!this._cachedScaleFactors) {
             const videoElement = this.refs.scanditContainer?.querySelector('video');
             const container = this.refs.scanditContainer;
 
             if (videoElement && videoElement.videoWidth && videoElement.videoHeight && container) {
-              // Get actual displayed video dimensions
-              const videoRect = videoElement.getBoundingClientRect();
+              // Get actual container size (which should match video display size)
               const containerRect = container.getBoundingClientRect();
 
-              // Calculate the actual video display size within the container
-              const videoDisplayWidth = videoRect.width;
-              const videoDisplayHeight = videoRect.height;
+              // Since container is sized to match camera, use container dimensions
+              const containerWidth = containerRect.width;
+              const containerHeight = containerRect.height;
 
-              // Calculate canvas display size
-              const canvasDisplayWidth = this._boundingBoxCanvas.style.width ?
-                parseFloat(this._boundingBoxCanvas.style.width) : containerRect.width;
-              const canvasDisplayHeight = this._boundingBoxCanvas.style.height ?
-                parseFloat(this._boundingBoxCanvas.style.height) : containerRect.height;
-
-              // Calculate scale factors based on video stream resolution to canvas display size
+              // Calculate scale factors from video stream resolution to container size
               this._cachedScaleFactors = {
-                scaleX: canvasDisplayWidth / videoElement.videoWidth,
-                scaleY: canvasDisplayHeight / videoElement.videoHeight
+                scaleX: containerWidth / videoElement.videoWidth,
+                scaleY: containerHeight / videoElement.videoHeight
               };
 
-              console.log("Scale calculation:", {
+              console.log("Scale calculation (dynamic container):", {
                 videoStream: `${videoElement.videoWidth}x${videoElement.videoHeight}`,
-                videoDisplay: `${videoDisplayWidth}x${videoDisplayHeight}`,
-                canvasDisplay: `${canvasDisplayWidth}x${canvasDisplayHeight}`,
+                containerSize: `${containerWidth}x${containerHeight}`,
                 scale: this._cachedScaleFactors
               });
             } else {
@@ -1455,7 +1486,7 @@ export default class BarcodeScanner extends FieldComponent {
           console.warn("Error in continuous tracking:", error);
         }
       }
-    }, 33); // 30fps for smooth tracking with multiple barcode persistence
+    }, 66); // 30fps for smooth tracking with multiple barcode persistence
   }
 
   _stopContinuousTracking() {
@@ -1519,6 +1550,11 @@ export default class BarcodeScanner extends FieldComponent {
     if (this._continuousTrackingInterval) {
       clearInterval(this._continuousTrackingInterval);
       this._continuousTrackingInterval = null;
+    }
+
+    if (this._cameraMonitoringInterval) {
+      clearInterval(this._cameraMonitoringInterval);
+      this._cameraMonitoringInterval = null;
     }
 
     this._barcodeBatch = null;
