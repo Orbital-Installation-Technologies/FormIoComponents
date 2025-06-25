@@ -111,8 +111,8 @@ export default class BarcodeScanner extends FieldComponent {
                </div>`
             : ""
         }
-        <div ref="quaggaModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1000; flex-direction:column; align-items:center; justify-content:center;">
-          <div style="position:relative; width:90%; max-width:640px; height:80%; max-height:480px; background:black; border-radius:8px; overflow:hidden;">
+        <div ref="quaggaModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1000; flex-direction:column; align-items:center; justify-content:center; padding:20px; box-sizing:border-box;">
+          <div ref="modalContainer" style="position:relative; background:black; border-radius:8px; overflow:hidden; display:flex; flex-direction:column; max-width:100%; max-height:100%;">
             <button ref="closeModal" style="position:absolute; top:10px; right:10px; z-index:1001; background:rgba(255,255,255,0.8); border:none; border-radius:50%; width:36px; height:36px; display:flex; align-items:center; justify-content:center; font-size:18px; cursor:pointer;">×</button>
 
             
@@ -120,14 +120,11 @@ export default class BarcodeScanner extends FieldComponent {
             <div
               ref="scanditContainer"
               style="
-                width: 100%;
-                height: 100%;
                 position: relative;
                 background: black;
-                display: flex;
-                align-items: center;
-                justify-content: center;
                 overflow: hidden;
+                min-width: 320px;
+                min-height: 240px;
               ">
             </div>
           </div>
@@ -471,6 +468,9 @@ export default class BarcodeScanner extends FieldComponent {
 
       // Connect barcode capture to view
       this._dataCaptureView.connectToElement(this.refs.scanditContainer);
+
+      // Configure the camera view for responsive sizing
+      this._configureCameraView();
 
       // Create bounding box overlay
       this._createBoundingBoxOverlay();
@@ -846,6 +846,165 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
+  _configureCameraView() {
+    try {
+      if (!this.refs.scanditContainer) return;
+
+      // Add CSS to ensure camera view fits properly and container sizes to camera
+      const style = document.createElement('style');
+      style.id = 'scandit-camera-responsive-styles';
+      if (!document.getElementById('scandit-camera-responsive-styles')) {
+        style.textContent = `
+          /* Container should size to fit camera */
+          .scandit-container {
+            display: inline-block !important;
+            position: relative !important;
+          }
+
+          /* Video should maintain its natural aspect ratio */
+          .scandit-container video {
+            display: block !important;
+            max-width: 100vw !important;
+            max-height: 80vh !important;
+            width: auto !important;
+            height: auto !important;
+          }
+
+          /* DataCaptureView should match video size exactly */
+          .scandit-container > div {
+            position: relative !important;
+            display: inline-block !important;
+          }
+
+          /* Mobile specific fixes */
+          @media (max-width: 768px) {
+            .scandit-container video {
+              max-width: 95vw !important;
+              max-height: 70vh !important;
+            }
+          }
+
+          /* iOS specific fixes */
+          @supports (-webkit-touch-callout: none) {
+            .scandit-container video {
+              transform: translateZ(0) !important;
+              -webkit-transform: translateZ(0) !important;
+            }
+          }
+        `;
+        document.head.appendChild(style);
+      }
+
+      // Add responsive class to container
+      this.refs.scanditContainer.classList.add('scandit-container');
+
+      // Wait for video to load and then size container to match
+      this._waitForVideoAndResize();
+
+      console.log("Camera view configured for responsive sizing");
+    } catch (error) {
+      console.warn("Error configuring camera view:", error);
+    }
+  }
+
+  _waitForVideoAndResize() {
+    // Poll for video element and resize when found
+    const checkForVideo = () => {
+      const video = this.refs.scanditContainer?.querySelector('video');
+      if (video) {
+        console.log("Video element found, setting up sizing");
+
+        // Wait for video metadata to load
+        if (video.videoWidth && video.videoHeight) {
+          this._sizeContainerToCamera(video);
+        } else {
+          video.addEventListener('loadedmetadata', () => {
+            this._sizeContainerToCamera(video);
+          });
+        }
+
+        // Set up resize observer for the video
+        if (window.ResizeObserver) {
+          this._cameraResizeObserver = new ResizeObserver(() => {
+            clearTimeout(this._resizeTimeout);
+            this._resizeTimeout = setTimeout(() => {
+              this._sizeContainerToCamera(video);
+              this._handleCameraResize();
+            }, 100);
+          });
+          this._cameraResizeObserver.observe(video);
+        }
+      } else {
+        // Keep checking for video element
+        setTimeout(checkForVideo, 100);
+      }
+    };
+
+    checkForVideo();
+  }
+
+  _sizeContainerToCamera(video) {
+    try {
+      if (!video || !video.videoWidth || !video.videoHeight) return;
+
+      const videoAspectRatio = video.videoWidth / video.videoHeight;
+      const maxWidth = Math.min(window.innerWidth * 0.95, 800);
+      const maxHeight = Math.min(window.innerHeight * 0.8, 600);
+
+      let containerWidth, containerHeight;
+
+      // Calculate optimal size maintaining aspect ratio
+      if (maxWidth / maxHeight > videoAspectRatio) {
+        // Height is the limiting factor
+        containerHeight = maxHeight;
+        containerWidth = containerHeight * videoAspectRatio;
+      } else {
+        // Width is the limiting factor
+        containerWidth = maxWidth;
+        containerHeight = containerWidth / videoAspectRatio;
+      }
+
+      // Apply size to modal container
+      if (this.refs.modalContainer) {
+        this.refs.modalContainer.style.width = `${containerWidth}px`;
+        this.refs.modalContainer.style.height = `${containerHeight}px`;
+      }
+
+      // Apply size to scandit container
+      this.refs.scanditContainer.style.width = `${containerWidth}px`;
+      this.refs.scanditContainer.style.height = `${containerHeight}px`;
+
+      console.log(`Container sized to: ${containerWidth}x${containerHeight} (aspect ratio: ${videoAspectRatio})`);
+
+      // Force canvas resize after container resize
+      setTimeout(() => {
+        this._resizeBoundingBoxCanvas();
+      }, 50);
+
+    } catch (error) {
+      console.warn("Error sizing container to camera:", error);
+    }
+  }
+
+  _handleCameraResize() {
+    try {
+      // Clear cached scale factors to force recalculation
+      this._cachedScaleFactors = null;
+
+      // Resize bounding box canvas
+      this._resizeBoundingBoxCanvas();
+
+      // Force redraw of current barcodes
+      if (this._currentBarcodes && this._currentBarcodes.length > 0) {
+        this._drawBoundingBoxes(this._currentBarcodes);
+      }
+
+      console.log("Camera view resized and bounding boxes updated");
+    } catch (error) {
+      console.warn("Error handling camera resize:", error);
+    }
+  }
+
   _createBoundingBoxOverlay() {
     // Create overlay canvas for bounding boxes
     this._boundingBoxCanvas = document.createElement('canvas');
@@ -912,23 +1071,36 @@ export default class BarcodeScanner extends FieldComponent {
       // Validate dimensions
       if (!rect || rect.width <= 0 || rect.height <= 0) return;
 
+      // Use device pixel ratio for high-DPI displays (important for iOS)
+      const devicePixelRatio = window.devicePixelRatio || 1;
+
       // Set canvas size to match the actual display size
-      const newWidth = Math.floor(rect.width);
-      const newHeight = Math.floor(rect.height);
+      const displayWidth = Math.floor(rect.width);
+      const displayHeight = Math.floor(rect.height);
+
+      // Set internal canvas size accounting for device pixel ratio
+      const canvasWidth = Math.floor(displayWidth * devicePixelRatio);
+      const canvasHeight = Math.floor(displayHeight * devicePixelRatio);
 
       // Set both the canvas internal size and display size
-      if (this._boundingBoxCanvas.width !== newWidth || this._boundingBoxCanvas.height !== newHeight) {
-        this._boundingBoxCanvas.width = newWidth;
-        this._boundingBoxCanvas.height = newHeight;
+      if (this._boundingBoxCanvas.width !== canvasWidth || this._boundingBoxCanvas.height !== canvasHeight) {
+        // Set internal resolution
+        this._boundingBoxCanvas.width = canvasWidth;
+        this._boundingBoxCanvas.height = canvasHeight;
 
-        // Also set the CSS size to match exactly
-        this._boundingBoxCanvas.style.width = newWidth + 'px';
-        this._boundingBoxCanvas.style.height = newHeight + 'px';
+        // Set CSS display size
+        this._boundingBoxCanvas.style.width = displayWidth + 'px';
+        this._boundingBoxCanvas.style.height = displayHeight + 'px';
+
+        // Scale the context to match device pixel ratio
+        if (this._boundingBoxContext) {
+          this._boundingBoxContext.scale(devicePixelRatio, devicePixelRatio);
+        }
 
         // Clear cached scale factors when canvas resizes
         this._cachedScaleFactors = null;
 
-        console.log("Canvas resized to:", newWidth, "x", newHeight);
+        console.log("Canvas resized to:", canvasWidth, "x", canvasHeight, "display:", displayWidth, "x", displayHeight, "DPR:", devicePixelRatio);
       }
     } catch (error) {
       console.warn('Resize canvas error:', error);
@@ -988,16 +1160,41 @@ export default class BarcodeScanner extends FieldComponent {
           this._boundingBoxContext.font = '14px Arial';
           this._boundingBoxContext.textAlign = 'left';
 
-          // Get scaling factors for coordinate transformation (cached for performance)
+          // Get scaling factors for coordinate transformation (iOS-compatible)
           if (!this._cachedScaleFactors) {
             const videoElement = this.refs.scanditContainer?.querySelector('video');
-            if (videoElement && videoElement.videoWidth && videoElement.videoHeight) {
+            const container = this.refs.scanditContainer;
+
+            if (videoElement && videoElement.videoWidth && videoElement.videoHeight && container) {
+              // Get actual displayed video dimensions
+              const videoRect = videoElement.getBoundingClientRect();
+              const containerRect = container.getBoundingClientRect();
+
+              // Calculate the actual video display size within the container
+              const videoDisplayWidth = videoRect.width;
+              const videoDisplayHeight = videoRect.height;
+
+              // Calculate canvas display size
+              const canvasDisplayWidth = this._boundingBoxCanvas.style.width ?
+                parseFloat(this._boundingBoxCanvas.style.width) : containerRect.width;
+              const canvasDisplayHeight = this._boundingBoxCanvas.style.height ?
+                parseFloat(this._boundingBoxCanvas.style.height) : containerRect.height;
+
+              // Calculate scale factors based on video stream resolution to canvas display size
               this._cachedScaleFactors = {
-                scaleX: width / videoElement.videoWidth,
-                scaleY: height / videoElement.videoHeight
+                scaleX: canvasDisplayWidth / videoElement.videoWidth,
+                scaleY: canvasDisplayHeight / videoElement.videoHeight
               };
+
+              console.log("Scale calculation:", {
+                videoStream: `${videoElement.videoWidth}x${videoElement.videoHeight}`,
+                videoDisplay: `${videoDisplayWidth}x${videoDisplayHeight}`,
+                canvasDisplay: `${canvasDisplayWidth}x${canvasDisplayHeight}`,
+                scale: this._cachedScaleFactors
+              });
             } else {
               this._cachedScaleFactors = { scaleX: 1, scaleY: 1 };
+              console.warn("Using default scale factors - video element not found or not ready");
             }
           }
 
@@ -1141,12 +1338,15 @@ export default class BarcodeScanner extends FieldComponent {
   _handleBoundingBoxClick(event) {
     if (!this._currentBarcodes || this._currentBarcodes.length === 0) return;
 
-    // Get click coordinates relative to canvas
+    // Get click coordinates relative to canvas (accounting for device pixel ratio)
     const rect = this._boundingBoxCanvas.getBoundingClientRect();
-    const clickX = event.clientX - rect.left;
-    const clickY = event.clientY - rect.top;
+    const devicePixelRatio = window.devicePixelRatio || 1;
 
-    console.log(`Click detected at: (${clickX}, ${clickY})`);
+    // Calculate click position in canvas display coordinates
+    const clickX = (event.clientX - rect.left);
+    const clickY = (event.clientY - rect.top);
+
+    console.log(`Click detected at: (${clickX}, ${clickY}) DPR: ${devicePixelRatio}`);
 
     // Get the same scale factors used for drawing
     const { scaleX, scaleY } = this._cachedScaleFactors || { scaleX: 1, scaleY: 1 };
@@ -1302,6 +1502,23 @@ export default class BarcodeScanner extends FieldComponent {
     if (this._dataCaptureContext) {
       this._dataCaptureContext.dispose();
       this._dataCaptureContext = null;
+    }
+
+    // Clean up resize observers
+    if (this._cameraResizeObserver) {
+      this._cameraResizeObserver.disconnect();
+      this._cameraResizeObserver = null;
+    }
+
+    if (this._resizeTimeout) {
+      clearTimeout(this._resizeTimeout);
+      this._resizeTimeout = null;
+    }
+
+    // Clean up intervals
+    if (this._continuousTrackingInterval) {
+      clearInterval(this._continuousTrackingInterval);
+      this._continuousTrackingInterval = null;
     }
 
     this._barcodeBatch = null;
