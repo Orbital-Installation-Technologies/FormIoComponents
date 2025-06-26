@@ -39,7 +39,6 @@ export default class ReviewButton extends FieldComponent {
 
   conditionallyHidden(data) {
     if (!this.component.customConditional) return false;
-
     try {
       return !this.evaluate(
         this.component.customConditional,
@@ -66,10 +65,9 @@ export default class ReviewButton extends FieldComponent {
 
     this.addEventListener(this.refs.button, "click", () => {
       const allData = this.root.getValue();
-      console.log(allData);
+      const noShow = allData?.data?.noShow;
+      const supportNumber = allData?.data?.billingCustomer || "Unavailable";
 
-      const noShow = allData["data"]["noShow"];
-      const supportNumber = allData.data.billingCustomer || "Unavailable";
       if (noShow === "yes") {
         const confirmed = confirm("Are you sure you want to submit without verification?");
         if (confirmed) {
@@ -78,8 +76,6 @@ export default class ReviewButton extends FieldComponent {
         return;
       }
 
-      // Filter only fields with reviewVisible = true, excluding hidden, buttons, etc.
-      console.log(this.root?.components);
       const visibleFields = this.root?.components?.filter(
         (comp) =>
           comp.component.reviewVisible &&
@@ -92,8 +88,6 @@ export default class ReviewButton extends FieldComponent {
           const key = comp.component.key;
           const label = comp.component.label || key;
           const value = comp.getValue();
-
-          // Handle array fields like hardwareList
           if (Array.isArray(value)) {
             return `
               <div><strong>${label}:</strong></div>
@@ -102,22 +96,20 @@ export default class ReviewButton extends FieldComponent {
                   .map((item, index) => {
                     const itemData = item.form?.data || {};
                     return `
-                    <li style="margin-bottom: 0.5rem;">
-                      <div><strong>Item ${index + 1}:</strong></div>
-                      ${Object.entries(itemData)
-                        .map(([nestedKey, nestedValue]) => {
-                          return `<div><strong>${nestedKey}:</strong> ${nestedValue || ""}</div>`;
-                        })
-                        .join("")}
-                    </li>
-                  `;
+                      <li style="margin-bottom: 0.5rem;">
+                        <div><strong>Item ${index + 1}:</strong></div>
+                        ${Object.entries(itemData)
+                          .map(([nestedKey, nestedValue]) => {
+                            return `<div><strong>${nestedKey}:</strong> ${nestedValue || ""}</div>`;
+                          })
+                          .join("")}
+                      </li>
+                    `;
                   })
                   .join("")}
               </ol>
             `;
           }
-
-          // Regular single-value fields
           return `<div><strong>${label}:</strong> ${value ?? ""}</div>`;
         })
         .join("");
@@ -130,17 +122,14 @@ export default class ReviewButton extends FieldComponent {
       modal.innerHTML = `
         <div class="bg-white p-6 rounded shadow-md w-full max-w-2xl max-h-[90vh] overflow-y-auto">
           <h2 class="text-xl font-semibold mb-4">Review Form Data</h2>
-
           <div class="mb-4 text-sm" style="max-height:200px; overflow-y:auto; border:1px solid #ccc; padding:8px;">
             ${reviewHtml}
           </div>
-
           <div class="flex space-x-4 mb-4">
             <div class="text-sm w-1/2">
               <label class="block font-medium mb-1">Support Number</label>
               <input type="text" id="supportNumber" class="w-full border rounded p-2 text-sm bg-gray-100" value="${supportNumber}" disabled />
             </div>
-
             <div class="text-sm w-1/2">
               <label class="block font-medium mb-1">Verified</label>
               <select id="verified" class="w-full border rounded p-2 text-sm">
@@ -151,22 +140,18 @@ export default class ReviewButton extends FieldComponent {
               </select>
             </div>
           </div>
-
           <div class="mb-4 text-sm w-full" id="screenshotWrapper" style="display: none;">
             <label class="block font-medium mb-1">Screenshot Upload<span class="text-red-500">(Required)*</span></label>
             <input type="file" id="screenshot" class="w-full text-sm" />
           </div>
-
           <div class="mb-4 text-sm w-full" id="notesOptionalWrapper" style="display: none;">
             <label class="block font-medium mb-1">Notes (optional)</label>
             <textarea id="notesOptional" class="w-full border rounded p-2 text-sm"></textarea>
           </div>
-
           <div class="mb-4 text-sm w-full" id="notesRequiredWrapper" style="display: none;">
             <label class="block font-medium mb-1">Explain why not verified<span class="text-red-500">(Required)*</span></label>
             <textarea id="notesRequired" class="w-full border rounded p-2 text-sm"></textarea>
           </div>
-
           <div class="mt-4 flex justify-end space-x-4">
             <button class="px-4 py-2 btn btn-primary rounded" id="cancelModal">Cancel</button>
             <button class="px-4 py-2 btn btn-primary rounded" id="submitModal">Submit</button>
@@ -175,7 +160,6 @@ export default class ReviewButton extends FieldComponent {
 
       document.body.appendChild(modal);
 
-      // Handle conditional UI based on Verified selection
       const verifiedSelect = modal.querySelector("#verified");
       const screenshotWrapper = modal.querySelector("#screenshotWrapper");
       const notesOptionalWrapper = modal.querySelector("#notesOptionalWrapper");
@@ -183,58 +167,78 @@ export default class ReviewButton extends FieldComponent {
 
       verifiedSelect.onchange = () => {
         const value = verifiedSelect.value;
-
-        if (value === "App" || value === "Support") {
-          screenshotWrapper.style.display = "block";
-          notesOptionalWrapper.style.display = "block";
-          notesRequiredWrapper.style.display = "none";
-        } else if (value === "Not Verified") {
-          screenshotWrapper.style.display = "none";
-          notesOptionalWrapper.style.display = "none";
-          notesRequiredWrapper.style.display = "block";
-        } else {
-          screenshotWrapper.style.display = "none";
-          notesOptionalWrapper.style.display = "none";
-          notesRequiredWrapper.style.display = "none";
-        }
+        screenshotWrapper.style.display = value === "App" || value === "Support" ? "block" : "none";
+        notesOptionalWrapper.style.display =
+          value === "App" || value === "Support" ? "block" : "none";
+        notesRequiredWrapper.style.display = value === "Not Verified" ? "block" : "none";
       };
 
       modal.querySelector("#cancelModal").onclick = () => {
         document.body.removeChild(modal);
       };
 
-      modal.querySelector("#submitModal").onclick = () => {
-        const verifiedSelect = modal.querySelector("#verified").value;
+      modal.querySelector("#submitModal").onclick = async () => {
+        const verifiedSelectValue = modal.querySelector("#verified").value;
         const notesRequired = modal.querySelector("#notesRequired").value;
         const notesOptional = modal.querySelector("#notesOptional").value;
         const screenshotInput = modal.querySelector("#screenshot");
         const screenshot = screenshotInput.files.length > 0 ? screenshotInput.files[0] : null;
         const supportNumber = modal.querySelector("#supportNumber").value;
-        console.log(notesRequired, notesOptional, screenshot, supportNumber);
 
-        // Only require fields if noShow is specifically "No"
-        if (noShow === "no") {
-          if (
-            (verifiedSelect === "Not Verified" && !notesRequired) ||
-            (verifiedSelect != "Not Verified" && !screenshot)
-          ) {
-            alert("Please complete all verification fields.");
+        // Conditional validation for modal fields
+        if (verifiedSelectValue === "Not Verified" && !notesRequired.trim()) {
+          alert("Please explain why not verified.");
+          return;
+        }
+        if ((verifiedSelectValue === "App" || verifiedSelectValue === "Support") && !screenshot) {
+          alert("Screenshot is required for App or Support verification.");
+          return;
+        }
+
+        // Always save form values first
+        const updatedData = {
+          ...this.root.getValue(),
+          supportNumber,
+          verifiedSelect: verifiedSelectValue,
+          screenshot,
+          notesOptional,
+          notesRequired,
+        };
+        this.root.setValue(updatedData);
+
+        // Store latest modal data into component state for reuse
+        this.component._reviewModalCache = {
+          verifiedSelect: verifiedSelectValue,
+          notesRequired,
+          notesOptional,
+          supportNumber,
+        };
+
+        const noShow = updatedData.data?.noShow;
+        const requireValidation = noShow === "no";
+
+        if (requireValidation) {
+          const isValid = await this.root.checkValidity(updatedData.data, true);
+          if (!isValid) {
+            this.root.showErrors();
+            alert("Some fields are invalid. Please fix them before submitting.");
             return;
           }
-
-          this.root.setValue({
-            ...allData,
-            supportNumber,
-            verifiedSelect,
-            screenshot,
-            notesOptional,
-            notesRequired,
-          });
         }
 
         document.body.removeChild(modal);
         this.emit("submitButton", { type: "submit" });
       };
+
+      // Restore cached modal values if available
+      const cached = this.component._reviewModalCache;
+      if (cached) {
+        modal.querySelector("#verified").value = cached.verifiedSelect || "";
+        modal.querySelector("#notesRequired").value = cached.notesRequired || "";
+        modal.querySelector("#notesOptional").value = cached.notesOptional || "";
+        modal.querySelector("#supportNumber").value = cached.supportNumber || "Unavailable";
+        verifiedSelect.dispatchEvent(new Event("change"));
+      }
     });
 
     return super.attach(element);
