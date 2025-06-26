@@ -1,13 +1,13 @@
 setTimeout(() => {
-  console.log("Patching Form.io components for reviewVisible...");
+  console.log("Patching Form.io components for reviewVisible and DataGrid row labels...");
 
   const Components = window.Formio?.Components;
-
   if (!Components) {
     console.warn("Formio.Components not found.");
     return;
   }
 
+  // 1. Inject "reviewVisible" checkbox into all components' editForm
   Object.entries(Components.components).forEach(([name, Component]) => {
     if (typeof Component?.editForm === "function") {
       const originalEditForm = Component.editForm;
@@ -37,13 +37,11 @@ setTimeout(() => {
       Component._patchedForReview = true;
     }
 
-    // Patch updateValue to avoid full re-render that causes scroll reset
+    // 2. Patch updateValue to avoid re-renders (e.g. auto-scroll)
     const proto = Component.prototype;
-    // if (!proto || proto._patchedUpdateValue) return;
+    if (!proto || proto._patchedUpdateValue) return;
 
     const originalUpdateValue = proto.updateValue;
-    console.log("originalUpdateValue", originalUpdateValue);
-
     proto.updateValue = function (value, flags = {}) {
       flags = { noUpdateEvent: true, fromUser: true, ...flags };
       return originalUpdateValue.call(this, value, flags);
@@ -52,5 +50,30 @@ setTimeout(() => {
     proto._patchedUpdateValue = true;
   });
 
-  console.log("ReviewVisible checkbox injected.");
-}, 1000); // Delay to let builder load first
+  // 3. Extend DataGrid to set labels dynamically from hardwareProduct
+  const DataGrid = Components.components.datagrid;
+  if (DataGrid && !DataGrid._patchedRowLabeling) {
+    const PatchedDataGrid = class extends DataGrid {
+      setValue(value, flags) {
+        const result = super.setValue(value, flags);
+
+        // Rename each row label inside the datagrid dynamically
+        this.rows?.forEach((row, index) => {
+          const formComponent = row?.components?.find((c) => c.component.type === "form");
+          if (!formComponent) return;
+
+          const label = formComponent.getValue()?.form?.data?.hardwareProduct;
+          formComponent.component.label = label ? `Hardware: ${label}` : `Hardware ${index + 1}`;
+        });
+
+        return result;
+      }
+    };
+
+    Components.addComponent("datagrid", PatchedDataGrid);
+    DataGrid._patchedRowLabeling = true;
+    console.log("DataGrid patch applied for dynamic row labeling.");
+  }
+
+  console.log("ReviewVisible and DataGrid patches completed.");
+}, 1000);
