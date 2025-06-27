@@ -59,10 +59,16 @@ setTimeout(() => {
 
         // Rename each row label inside the datagrid dynamically
         this.rows?.forEach((row, index) => {
+          console.log(row);
+
           const formComponent = row?.components?.find((c) => c.component.type === "form");
+          console.log("formComponent: ", formComponent);
+
           if (!formComponent) return;
 
           const label = formComponent.getValue()?.form?.data?.hardwareProduct;
+          console.log("label: ", label);
+
           formComponent.component.label = label ? `Hardware: ${label}` : `Hardware ${index + 1}`;
         });
 
