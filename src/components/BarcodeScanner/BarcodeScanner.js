@@ -756,11 +756,27 @@ export default class BarcodeScanner extends FieldComponent {
             const x4 = bottomLeft.x * scaleX;
             const y4 = bottomLeft.y * scaleY;
 
-            // Calculate the center of the top edge for the label
-            const textX = x1;
-            const textY = y1 -25; // Place text below the top edge
+            // Draw custom blue bounding box if frozen
+            if (this._isVideoFrozen) {
+              this._boundingBoxContext.save();
+              this._boundingBoxContext.strokeStyle = 'rgba(1, 255, 255, 1';
+              this._boundingBoxContext.fillStyle = 'rgba(1, 255, 255, 0.7)';
+              this._boundingBoxContext.lineWidth = 3;
+              this._boundingBoxContext.beginPath();
+              this._boundingBoxContext.moveTo(x1, y1);
+              this._boundingBoxContext.lineTo(x2, y2);
+              this._boundingBoxContext.lineTo(x3, y3);
+              this._boundingBoxContext.lineTo(x4, y4);
+              this._boundingBoxContext.closePath();
+              this._boundingBoxContext.stroke();
+              this._boundingBoxContext.restore();
+            }
+
+            // Draw the text label directly above the top left corner
             const text = `${trackedBarcode.barcode?.symbology || ''}: ${trackedBarcode.barcode?.data || ''}`;
             const textMetrics = this._boundingBoxContext.measureText(text);
+            const textX = x1;
+            const textY = y1 - 25;
             this._boundingBoxContext.save();
             this._boundingBoxContext.fillStyle = 'rgba(0, 0, 0, 0.7)';
             this._boundingBoxContext.fillRect(textX - 2, textY - 2, textMetrics.width + 20, 20);
