@@ -217,9 +217,14 @@ export default class BarcodeScanner extends FieldComponent {
   async processImageFile(file) {
     try {
       const imageData = await this._fileToImageData(file);
-      this.scanImageWithScandit(imageData);
+      await this.scanImageWithScandit(imageData);
+      // After processing the image, stop the scanner and reset the camera context
+      await this.stopScanner();
+      this.errorMessage = "";
+      this.redraw();
     } catch (error) {
       this.errorMessage = "Failed to process image file";
+      this.redraw();
     }
   }
 
@@ -242,12 +247,14 @@ export default class BarcodeScanner extends FieldComponent {
   async scanImageWithScandit(_imageSource) {
     try {
       this.errorMessage = "Image file processing not yet implemented with Scandit SDK";
+      this.redraw();
       setTimeout(() => {
         this.errorMessage = "";
         this.redraw();
       }, 3000);
     } catch (error) {
       this.errorMessage = "Failed to scan image";
+      this.redraw();
       setTimeout(() => {
         this.errorMessage = "";
         this.redraw();
