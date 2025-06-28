@@ -217,49 +217,127 @@ export default class BarcodeScanner extends FieldComponent {
   async processImageFile(file) {
     try {
       const imageData = await this._fileToImageData(file);
-      await this.scanImageWithScandit(imageData);
-      // After processing the image, stop the scanner and reset the camera context
-      await this.stopScanner();
+      this._showImageInModal(imageData);
+      // Do not call scanImageWithScandit for now, as it is not implemented for images
       this.errorMessage = "";
       this.redraw();
     } catch (error) {
-      this.errorMessage = "Failed to process image file";
+      this.errorMessage = error?.message || "Failed to process image file";
       this.redraw();
     }
   }
 
-  async _fileToImageData(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          resolve(img);
-        };
-        img.onerror = reject;
-        img.src = e.target.result;
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
+  _showImageInModal(image) {
+    this._openModal();
+    // Remove any previous image
+    if (this._uploadedImageElement && this._uploadedImageElement.parentNode) {
+      this._uploadedImageElement.parentNode.removeChild(this._uploadedImageElement);
+      this._uploadedImageElement = null;
+    }
+    // Remove video if present (for switching from camera to image)
+    //const video = this.refs.scanditContainer.querySelector('video');
+    //if (video) video.style.display = 'none';
+    // Add image
+    this._uploadedImageElement = image;
+    image.style.maxWidth = '100%';
+    image.style.maxHeight = '100%';
+    image.style.position = 'absolute';
+    image.style.top = '0';
+    image.style.left = '0';
+    image.style.zIndex = '10';
+    image.style.objectFit = 'contain';
+    // Ensure the image is not hidden
+    image.style.display = 'block';
+    // Remove any previous image from scanditContainer before appending
+    Array.from(this.refs.scanditContainer.querySelectorAll('img')).forEach(img => {
+      if (img !== image) img.parentNode.removeChild(img);
     });
+    this.refs.scanditContainer.appendChild(image);
+    // Ensure bounding box overlay is above image
+    if (this._boundingBoxCanvas) {
+      this._boundingBoxCanvas.style.zIndex = '20';
+    }
+    // Set up scale factors for image
+    this._cachedScaleFactors = null;
+    // Always set onload before checking .complete
+    image.onload = () => {
+      console.log('Image onload fired');
+      this._resizeBoundingBoxCanvas();
+    };
+    if (image.complete) {
+      // If already loaded, manually trigger onload
+      image.onload();
+    }
+    console.log('Image shown in modal:', image);
   }
 
-  async scanImageWithScandit(_imageSource) {
-    try {
-      this.errorMessage = "Image file processing not yet implemented with Scandit SDK";
-      this.redraw();
-      setTimeout(() => {
-        this.errorMessage = "";
-        this.redraw();
-      }, 3000);
-    } catch (error) {
-      this.errorMessage = "Failed to scan image";
-      this.redraw();
-      setTimeout(() => {
-        this.errorMessage = "";
-        this.redraw();
-      }, 3000);
+  async openScanditModal() {
+    this._openModal();
+    this._lastCodes = [];
+    this._isVideoFrozen = false;
+
+    // Remove uploaded image if present
+    if (this._uploadedImageElement && this._uploadedImageElement.parentNode) {
+      this._uploadedImageElement.parentNode.removeChild(this._uploadedImageElement);
+      this._uploadedImageElement = null;
     }
+    // Restore video if present
+    const video = this.refs.scanditContainer.querySelector('video');
+    if (video) video.style.display = '';
+
+    this.refs.freezeButton.innerHTML = '<i class="fa fa-camera" style="font-size: 24px;"></i>';
+    this.refs.freezeButton.style.background = "rgba(255,255,255,0.8)";
+    this.refs.freezeButton.style.display = "flex";
+
+    try {
+      if (!this._dataCaptureContext) {
+        await this._initializeScandit();
+      }
+      await this._setupCamera();
+    } catch (error) {
+      this.errorMessage = "Failed to initialize scanner";
+    }
+  }
+
+  _resizeBoundingBoxCanvas() {
+    try {
+      if (!this._boundingBoxCanvas || !this.refs.scanditContainer) return;
+      const container = this.refs.scanditContainer;
+      const rect = container.getBoundingClientRect();
+      if (!rect || rect.width <= 0 || rect.height <= 0) return;
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      const displayWidth = Math.floor(rect.width);
+      const displayHeight = Math.floor(rect.height);
+      const canvasWidth = Math.floor(displayWidth * devicePixelRatio);
+      const canvasHeight = Math.floor(displayHeight * devicePixelRatio);
+      if (this._boundingBoxCanvas.width !== canvasWidth || this._boundingBoxCanvas.height !== canvasHeight) {
+        this._boundingBoxCanvas.width = canvasWidth;
+        this._boundingBoxCanvas.height = canvasHeight;
+        this._boundingBoxCanvas.style.width = displayWidth + 'px';
+        this._boundingBoxCanvas.style.height = displayHeight + 'px';
+        if (this._boundingBoxContext) {
+          this._boundingBoxContext.setTransform(1, 0, 0, 1, 0, 0); // Reset
+          this._boundingBoxContext.scale(devicePixelRatio, devicePixelRatio);
+        }
+        this._cachedScaleFactors = null;
+      }
+      // Set scale factors for image or video
+      const videoElement = container.querySelector('video');
+      const imageElement = this._uploadedImageElement;
+      if (imageElement && imageElement.naturalWidth && imageElement.naturalHeight) {
+        this._cachedScaleFactors = {
+          scaleX: displayWidth / imageElement.naturalWidth,
+          scaleY: displayHeight / imageElement.naturalHeight
+        };
+      } else if (videoElement && videoElement.videoWidth && videoElement.videoHeight) {
+        this._cachedScaleFactors = {
+          scaleX: displayWidth / videoElement.videoWidth,
+          scaleY: displayHeight / videoElement.videoHeight
+        };
+      } else {
+        this._cachedScaleFactors = { scaleX: 1, scaleY: 1 };
+      }
+    } catch (error) {}
   }
 
   async _initializeScandit() {
@@ -318,7 +396,6 @@ export default class BarcodeScanner extends FieldComponent {
       this._trackedBarcodes = {};
       this._barcodeBatch.addListener({
         didUpdateSession: (barcodeBatchMode, session) => {
-          console.log("Tracked barcodes updated:", session);
           this._trackedBarcodes = session.trackedBarcodes || {};
           // Always update the tracked barcodes for the animation loop
           const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
@@ -368,6 +445,15 @@ export default class BarcodeScanner extends FieldComponent {
     this._lastCodes = [];
     this._isVideoFrozen = false;
 
+    // Remove uploaded image if present
+    if (this._uploadedImageElement && this._uploadedImageElement.parentNode) {
+      this._uploadedImageElement.parentNode.removeChild(this._uploadedImageElement);
+      this._uploadedImageElement = null;
+    }
+    // Restore video if present
+    const video = this.refs.scanditContainer.querySelector('video');
+    if (video) video.style.display = '';
+
     this.refs.freezeButton.innerHTML = '<i class="fa fa-camera" style="font-size: 24px;"></i>';
     this.refs.freezeButton.style.background = "rgba(255,255,255,0.8)";
     this.refs.freezeButton.style.display = "flex";
@@ -376,7 +462,6 @@ export default class BarcodeScanner extends FieldComponent {
       if (!this._dataCaptureContext) {
         await this._initializeScandit();
       }
-
       await this._setupCamera();
     } catch (error) {
       this.errorMessage = "Failed to initialize scanner";
@@ -684,10 +769,27 @@ export default class BarcodeScanner extends FieldComponent {
         this._boundingBoxCanvas.style.height = displayHeight + 'px';
 
         if (this._boundingBoxContext) {
+          this._boundingBoxContext.setTransform(1, 0, 0, 1, 0, 0); // Reset
           this._boundingBoxContext.scale(devicePixelRatio, devicePixelRatio);
         }
 
         this._cachedScaleFactors = null;
+      }
+      // Set scale factors for image or video
+      const videoElement = container.querySelector('video');
+      const imageElement = this._uploadedImageElement;
+      if (imageElement && imageElement.naturalWidth && imageElement.naturalHeight) {
+        this._cachedScaleFactors = {
+          scaleX: displayWidth / imageElement.naturalWidth,
+          scaleY: displayHeight / imageElement.naturalHeight
+        };
+      } else if (videoElement && videoElement.videoWidth && videoElement.videoHeight) {
+        this._cachedScaleFactors = {
+          scaleX: displayWidth / videoElement.videoWidth,
+          scaleY: displayHeight / videoElement.videoHeight
+        };
+      } else {
+        this._cachedScaleFactors = { scaleX: 1, scaleY: 1 };
       }
     } catch (error) {
     }
@@ -838,7 +940,6 @@ export default class BarcodeScanner extends FieldComponent {
 
   _configureAdvancedSymbologySettings(settings) {
     try {
-      console.log("Configuring advanced symbology settings for maximum compatibility...");
 
       try {
         const code39Settings = settings.settingsForSymbology(Symbology.Code39);
@@ -954,7 +1055,10 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   _openModal() {
-    if (!this.refs.quaggaModal) return;
+    if (!this.refs.quaggaModal) {
+      console.warn("Modal reference is null, cannot open modal.");
+      return;
+    }
 
     try {
       this.refs.quaggaModal.classList.remove('barcode-modal-hidden', 'barcode-modal-closing');
@@ -971,6 +1075,8 @@ export default class BarcodeScanner extends FieldComponent {
         this.refs.quaggaModal.style.display = "flex";
       }
     }
+
+    console.log("Modal opened successfully");
   }
 
   _clearBoundingBoxes() {
@@ -986,10 +1092,6 @@ export default class BarcodeScanner extends FieldComponent {
     const maxY = Math.max(topLeft.y, topRight.y, bottomRight.y, bottomLeft.y);
 
     const isInside = x >= minX && x <= maxX && y >= minY && y <= maxY;
-
-    if (isInside) {
-      console.log(`Click (${x}, ${y}) is inside bounding box: (${minX}, ${minY}) to (${maxX}, ${maxY})`);
-    }
 
     return isInside;
   }
@@ -1096,6 +1198,48 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
-
+  async _fileToImageData(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        let settled = false;
+        const cleanup = () => {
+          img.onload = null;
+          img.onerror = null;
+        };
+        img.onload = () => {
+          if (!settled) {
+            settled = true;
+            cleanup();
+            resolve(img);
+          }
+        };
+        img.onerror = (err) => {
+          console.error("Image load error:", err);
+          if (!settled) {
+            settled = true;
+            cleanup();
+            reject(new Error('Image failed to load'));
+          }
+        };
+        // Timeout in case onload/onerror never fire
+        setTimeout(() => {
+          if (!settled) {
+            console.warn("Image load timeout - rejecting");
+            settled = true;
+            cleanup();
+            reject(new Error('Image load timed out'));
+          }
+        }, 5000);
+        img.src = e.target.result;
+      };
+      reader.onerror = (err) => {
+        console.error("FileReader error:", err);
+        reject(new Error('FileReader failed'));
+      };
+      reader.readAsDataURL(file);
+    });
+  }
 
 }
