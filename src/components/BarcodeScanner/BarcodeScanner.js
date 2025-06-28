@@ -5,8 +5,8 @@ import {
   barcodeCaptureLoader,
   BarcodeBatch,
   BarcodeBatchSettings,
-  BarcodeCapture,
-  BarcodeCaptureSettings
+  BarcodeBatchBasicOverlay,
+  BarcodeBatchBasicOverlayStyle
 } from "@scandit/web-datacapture-barcode";
 import {
   DataCaptureView,
@@ -268,177 +268,70 @@ export default class BarcodeScanner extends FieldComponent {
       }
 
       this._dataCaptureContext = await DataCaptureContext.create();
-      
-      let settings;
 
-      try {
-        settings = new BarcodeCaptureSettings();
+      // Use BarcodeBatchSettings for multi-barcode scanning
+      let settings = new BarcodeBatchSettings();
+      const allSymbologies = [
+        Symbology.Code128, Symbology.Code39, Symbology.Code93, Symbology.Code11, Symbology.Codabar,
+        Symbology.EAN13UPCA, Symbology.EAN8, Symbology.UPCE, Symbology.ITF, Symbology.MSIPlessey,
+        Symbology.QR, Symbology.DataMatrix, Symbology.PDF417, Symbology.Aztec, Symbology.MaxiCode,
+        Symbology.KIX, Symbology.RM4SCC, Symbology.GS1Databar, Symbology.GS1DatabarExpanded,
+        Symbology.GS1DatabarLimited, Symbology.MicroPDF417, Symbology.MicroQR, Symbology.DotCode,
+        Symbology.ArUco, Symbology.Code25, Symbology.Code32, Symbology.Pharmacode, Symbology.TwoDigitAddOn,
+        Symbology.FiveDigitAddOn, Symbology.Matrix2of5, Symbology.IATA2of5, Symbology.Industrial2of5
+      ];
+      const availableSymbologies = allSymbologies.filter(sym => sym !== undefined);
+      settings.enableSymbologies(availableSymbologies);
 
-        try {
-          const allSymbologies = [
-            // 1D Barcodes
-            Symbology.Code128,
-            Symbology.Code39,
-            Symbology.Code93,
-            Symbology.Code11,
-            Symbology.Codabar,
-            Symbology.EAN13UPCA,
-            Symbology.EAN8,
-            Symbology.UPCE,
-            Symbology.ITF,
-            Symbology.MSIPlessey,
-            // 2D Barcodes
-            Symbology.QR,
-            Symbology.DataMatrix,
-            Symbology.PDF417,
-            Symbology.Aztec,
-            Symbology.MaxiCode,
-            // Postal Codes
-            Symbology.KIX,
-            Symbology.RM4SCC,
-            // Additional formats
-            Symbology.GS1Databar,
-            Symbology.GS1DatabarExpanded,
-            Symbology.GS1DatabarLimited,
-            Symbology.MicroPDF417,
-            Symbology.MicroQR,
-            Symbology.DotCode,
-            Symbology.ArUco,
-            // Additional rare/specialized formats (if available)
-            Symbology.Code25,
-            Symbology.Code32,
-            Symbology.Pharmacode,
-            Symbology.TwoDigitAddOn,
-            Symbology.FiveDigitAddOn,
-            Symbology.Matrix2of5,
-            Symbology.IATA2of5,
-            Symbology.Industrial2of5
-          ];
+      settings.codeDuplicateFilter = 0;
 
-          const availableSymbologies = allSymbologies.filter(sym => sym !== undefined);
-          settings.enableSymbologies(availableSymbologies);
-        } catch (method1Error) {
-
-          try {
-            const symbologyList = [
-              { name: 'Code128', symbology: Symbology.Code128 },
-              { name: 'Code39', symbology: Symbology.Code39 },
-              { name: 'Code93', symbology: Symbology.Code93 },
-              { name: 'Code11', symbology: Symbology.Code11 },
-              { name: 'Codabar', symbology: Symbology.Codabar },
-              { name: 'EAN13UPCA', symbology: Symbology.EAN13UPCA },
-              { name: 'EAN8', symbology: Symbology.EAN8 },
-              { name: 'UPCE', symbology: Symbology.UPCE },
-              { name: 'ITF', symbology: Symbology.ITF },
-              { name: 'MSIPlessey', symbology: Symbology.MSIPlessey },
-              { name: 'QR', symbology: Symbology.QR },
-              { name: 'DataMatrix', symbology: Symbology.DataMatrix },
-              { name: 'PDF417', symbology: Symbology.PDF417 },
-              { name: 'Aztec', symbology: Symbology.Aztec },
-              { name: 'MaxiCode', symbology: Symbology.MaxiCode },
-              { name: 'KIX', symbology: Symbology.KIX },
-              { name: 'RM4SCC', symbology: Symbology.RM4SCC },
-              { name: 'GS1Databar', symbology: Symbology.GS1Databar },
-              { name: 'GS1DatabarExpanded', symbology: Symbology.GS1DatabarExpanded },
-              { name: 'GS1DatabarLimited', symbology: Symbology.GS1DatabarLimited },
-              { name: 'MicroPDF417', symbology: Symbology.MicroPDF417 },
-              { name: 'MicroQR', symbology: Symbology.MicroQR },
-              { name: 'DotCode', symbology: Symbology.DotCode },
-              { name: 'ArUco', symbology: Symbology.ArUco },
-              { name: 'Code25', symbology: Symbology.Code25 },
-              { name: 'Code32', symbology: Symbology.Code32 },
-              { name: 'Pharmacode', symbology: Symbology.Pharmacode },
-              { name: 'TwoDigitAddOn', symbology: Symbology.TwoDigitAddOn },
-              { name: 'FiveDigitAddOn', symbology: Symbology.FiveDigitAddOn },
-              { name: 'Matrix2of5', symbology: Symbology.Matrix2of5 },
-              { name: 'IATA2of5', symbology: Symbology.IATA2of5 },
-              { name: 'Industrial2of5', symbology: Symbology.Industrial2of5 }
-            ];
-
-            symbologyList.forEach(({ symbology }) => {
-              try {
-                if (symbology) {
-                  const symbologySettings = settings.settingsForSymbology(symbology);
-                  if (symbologySettings) {
-                    symbologySettings.isEnabled = true;
-                  }
-                }
-              } catch (symError) {
-              }
-            });
-          } catch (method2Error) {
-          }
-        }
-
-        settings.codeDuplicateFilter = 0;
-
-        if (settings.locationSelection) {
-          settings.locationSelection = null;
-        }
-
-        if (typeof settings.maxNumberOfCodesPerFrame !== 'undefined') {
-          settings.maxNumberOfCodesPerFrame = 10;
-        }
-
-        if (typeof settings.batterySaving !== 'undefined') {
-          settings.batterySaving = false;
-        }
-
-        this._configureAdvancedSymbologySettings(settings);
-
-        if (!this._dataCaptureContext) {
-          throw new Error("DataCaptureContext is null - cannot create BarcodeCapture");
-        }
-
-        this._barcodeCapture = await BarcodeCapture.forContext(this._dataCaptureContext, settings);
-
-        if (!this._barcodeCapture) {
-          throw new Error("BarcodeCapture.forContext returned null");
-        }
-
-        this._usingBatch = false;
-
-      } catch (captureError) {
-        this._barcodeCapture = null;
-        this._initializationError = captureError;
+      if (settings.locationSelection) {
+        settings.locationSelection = null;
       }
 
-      if (this._barcodeCapture) {
-        this._barcodeCapture.addListener({
-          didUpdateSession: (_, session) => {
-            this._handleBarcodeSession(session);
-          },
-          didScan: (_, session) => {
-            try {
-              if (!session) return;
-
-              const newlyRecognized = session.newlyRecognizedBarcode;
-              if (newlyRecognized) {
-                const existingCode = this._lastCodes.find(c => c.code === newlyRecognized.data);
-                if (!existingCode) {
-                  this._lastCodes.push({
-                    code: newlyRecognized.data,
-                    format: newlyRecognized.symbology
-                  });
-                }
-
-                if (this.refs.quaggaModal) {
-                  this.refs.quaggaModal.style.border = "4px solid lime";
-                  setTimeout(() => {
-                    if (this.refs.quaggaModal) {
-                      this.refs.quaggaModal.style.border = "";
-                    }
-                  }, 200);
-                }
-              }
-            } catch (error) {
-            }
-          }
-        });
+      if (typeof settings.maxNumberOfCodesPerFrame !== 'undefined') {
+        settings.maxNumberOfCodesPerFrame = 10;
       }
+
+      if (typeof settings.batterySaving !== 'undefined') {
+        settings.batterySaving = false;
+      }
+
+      this._configureAdvancedSymbologySettings(settings);
+
+      if (!this._dataCaptureContext) {
+        throw new Error("DataCaptureContext is null - cannot create BarcodeCapture");
+      }
+
+      // Create BarcodeBatch for multi-barcode scanning
+      this._barcodeBatch = await BarcodeBatch.forContext(this._dataCaptureContext, settings);
+      await this._barcodeBatch.setEnabled(true);
+      this._usingBatch = true;
+
+      // Listen for tracked barcodes
+      this._trackedBarcodes = {};
+      this._barcodeBatch.addListener({
+        didUpdateSession: (barcodeBatchMode, session) => {
+          this._trackedBarcodes = session.trackedBarcodes || {};
+
+          // Draw overlays for all tracked barcodes
+          const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
+          this._drawBoundingBoxes(barcodes);
+
+          // Optionally update value with all barcodes (or let user confirm)
+        }
+      });
 
       this._dataCaptureView = await DataCaptureView.forContext(this._dataCaptureContext);
       this._dataCaptureView.connectToElement(this.refs.scanditContainer);
+
+      // Add batch overlay for visual feedback
+      await BarcodeBatchBasicOverlay.withBarcodeBatchForViewWithStyle(
+        this._barcodeBatch,
+        this._dataCaptureView,
+        BarcodeBatchBasicOverlayStyle.Frame
+      );
+
       this._configureCameraView();
       this._createBoundingBoxOverlay();
       this._startLiveScanningMode();
@@ -597,33 +490,37 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
+  // When freezing or confirming, collect all tracked barcodes
   _toggleFreezeVideo() {
     try {
       this._isVideoFrozen = !this._isVideoFrozen;
-      
-      // Update button appearance
       if (this._isVideoFrozen) {
         this.refs.freezeButton.innerHTML = '<i class="fa fa-play" style="font-size: 24px;"></i>';
         this.refs.freezeButton.style.background = "rgba(0,255,0,0.8)";
-        
         if (this._camera) {
           this._camera.switchToDesiredState(FrameSourceState.Off);
         }
-
-        if (this._lastCodes.length === 1) {
+        // Collect all tracked barcodes and update value
+        if (this._usingBatch && this._trackedBarcodes) {
+          const allCodes = Object.values(this._trackedBarcodes)
+            .map(tb => tb.barcode.data)
+            .filter(Boolean);
+          if (allCodes.length > 0) {
+            this.updateValue(allCodes.join(", "));
+            this.refs.barcode.value = allCodes.join(", ");
+          }
+        } else if (this._lastCodes.length === 1) {
           this.updateValue(this._lastCodes[0].code);
           this.refs.barcode.value = this._lastCodes[0].code;
         }
       } else {
         this.refs.freezeButton.innerHTML = '<i class="fa fa-camera" style="font-size: 24px;"></i>';
         this.refs.freezeButton.style.background = "rgba(255,255,255,0.8)";
-
         if (this._camera) {
           this._camera.switchToDesiredState(FrameSourceState.On);
         }
       }
-    } catch (e) {
-    }
+    } catch (e) {}
   }
 
   async stopScanner() {
