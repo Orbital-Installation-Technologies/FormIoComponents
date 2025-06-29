@@ -5,8 +5,8 @@ import {
   barcodeCaptureLoader,
   BarcodeBatch,
   BarcodeBatchSettings,
-  BarcodeCapture,
-  BarcodeCaptureSettings
+  BarcodeBatchBasicOverlay,
+  BarcodeBatchBasicOverlayStyle
 } from "@scandit/web-datacapture-barcode";
 import {
   DataCaptureView,
@@ -54,9 +54,9 @@ export default class BarcodeScanner extends FieldComponent {
     this._isVideoFrozen = false;
     this._dataCaptureContext = null;
     this._barcodeBatch = null;
-    this._barcodeCapture = null; 
+    this._barcodeCapture = null;
     this._camera = null;
-    this._usingBatch = false; 
+    this._usingBatch = false;
     this._dataCaptureView = null;
     this._drawingPending = false;
     this._licenseKey = "Av8GN2+eSVonBPcwmMJJB3INUu9TRPN5u0Grz34h7shTbBFjBW4vSCxFPgVyeShmblQbx50lOAgsa45NqFzQpWMVu3YTZZKBwDft++BuYhMjRaMrAhDyRPwLncPPYf2s+nQo8yd+S4t1V6zhjRuqx0BJ0JXyFYeYhHubaWIVUJIwXSauaGR369dLw+fiZmNF6GjXExlTUI40aM4Oi2NyDD1dnL3ASdNo43U67g5XrA79biccYk8rVAZdbEO4RzOIHU+P9zdr/zXNY2Za4E/3o8Zs6c0Ge27KYxZZt6h55trZIiqPon2b3mxiJyBeZVGehXqknVtorReOedJ9P06qzMlHb5RIEf41jkdeLoFaRuFmXK2981M7A1pssNR5ZBcue3zaEXR1KWyQUJWHs1RdudErSTboXfX/K2Gm8X5rNW3Ef4MGpn+ArGlznVmcUk5jp3hxKQVCnpmTUxG82WDkI8lubfnmLgthFHvRep5TeO4BZ9zduERwdt1zkYXmZLwoRUq+CtRhK7KrXDyHZkBrtTgzx6Wmn/FPXXP+/h4Cuhrs5dGRML19Tea51F63+EQ91USoQC2M0HkIse1NgUwUXjfGDM2P2EFl9hCM+syYLOuyN966CE+0Ie+rYld+pAC/2AXerR148Zo5RntvNIr+Nb+09fG6wA2ZkLSpsCNh/fiaUUfa0OBV2rmBe+5MAYIj2Bj2xO2/urZy+vvJaue9yUdA+J+5MTdzE6WilYgPZWOL4hs4natnI7727wo/j9WLvBdGFFCnV5+I4tJZcLDUAlUJNHIQoOlhQoBWECFmTgRY37dHVQ7qQMMxL3/d6CiccOLqRCsF9EKpe15zCvSY97eXtoTBVCPe6vV8JbMZhNPH+I7mdM9dYhWZJuL7PlXOtmJBNE4AOMwMQnqea6ptkR1XaDto9SMLshjLaKjTVTMT8uK102AbzWIsMkruvSYdaE/FIPQ5dqlxlTB6UhFk9o+7iOuyM1J5XtJO54gi8TafoiIV9xu1oNx7SmnZiF7hAMXUnKVOOXQn8kLLfDqWbUpAx8I8Z7kP9AZ6TRNpk26equ6hn7npqkzKF7hNieqyVjRItOBeU3DE/hcfu3qy+i3vD7QjvgON1qglM2UVp6fUjpX74YvhqGvlhiwm0ItgQSLwZRuFZOAEdYh4aiSgAv3r/TNua3alkoR6J70TAW8hqP1mWChSAieZmTrdUr3nY/4=";
@@ -95,13 +95,12 @@ export default class BarcodeScanner extends FieldComponent {
           </button>
         </div>
         <input ref="fileInput" type="file" accept="image/*" style="display:none;" />
-        ${
-          this.errorMessage
-            ? `<div class="formio-errors">
+        ${this.errorMessage
+        ? `<div class="formio-errors">
                  <div class="form-text error">${this.errorMessage}</div>
                </div>`
-            : ""
-        }
+        : ""
+      }
         <div ref="quaggaModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1000; flex-direction:column; align-items:center; justify-content:center; padding:20px; box-sizing:border-box;">
           <div ref="modalContainer" style="position:relative; background:black; border-radius:8px; overflow:hidden; display:flex; flex-direction:column; max-width:100%; max-height:100%;">
             <button ref="closeModal" style="position:absolute; top:10px; right:10px; z-index:1001; background:rgba(255,255,255,0.8); border:none; border-radius:50%; width:36px; height:36px; display:flex; align-items:center; justify-content:center; font-size:18px; cursor:pointer;">×</button>
@@ -218,42 +217,127 @@ export default class BarcodeScanner extends FieldComponent {
   async processImageFile(file) {
     try {
       const imageData = await this._fileToImageData(file);
-      this.scanImageWithScandit(imageData);
+      this._showImageInModal(imageData);
+      // Do not call scanImageWithScandit for now, as it is not implemented for images
+      this.errorMessage = "";
+      this.redraw();
     } catch (error) {
-      this.errorMessage = "Failed to process image file";
+      this.errorMessage = error?.message || "Failed to process image file";
+      this.redraw();
     }
   }
 
-  async _fileToImageData(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          resolve(img);
-        };
-        img.onerror = reject;
-        img.src = e.target.result;
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
+  _showImageInModal(image) {
+    this._openModal();
+    // Remove any previous image
+    if (this._uploadedImageElement && this._uploadedImageElement.parentNode) {
+      this._uploadedImageElement.parentNode.removeChild(this._uploadedImageElement);
+      this._uploadedImageElement = null;
+    }
+    // Remove video if present (for switching from camera to image)
+    //const video = this.refs.scanditContainer.querySelector('video');
+    //if (video) video.style.display = 'none';
+    // Add image
+    this._uploadedImageElement = image;
+    image.style.maxWidth = '100%';
+    image.style.maxHeight = '100%';
+    image.style.position = 'absolute';
+    image.style.top = '0';
+    image.style.left = '0';
+    image.style.zIndex = '10';
+    image.style.objectFit = 'contain';
+    // Ensure the image is not hidden
+    image.style.display = 'block';
+    // Remove any previous image from scanditContainer before appending
+    Array.from(this.refs.scanditContainer.querySelectorAll('img')).forEach(img => {
+      if (img !== image) img.parentNode.removeChild(img);
     });
+    this.refs.scanditContainer.appendChild(image);
+    // Ensure bounding box overlay is above image
+    if (this._boundingBoxCanvas) {
+      this._boundingBoxCanvas.style.zIndex = '20';
+    }
+    // Set up scale factors for image
+    this._cachedScaleFactors = null;
+    // Always set onload before checking .complete
+    image.onload = () => {
+      console.log('Image onload fired');
+      this._resizeBoundingBoxCanvas();
+    };
+    if (image.complete) {
+      // If already loaded, manually trigger onload
+      image.onload();
+    }
+    console.log('Image shown in modal:', image);
   }
 
-  async scanImageWithScandit(_imageSource) {
-    try {
-      this.errorMessage = "Image file processing not yet implemented with Scandit SDK";
-      setTimeout(() => {
-        this.errorMessage = "";
-        this.redraw();
-      }, 3000);
-    } catch (error) {
-      this.errorMessage = "Failed to scan image";
-      setTimeout(() => {
-        this.errorMessage = "";
-        this.redraw();
-      }, 3000);
+  async openScanditModal() {
+    this._openModal();
+    this._lastCodes = [];
+    this._isVideoFrozen = false;
+
+    // Remove uploaded image if present
+    if (this._uploadedImageElement && this._uploadedImageElement.parentNode) {
+      this._uploadedImageElement.parentNode.removeChild(this._uploadedImageElement);
+      this._uploadedImageElement = null;
     }
+    // Restore video if present
+    const video = this.refs.scanditContainer.querySelector('video');
+    if (video) video.style.display = '';
+
+    this.refs.freezeButton.innerHTML = '<i class="fa fa-camera" style="font-size: 24px;"></i>';
+    this.refs.freezeButton.style.background = "rgba(255,255,255,0.8)";
+    this.refs.freezeButton.style.display = "flex";
+
+    try {
+      if (!this._dataCaptureContext) {
+        await this._initializeScandit();
+      }
+      await this._setupCamera();
+    } catch (error) {
+      this.errorMessage = "Failed to initialize scanner";
+    }
+  }
+
+  _resizeBoundingBoxCanvas() {
+    try {
+      if (!this._boundingBoxCanvas || !this.refs.scanditContainer) return;
+      const container = this.refs.scanditContainer;
+      const rect = container.getBoundingClientRect();
+      if (!rect || rect.width <= 0 || rect.height <= 0) return;
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      const displayWidth = Math.floor(rect.width);
+      const displayHeight = Math.floor(rect.height);
+      const canvasWidth = Math.floor(displayWidth * devicePixelRatio);
+      const canvasHeight = Math.floor(displayHeight * devicePixelRatio);
+      if (this._boundingBoxCanvas.width !== canvasWidth || this._boundingBoxCanvas.height !== canvasHeight) {
+        this._boundingBoxCanvas.width = canvasWidth;
+        this._boundingBoxCanvas.height = canvasHeight;
+        this._boundingBoxCanvas.style.width = displayWidth + 'px';
+        this._boundingBoxCanvas.style.height = displayHeight + 'px';
+        if (this._boundingBoxContext) {
+          this._boundingBoxContext.setTransform(1, 0, 0, 1, 0, 0); // Reset
+          this._boundingBoxContext.scale(devicePixelRatio, devicePixelRatio);
+        }
+        this._cachedScaleFactors = null;
+      }
+      // Set scale factors for image or video
+      const videoElement = container.querySelector('video');
+      const imageElement = this._uploadedImageElement;
+      if (imageElement && imageElement.naturalWidth && imageElement.naturalHeight) {
+        this._cachedScaleFactors = {
+          scaleX: displayWidth / imageElement.naturalWidth,
+          scaleY: displayHeight / imageElement.naturalHeight
+        };
+      } else if (videoElement && videoElement.videoWidth && videoElement.videoHeight) {
+        this._cachedScaleFactors = {
+          scaleX: displayWidth / videoElement.videoWidth,
+          scaleY: displayHeight / videoElement.videoHeight
+        };
+      } else {
+        this._cachedScaleFactors = { scaleX: 1, scaleY: 1 };
+      }
+    } catch (error) {}
   }
 
   async _initializeScandit() {
@@ -268,275 +352,91 @@ export default class BarcodeScanner extends FieldComponent {
       }
 
       this._dataCaptureContext = await DataCaptureContext.create();
-      
-      let settings;
 
-      try {
-        settings = new BarcodeCaptureSettings();
+      // Use BarcodeBatchSettings for multi-barcode scanning
+      let settings = new BarcodeBatchSettings();
+      const allSymbologies = [
+        Symbology.Code128, Symbology.Code39, Symbology.Code93, Symbology.Code11, Symbology.Codabar,
+        Symbology.EAN13UPCA, Symbology.EAN8, Symbology.UPCE, Symbology.ITF, Symbology.MSIPlessey,
+        Symbology.QR, Symbology.DataMatrix, Symbology.PDF417, Symbology.Aztec, Symbology.MaxiCode,
+        Symbology.KIX, Symbology.RM4SCC, Symbology.GS1Databar, Symbology.GS1DatabarExpanded,
+        Symbology.GS1DatabarLimited, Symbology.MicroPDF417, Symbology.MicroQR, Symbology.DotCode,
+        Symbology.ArUco, Symbology.Code25, Symbology.Code32, Symbology.Pharmacode, Symbology.TwoDigitAddOn,
+        Symbology.FiveDigitAddOn, Symbology.Matrix2of5, Symbology.IATA2of5, Symbology.Industrial2of5
+      ];
+      const availableSymbologies = allSymbologies.filter(sym => sym !== undefined);
+      settings.enableSymbologies(availableSymbologies);
 
-        try {
-          const allSymbologies = [
-            // 1D Barcodes
-            Symbology.Code128,
-            Symbology.Code39,
-            Symbology.Code93,
-            Symbology.Code11,
-            Symbology.Codabar,
-            Symbology.EAN13UPCA,
-            Symbology.EAN8,
-            Symbology.UPCE,
-            Symbology.ITF,
-            Symbology.MSIPlessey,
-            // 2D Barcodes
-            Symbology.QR,
-            Symbology.DataMatrix,
-            Symbology.PDF417,
-            Symbology.Aztec,
-            Symbology.MaxiCode,
-            // Postal Codes
-            Symbology.KIX,
-            Symbology.RM4SCC,
-            // Additional formats
-            Symbology.GS1Databar,
-            Symbology.GS1DatabarExpanded,
-            Symbology.GS1DatabarLimited,
-            Symbology.MicroPDF417,
-            Symbology.MicroQR,
-            Symbology.DotCode,
-            Symbology.ArUco,
-            // Additional rare/specialized formats (if available)
-            Symbology.Code25,
-            Symbology.Code32,
-            Symbology.Pharmacode,
-            Symbology.TwoDigitAddOn,
-            Symbology.FiveDigitAddOn,
-            Symbology.Matrix2of5,
-            Symbology.IATA2of5,
-            Symbology.Industrial2of5
-          ];
+      settings.codeDuplicateFilter = 0;
 
-          const availableSymbologies = allSymbologies.filter(sym => sym !== undefined);
-          settings.enableSymbologies(availableSymbologies);
-        } catch (method1Error) {
-
-          try {
-            const symbologyList = [
-              { name: 'Code128', symbology: Symbology.Code128 },
-              { name: 'Code39', symbology: Symbology.Code39 },
-              { name: 'Code93', symbology: Symbology.Code93 },
-              { name: 'Code11', symbology: Symbology.Code11 },
-              { name: 'Codabar', symbology: Symbology.Codabar },
-              { name: 'EAN13UPCA', symbology: Symbology.EAN13UPCA },
-              { name: 'EAN8', symbology: Symbology.EAN8 },
-              { name: 'UPCE', symbology: Symbology.UPCE },
-              { name: 'ITF', symbology: Symbology.ITF },
-              { name: 'MSIPlessey', symbology: Symbology.MSIPlessey },
-              { name: 'QR', symbology: Symbology.QR },
-              { name: 'DataMatrix', symbology: Symbology.DataMatrix },
-              { name: 'PDF417', symbology: Symbology.PDF417 },
-              { name: 'Aztec', symbology: Symbology.Aztec },
-              { name: 'MaxiCode', symbology: Symbology.MaxiCode },
-              { name: 'KIX', symbology: Symbology.KIX },
-              { name: 'RM4SCC', symbology: Symbology.RM4SCC },
-              { name: 'GS1Databar', symbology: Symbology.GS1Databar },
-              { name: 'GS1DatabarExpanded', symbology: Symbology.GS1DatabarExpanded },
-              { name: 'GS1DatabarLimited', symbology: Symbology.GS1DatabarLimited },
-              { name: 'MicroPDF417', symbology: Symbology.MicroPDF417 },
-              { name: 'MicroQR', symbology: Symbology.MicroQR },
-              { name: 'DotCode', symbology: Symbology.DotCode },
-              { name: 'ArUco', symbology: Symbology.ArUco },
-              { name: 'Code25', symbology: Symbology.Code25 },
-              { name: 'Code32', symbology: Symbology.Code32 },
-              { name: 'Pharmacode', symbology: Symbology.Pharmacode },
-              { name: 'TwoDigitAddOn', symbology: Symbology.TwoDigitAddOn },
-              { name: 'FiveDigitAddOn', symbology: Symbology.FiveDigitAddOn },
-              { name: 'Matrix2of5', symbology: Symbology.Matrix2of5 },
-              { name: 'IATA2of5', symbology: Symbology.IATA2of5 },
-              { name: 'Industrial2of5', symbology: Symbology.Industrial2of5 }
-            ];
-
-            symbologyList.forEach(({ symbology }) => {
-              try {
-                if (symbology) {
-                  const symbologySettings = settings.settingsForSymbology(symbology);
-                  if (symbologySettings) {
-                    symbologySettings.isEnabled = true;
-                  }
-                }
-              } catch (symError) {
-              }
-            });
-          } catch (method2Error) {
-          }
-        }
-
-        settings.codeDuplicateFilter = 0;
-
-        if (settings.locationSelection) {
-          settings.locationSelection = null;
-        }
-
-        if (typeof settings.maxNumberOfCodesPerFrame !== 'undefined') {
-          settings.maxNumberOfCodesPerFrame = 10;
-        }
-
-        if (typeof settings.batterySaving !== 'undefined') {
-          settings.batterySaving = false;
-        }
-
-        this._configureAdvancedSymbologySettings(settings);
-
-        if (!this._dataCaptureContext) {
-          throw new Error("DataCaptureContext is null - cannot create BarcodeCapture");
-        }
-
-        this._barcodeCapture = await BarcodeCapture.forContext(this._dataCaptureContext, settings);
-
-        if (!this._barcodeCapture) {
-          throw new Error("BarcodeCapture.forContext returned null");
-        }
-
-        this._usingBatch = false;
-
-      } catch (captureError) {
-        this._barcodeCapture = null;
-        this._initializationError = captureError;
+      if (settings.locationSelection) {
+        settings.locationSelection = null;
       }
 
-      if (this._barcodeCapture) {
-        this._barcodeCapture.addListener({
-          didUpdateSession: (_, session) => {
-            this._handleBarcodeSession(session);
-          },
-          didScan: (_, session) => {
-            try {
-              if (!session) return;
-
-              const newlyRecognized = session.newlyRecognizedBarcode;
-              if (newlyRecognized) {
-                const existingCode = this._lastCodes.find(c => c.code === newlyRecognized.data);
-                if (!existingCode) {
-                  this._lastCodes.push({
-                    code: newlyRecognized.data,
-                    format: newlyRecognized.symbology
-                  });
-                }
-
-                if (this.refs.quaggaModal) {
-                  this.refs.quaggaModal.style.border = "4px solid lime";
-                  setTimeout(() => {
-                    if (this.refs.quaggaModal) {
-                      this.refs.quaggaModal.style.border = "";
-                    }
-                  }, 200);
-                }
-              }
-            } catch (error) {
-            }
-          }
-        });
+      if (typeof settings.maxNumberOfCodesPerFrame !== 'undefined') {
+        settings.maxNumberOfCodesPerFrame = 10;
       }
+
+      if (typeof settings.batterySaving !== 'undefined') {
+        settings.batterySaving = false;
+      }
+
+      this._configureAdvancedSymbologySettings(settings);
+
+      if (!this._dataCaptureContext) {
+        throw new Error("DataCaptureContext is null - cannot create BarcodeCapture");
+      }
+
+      // Create BarcodeBatch for multi-barcode scanning
+      this._barcodeBatch = await BarcodeBatch.forContext(this._dataCaptureContext, settings);
+      await this._barcodeBatch.setEnabled(true);
+      this._usingBatch = true;
+
+      // Listen for tracked barcodes
+      this._trackedBarcodes = {};
+      this._barcodeBatch.addListener({
+        didUpdateSession: (barcodeBatchMode, session) => {
+          this._trackedBarcodes = session.trackedBarcodes || {};
+          // Always update the tracked barcodes for the animation loop
+          const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
+          this._currentBarcodes = barcodes;
+          // Force a redraw immediately to ensure overlays appear as soon as barcodes are detected
+          this._drawBoundingBoxes(this._currentBarcodes);
+        }
+      });
 
       this._dataCaptureView = await DataCaptureView.forContext(this._dataCaptureContext);
       this._dataCaptureView.connectToElement(this.refs.scanditContainer);
+
+      // Add batch overlay for visual feedback, but hide default blue boxes with CSS
+      await BarcodeBatchBasicOverlay.withBarcodeBatchForViewWithStyle(
+        this._barcodeBatch,
+        this._dataCaptureView,
+        BarcodeBatchBasicOverlayStyle.Frame // Use Frame for real-time tracking
+      );
+      // Inject CSS to hide Scandit blue overlay frames
+      if (!document.getElementById('hide-scandit-blue-frames')) {
+        const style = document.createElement('style');
+        style.id = 'hide-scandit-blue-frames';
+        style.textContent = `
+          .scandit-barcode-batch-basic-overlay-frame,
+          .scandit-barcode-batch-basic-overlay-frame * {
+            opacity: 0 !important;
+            pointer-events: none !important;
+          }
+        `;
+        document.head.appendChild(style);
+      }
+
       this._configureCameraView();
       this._createBoundingBoxOverlay();
       this._startLiveScanningMode();
-      this._startContinuousTracking();
+
+      // Start the animation frame loop for overlays after everything is initialized
+      this._currentBarcodes = [];
+      this._drawBoundingBoxes(this._currentBarcodes);
     } catch (error) {
       this.errorMessage = "Failed to initialize barcode scanner";
-    }
-  }
-
-  _handleBarcodeSession(session) {
-    try {
-      if (!session) {
-        return;
-      }
-
-      this._lastBarcodeTime = Date.now();
-
-      let allBarcodes = [];
-
-      if (!this._persistentBarcodes) {
-        this._persistentBarcodes = new Map();
-      }
-
-      const trackedBarcodes = session.trackedBarcodes || new Map();
-      if (trackedBarcodes.size > 0) {
-        const tracked = Array.from(trackedBarcodes.values())
-          .map(tracked => tracked.barcode)
-          .filter(b => b && b.data && b.location);
-
-        tracked.forEach(barcode => {
-          this._persistentBarcodes.set(barcode.data, {
-            barcode: barcode,
-            lastSeen: Date.now()
-          });
-        });
-      }
-
-      const newlyRecognizedBarcodes = session.newlyRecognizedBarcodes || [];
-      if (newlyRecognizedBarcodes.length > 0) {
-        const validNewBarcodes = newlyRecognizedBarcodes.filter(b => b && b.data && b.location);
-
-        validNewBarcodes.forEach(barcode => {
-          this._persistentBarcodes.set(barcode.data, {
-            barcode: barcode,
-            lastSeen: Date.now()
-          });
-        });
-      }
-
-      if (session.newlyRecognizedBarcode && session.newlyRecognizedBarcode.data && session.newlyRecognizedBarcode.location) {
-        this._persistentBarcodes.set(session.newlyRecognizedBarcode.data, {
-          barcode: session.newlyRecognizedBarcode,
-          lastSeen: Date.now()
-        });
-      }
-
-      const addedTrackedBarcodes = session.addedTrackedBarcodes || [];
-      if (addedTrackedBarcodes.length > 0) {
-        const newBarcodes = addedTrackedBarcodes
-          .map(tracked => tracked.barcode)
-          .filter(b => b && b.data && b.location);
-
-        newBarcodes.forEach(barcode => {
-          this._persistentBarcodes.set(barcode.data, {
-            barcode: barcode,
-            lastSeen: Date.now()
-          });
-        });
-      }
-
-      const now = Date.now();
-      for (const [key, value] of this._persistentBarcodes.entries()) {
-        if (now - value.lastSeen > 2000) {
-          this._persistentBarcodes.delete(key);
-        }
-      }
-
-      allBarcodes = Array.from(this._persistentBarcodes.values()).map(item => item.barcode);
-
-      if (allBarcodes.length > 0) {
-        this._drawBoundingBoxes(allBarcodes);
-
-        allBarcodes.forEach(barcode => {
-          const existingCode = this._lastCodes.find(c => c.code === barcode.data);
-          if (!existingCode) {
-            this._lastCodes.push({
-              code: barcode.data,
-              format: barcode.symbology
-            });
-          }
-        });
-
-        return;
-      }
-      if (!this._lastBarcodeTime || Date.now() - this._lastBarcodeTime > 200) {
-        this._clearBoundingBoxes();
-      }
-    } catch (error) {
     }
   }
 
@@ -544,6 +444,15 @@ export default class BarcodeScanner extends FieldComponent {
     this._openModal();
     this._lastCodes = [];
     this._isVideoFrozen = false;
+
+    // Remove uploaded image if present
+    if (this._uploadedImageElement && this._uploadedImageElement.parentNode) {
+      this._uploadedImageElement.parentNode.removeChild(this._uploadedImageElement);
+      this._uploadedImageElement = null;
+    }
+    // Restore video if present
+    const video = this.refs.scanditContainer.querySelector('video');
+    if (video) video.style.display = '';
 
     this.refs.freezeButton.innerHTML = '<i class="fa fa-camera" style="font-size: 24px;"></i>';
     this.refs.freezeButton.style.background = "rgba(255,255,255,0.8)";
@@ -553,16 +462,16 @@ export default class BarcodeScanner extends FieldComponent {
       if (!this._dataCaptureContext) {
         await this._initializeScandit();
       }
-
       await this._setupCamera();
     } catch (error) {
       this.errorMessage = "Failed to initialize scanner";
     }
   }
-  
+
   async _setupCamera() {
     try {
-      const cameraSettings = BarcodeCapture.recommendedCameraSettings;
+      // Use BarcodeBatch recommended settings for multi-barcode scanning
+      const cameraSettings = BarcodeBatch.recommendedCameraSettings;
 
       this._camera = Camera.default;
       if (this._camera) {
@@ -570,20 +479,19 @@ export default class BarcodeScanner extends FieldComponent {
         await this._dataCaptureContext.setFrameSource(this._camera);
         await this._camera.switchToDesiredState(FrameSourceState.On);
 
-        if (this._barcodeCapture) {
-          await this._barcodeCapture.setEnabled(true);
+        if (this._barcodeBatch) {
+          await this._barcodeBatch.setEnabled(true);
         } else {
           const errorMsg = this._initializationError
-            ? `BarcodeCapture initialization failed: ${this._initializationError.message}`
-            : "BarcodeCapture instance is null";
+            ? `BarcodeBatch initialization failed: ${this._initializationError.message}`
+            : "BarcodeBatch instance is null";
           throw new Error(errorMsg);
         }
       } else {
         this.errorMessage = "No camera available";
       }
     } catch (error) {
-      this.errorMessage = "Failed to access camera";
-
+      this.errorMessage = `Failed to access camera`;
       this.refs.scanditContainer.innerHTML = `
         <div style="
           color: white;
@@ -597,33 +505,37 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
+  // When freezing or confirming, collect all tracked barcodes
   _toggleFreezeVideo() {
     try {
       this._isVideoFrozen = !this._isVideoFrozen;
-      
-      // Update button appearance
       if (this._isVideoFrozen) {
         this.refs.freezeButton.innerHTML = '<i class="fa fa-play" style="font-size: 24px;"></i>';
         this.refs.freezeButton.style.background = "rgba(0,255,0,0.8)";
-        
         if (this._camera) {
           this._camera.switchToDesiredState(FrameSourceState.Off);
         }
-
-        if (this._lastCodes.length === 1) {
+        // Collect all tracked barcodes and update value
+        if (this._usingBatch && this._trackedBarcodes) {
+          const allCodes = Object.values(this._trackedBarcodes)
+            .map(tb => tb.barcode.data)
+            .filter(Boolean);
+          if (allCodes.length > 0) {
+            this.updateValue(allCodes.join(", "));
+            this.refs.barcode.value = allCodes.join(", ");
+          }
+        } else if (this._lastCodes.length === 1) {
           this.updateValue(this._lastCodes[0].code);
           this.refs.barcode.value = this._lastCodes[0].code;
         }
       } else {
         this.refs.freezeButton.innerHTML = '<i class="fa fa-camera" style="font-size: 24px;"></i>';
         this.refs.freezeButton.style.background = "rgba(255,255,255,0.8)";
-
         if (this._camera) {
           this._camera.switchToDesiredState(FrameSourceState.On);
         }
       }
-    } catch (e) {
-    }
+    } catch (e) { }
   }
 
   async stopScanner() {
@@ -632,12 +544,7 @@ export default class BarcodeScanner extends FieldComponent {
         await this._camera.switchToDesiredState(FrameSourceState.Off);
       }
 
-      if (this._barcodeCapture) {
-        await this._barcodeCapture.setEnabled(false);
-      }
-
       this._stopLiveScanningMode();
-      this._stopContinuousTracking();
 
       if (this._cameraMonitoringInterval) {
         clearInterval(this._cameraMonitoringInterval);
@@ -862,10 +769,27 @@ export default class BarcodeScanner extends FieldComponent {
         this._boundingBoxCanvas.style.height = displayHeight + 'px';
 
         if (this._boundingBoxContext) {
+          this._boundingBoxContext.setTransform(1, 0, 0, 1, 0, 0); // Reset
           this._boundingBoxContext.scale(devicePixelRatio, devicePixelRatio);
         }
 
         this._cachedScaleFactors = null;
+      }
+      // Set scale factors for image or video
+      const videoElement = container.querySelector('video');
+      const imageElement = this._uploadedImageElement;
+      if (imageElement && imageElement.naturalWidth && imageElement.naturalHeight) {
+        this._cachedScaleFactors = {
+          scaleX: displayWidth / imageElement.naturalWidth,
+          scaleY: displayHeight / imageElement.naturalHeight
+        };
+      } else if (videoElement && videoElement.videoWidth && videoElement.videoHeight) {
+        this._cachedScaleFactors = {
+          scaleX: displayWidth / videoElement.videoWidth,
+          scaleY: displayHeight / videoElement.videoHeight
+        };
+      } else {
+        this._cachedScaleFactors = { scaleX: 1, scaleY: 1 };
       }
     } catch (error) {
     }
@@ -877,38 +801,34 @@ export default class BarcodeScanner extends FieldComponent {
         return;
       }
 
-      this._currentBarcodes = barcodes || [];
-
-      if (!barcodes || barcodes.length === 0) {
-        this._clearBoundingBoxes();
-        return;
-      }
-
       if (this._animationFrameId) {
         cancelAnimationFrame(this._animationFrameId);
       }
 
-      this._animationFrameId = requestAnimationFrame(() => {
+      const draw = () => {
         try {
+          // Use trackedBarcodes for real-time anchor positions
+          let trackedBarcodes = this._trackedBarcodes || {};
+          const barcodeEntries = Object.entries(trackedBarcodes);
+
           const width = this._boundingBoxCanvas.width;
           const height = this._boundingBoxCanvas.height;
 
           if (width <= 0 || height <= 0) {
             this._resizeBoundingBoxCanvas();
+            this._animationFrameId = requestAnimationFrame(draw);
             return;
           }
 
           this._boundingBoxContext.clearRect(0, 0, width, height);
 
-          if (!barcodes || barcodes.length === 0) {
+          if (!barcodeEntries.length) {
             return;
           }
 
-          this._boundingBoxContext.strokeStyle = '#00ff00';
-          this._boundingBoxContext.lineWidth = 3;
-          this._boundingBoxContext.fillStyle = 'rgba(0, 255, 0, 0.2)';
           this._boundingBoxContext.font = '14px Arial';
-          this._boundingBoxContext.textAlign = 'left';
+          this._boundingBoxContext.textAlign = 'center';
+          this._boundingBoxContext.textBaseline = 'bottom';
 
           if (!this._cachedScaleFactors) {
             const videoElement = this.refs.scanditContainer?.querySelector('video');
@@ -916,33 +836,26 @@ export default class BarcodeScanner extends FieldComponent {
 
             if (videoElement && videoElement.videoWidth && videoElement.videoHeight && container) {
               const containerRect = container.getBoundingClientRect();
-
               const containerWidth = containerRect.width;
               const containerHeight = containerRect.height;
-
               this._cachedScaleFactors = {
                 scaleX: containerWidth / videoElement.videoWidth,
                 scaleY: containerHeight / videoElement.videoHeight
               };
-
-              console.log("Scale calculation (dynamic container):", {
-                videoStream: `${videoElement.videoWidth}x${videoElement.videoHeight}`,
-                containerSize: `${containerWidth}x${containerHeight}`,
-                scale: this._cachedScaleFactors
-              });
             } else {
               this._cachedScaleFactors = { scaleX: 1, scaleY: 1 };
-              console.warn("Using default scale factors - video element not found or not ready");
             }
           }
 
           const { scaleX, scaleY } = this._cachedScaleFactors;
 
-          for (const barcode of barcodes) {
-            if (!barcode.location || !barcode.location.topLeft) continue;
+          this._clickableRegions = [];
 
-            const { topLeft, topRight, bottomRight, bottomLeft } = barcode.location;
-
+          for (const [id, trackedBarcode] of barcodeEntries) {
+            // Prefer _anchorPositions, fallback to _location, fallback to barcode.location
+            let anchor = trackedBarcode._anchorPositions || trackedBarcode._location || (trackedBarcode.barcode && trackedBarcode.barcode.location);
+            if (!anchor || !anchor.topLeft) continue;
+            const { topLeft, topRight, bottomRight, bottomLeft } = anchor;
             const x1 = topLeft.x * scaleX;
             const y1 = topLeft.y * scaleY;
             const x2 = topRight.x * scaleX;
@@ -952,39 +865,81 @@ export default class BarcodeScanner extends FieldComponent {
             const x4 = bottomLeft.x * scaleX;
             const y4 = bottomLeft.y * scaleY;
 
-            this._boundingBoxContext.beginPath();
-            this._boundingBoxContext.moveTo(x1, y1);
-            this._boundingBoxContext.lineTo(x2, y2);
-            this._boundingBoxContext.lineTo(x3, y3);
-            this._boundingBoxContext.lineTo(x4, y4);
-            this._boundingBoxContext.closePath();
-            this._boundingBoxContext.fill();
-            this._boundingBoxContext.stroke();
+            // Draw custom blue bounding box if frozen
+            if (this._isVideoFrozen) {
+              this._boundingBoxContext.save();
+              this._boundingBoxContext.strokeStyle = 'rgba(1, 255, 255, 1';
+              this._boundingBoxContext.fillStyle = 'rgba(1, 255, 255, 0.7)';
+              this._boundingBoxContext.lineWidth = 3;
+              this._boundingBoxContext.beginPath();
+              this._boundingBoxContext.moveTo(x1, y1);
+              this._boundingBoxContext.lineTo(x2, y2);
+              this._boundingBoxContext.lineTo(x3, y3);
+              this._boundingBoxContext.lineTo(x4, y4);
+              this._boundingBoxContext.closePath();
+              this._boundingBoxContext.stroke();
+              this._boundingBoxContext.restore();
+            }
 
-            const text = `${barcode.symbology}: ${barcode.data}`;
-            const textX = Math.min(x1, x4);
-            const textY = Math.min(y1, y2) - 5;
-
+            // Draw the text label directly above the top left corner
+            const text = `${trackedBarcode.barcode?.symbology || ''}: ${trackedBarcode.barcode?.data || ''}`;
             const textMetrics = this._boundingBoxContext.measureText(text);
+            const textX = x1;
+            const textY = y1 - 25;
+            this._boundingBoxContext.save();
             this._boundingBoxContext.fillStyle = 'rgba(0, 0, 0, 0.7)';
-            this._boundingBoxContext.fillRect(textX, textY - 16, textMetrics.width + 8, 20);
+            this._boundingBoxContext.fillRect(textX - 2, textY - 2, textMetrics.width + 20, 20);
+            this._boundingBoxContext.fillStyle = '#fff';
+            this._boundingBoxContext.font = 'bold 15px Arial';
+            this._boundingBoxContext.textAlign = 'left';
+            this._boundingBoxContext.textBaseline = 'top';
+            this._boundingBoxContext.fillText(text, textX, textY + 2);
+            this._boundingBoxContext.restore();
 
-            this._boundingBoxContext.fillStyle = '#ffffff';
-            this._boundingBoxContext.fillText(text, textX + 4, textY - 2);
-            this._boundingBoxContext.fillStyle = 'rgba(0, 255, 0, 0.2)';
+            this._clickableRegions.push({
+              barcode: trackedBarcode.barcode,
+              region: [
+                { x: x1, y: y1 },
+                { x: x2, y: y2 },
+                { x: x3, y: y3 },
+                { x: x4, y: y4 }
+              ]
+            });
           }
         } catch (error) {
           console.error("Error in drawing frame:", error);
         }
-      });
+        this._animationFrameId = requestAnimationFrame(draw);
+      };
+      this._animationFrameId = requestAnimationFrame(draw);
     } catch (error) {
       console.error("Error drawing bounding boxes:", error);
     }
   }
 
+  _handleBoundingBoxClick(event) {
+    if (!this._currentBarcodes || this._currentBarcodes.length === 0 || !this._clickableRegions) return;
+
+    const rect = this._boundingBoxCanvas.getBoundingClientRect();
+    const clickX = (event.clientX - rect.left);
+    const clickY = (event.clientY - rect.top);
+
+    for (const regionObj of this._clickableRegions) {
+      const region = regionObj.region;
+      if (this._isPointInBoundingBox(clickX, clickY, ...region)) {
+        const barcode = regionObj.barcode;
+        this.setValue(barcode.data);
+        if (this.refs.barcode) {
+          this.refs.barcode.value = barcode.data;
+        }
+        this.stopScanner();
+        break;
+      }
+    }
+  }
+
   _configureAdvancedSymbologySettings(settings) {
     try {
-      console.log("Configuring advanced symbology settings for maximum compatibility...");
 
       try {
         const code39Settings = settings.settingsForSymbology(Symbology.Code39);
@@ -1100,7 +1055,10 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   _openModal() {
-    if (!this.refs.quaggaModal) return;
+    if (!this.refs.quaggaModal) {
+      console.warn("Modal reference is null, cannot open modal.");
+      return;
+    }
 
     try {
       this.refs.quaggaModal.classList.remove('barcode-modal-hidden', 'barcode-modal-closing');
@@ -1117,46 +1075,13 @@ export default class BarcodeScanner extends FieldComponent {
         this.refs.quaggaModal.style.display = "flex";
       }
     }
+
+    console.log("Modal opened successfully");
   }
 
   _clearBoundingBoxes() {
     if (this._boundingBoxContext && this._boundingBoxCanvas) {
       this._boundingBoxContext.clearRect(0, 0, this._boundingBoxCanvas.width, this._boundingBoxCanvas.height);
-    }
-  }
-
-  _handleBoundingBoxClick(event) {
-    if (!this._currentBarcodes || this._currentBarcodes.length === 0) return;
-
-    const rect = this._boundingBoxCanvas.getBoundingClientRect();
-    const devicePixelRatio = window.devicePixelRatio || 1;
-
-    const clickX = (event.clientX - rect.left);
-    const clickY = (event.clientY - rect.top);
-
-    const { scaleX, scaleY } = this._cachedScaleFactors || { scaleX: 1, scaleY: 1 };
-
-    for (const barcode of this._currentBarcodes) {
-      if (!barcode.location || !barcode.location.topLeft) continue;
-
-      const { topLeft, topRight, bottomRight, bottomLeft } = barcode.location;
-
-      const scaledTopLeft = { x: topLeft.x * scaleX, y: topLeft.y * scaleY };
-      const scaledTopRight = { x: topRight.x * scaleX, y: topRight.y * scaleY };
-      const scaledBottomRight = { x: bottomRight.x * scaleX, y: bottomRight.y * scaleY };
-      const scaledBottomLeft = { x: bottomLeft.x * scaleX, y: bottomLeft.y * scaleY };
-
-      if (this._isPointInBoundingBox(clickX, clickY, scaledTopLeft, scaledTopRight, scaledBottomRight, scaledBottomLeft)) {
-
-        this.setValue(barcode.data);
-
-        if (this.refs.barcode) {
-          this.refs.barcode.value = barcode.data;
-        }
-
-        this.stopScanner();
-        break;
-      }
     }
   }
 
@@ -1167,10 +1092,6 @@ export default class BarcodeScanner extends FieldComponent {
     const maxY = Math.max(topLeft.y, topRight.y, bottomRight.y, bottomLeft.y);
 
     const isInside = x >= minX && x <= maxX && y >= minY && y <= maxY;
-
-    if (isInside) {
-      console.log(`Click (${x}, ${y}) is inside bounding box: (${minX}, ${minY}) to (${maxX}, ${maxY})`);
-    }
 
     return isInside;
   }
@@ -1198,45 +1119,8 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
-  _startContinuousTracking() {
-    // Clear any existing tracking interval
-    if (this._continuousTrackingInterval) {
-      clearInterval(this._continuousTrackingInterval);
-    }
-
-    // Aggressive continuous tracking - check for barcodes every frame
-    this._continuousTrackingInterval = setInterval(() => {
-      if (!this._isVideoFrozen && this._dataCaptureContext && this._barcodeCapture) {
-        try {
-          // Force BarcodeCapture to stay enabled
-          if (this._barcodeCapture.isEnabled === false) {
-            this._barcodeCapture.setEnabled(true);
-            console.log("Re-enabled BarcodeCapture");
-          }
-
-          if (this._currentBarcodes && this._currentBarcodes.length > 0) {
-            this._lastBarcodeTime = Date.now();
-          }
-
-          if (this._persistentBarcodes && this._persistentBarcodes.size > 0) {
-            const allBarcodes = Array.from(this._persistentBarcodes.values()).map(item => item.barcode);
-            if (allBarcodes.length > 0) {
-              this._drawBoundingBoxes(allBarcodes);
-            }
-          }
-        } catch (error) {
-          console.warn("Error in continuous tracking:", error);
-        }
-      }
-    }, 66);
-  }
-
-  _stopContinuousTracking() {
-    if (this._continuousTrackingInterval) {
-      clearInterval(this._continuousTrackingInterval);
-      this._continuousTrackingInterval = null;
-    }
-  }
+  _startContinuousTracking() {}
+  _stopContinuousTracking() {}
 
   detach() {
     // Stop live scanning mode
@@ -1314,6 +1198,48 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
+  async _fileToImageData(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        let settled = false;
+        const cleanup = () => {
+          img.onload = null;
+          img.onerror = null;
+        };
+        img.onload = () => {
+          if (!settled) {
+            settled = true;
+            cleanup();
+            resolve(img);
+          }
+        };
+        img.onerror = (err) => {
+          console.error("Image load error:", err);
+          if (!settled) {
+            settled = true;
+            cleanup();
+            reject(new Error('Image failed to load'));
+          }
+        };
+        // Timeout in case onload/onerror never fire
+        setTimeout(() => {
+          if (!settled) {
+            console.warn("Image load timeout - rejecting");
+            settled = true;
+            cleanup();
+            reject(new Error('Image load timed out'));
+          }
+        }, 5000);
+        img.src = e.target.result;
+      };
+      reader.onerror = (err) => {
+        console.error("FileReader error:", err);
+        reject(new Error('FileReader failed'));
+      };
+      reader.readAsDataURL(file);
+    });
+  }
 
-  
 }
