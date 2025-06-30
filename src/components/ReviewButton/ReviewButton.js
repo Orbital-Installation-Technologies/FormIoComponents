@@ -227,6 +227,7 @@ export default class ReviewButton extends FieldComponent {
         }
 
         document.body.removeChild(modal);
+        this.resetAfterNextSubmit();
         this.emit("submitButton", { type: "submit" });
       };
 
@@ -242,5 +243,38 @@ export default class ReviewButton extends FieldComponent {
     });
 
     return super.attach(element);
+  }
+
+  resetAfterNextSubmit() {
+    if (this._waitingReset) return; // guard against re-registration
+    this._waitingReset = true;
+
+    const doReset = () =>
+      setTimeout(() => {
+        // let the toast mount first
+        this._waitingReset = false;
+        this.component._reviewModalCache = null;
+
+        /* Clear absolutely everything */
+        this.root.resetValue(); // wipes values + sets defaults
+
+        /* Make sure the UI is clean */
+        this.root.setPristine(true);
+        this.root.clearErrors();
+        this.root.everyComponent((c) => {
+          c.setPristine(true); // remove red borders
+          c.error = null;
+        });
+      }, 50); // 50 ms for Toastify
+
+    if (typeof this.root.once === "function") {
+      this.root.once("submitDone", doReset);
+    } else {
+      const fn = () => {
+        this.root.off("submitDone", fn);
+        doReset();
+      };
+      this.root.on("submitDone", fn);
+    }
   }
 }

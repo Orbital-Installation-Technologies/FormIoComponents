@@ -61,7 +61,10 @@ setTimeout(() => {
         this.rows?.forEach((row, index) => {
           console.log(row);
 
-          const formComponent = row?.components?.find((c) => c.component.type === "form");
+          // const formComponent = Object.values(row?.components || {}).find(
+          //   (c) => c.component?.type === "textField",
+          // );
+          const formComponent = row?.textField;
           console.log("formComponent: ", formComponent);
 
           if (!formComponent) return;
