@@ -90,11 +90,9 @@ export default class BarcodeScanner extends FieldComponent {
           <button ref="scanButton" type="button" class="btn btn-primary" style="margin-right:5px;">
             ${cameraSVG}
           </button>
-          <button ref="fileButton" type="button" class="btn btn-primary">
-            ${fileImageSVG}
-          </button>
+          <!-- File upload button removed -->
         </div>
-        <input ref="fileInput" type="file" accept="image/*" style="display:none;" />
+        <!-- File input removed -->
         ${this.errorMessage
         ? `<div class="formio-errors">
                  <div class="form-text error">${this.errorMessage}</div>
@@ -151,8 +149,6 @@ export default class BarcodeScanner extends FieldComponent {
     this.loadRefs(element, {
       barcode: "single",
       scanButton: "single",
-      fileButton: "single",
-      fileInput: "single",
       quaggaModal: "single",
       scanditContainer: "single",
       closeModal: "single",
@@ -162,8 +158,6 @@ export default class BarcodeScanner extends FieldComponent {
     if (
       !this.refs.barcode ||
       !this.refs.scanButton ||
-      !this.refs.fileButton ||
-      !this.refs.fileInput ||
       !this.refs.quaggaModal ||
       !this.refs.scanditContainer ||
       !this.refs.closeModal ||
@@ -185,16 +179,6 @@ export default class BarcodeScanner extends FieldComponent {
         this.openScanditModal();
       });
 
-      this.refs.fileButton.addEventListener("click", () => {
-        this.refs.fileInput.click();
-      });
-
-      this.refs.fileInput.addEventListener("change", (event) => {
-        if (event.target.files && event.target.files[0]) {
-          this.processImageFile(event.target.files[0]);
-        }
-      });
-
       this.refs.closeModal.addEventListener("click", () => {
         this.stopScanner();
         this._lastCodes = [];
@@ -204,7 +188,6 @@ export default class BarcodeScanner extends FieldComponent {
       this.refs.freezeButton.addEventListener("click", () => {
         this._toggleFreezeVideo();
       });
-
     }
 
     return attached;
@@ -214,18 +197,7 @@ export default class BarcodeScanner extends FieldComponent {
     return super.detach();
   }
 
-  async processImageFile(file) {
-    try {
-      const imageData = await this._fileToImageData(file);
-      this._showImageInModal(imageData);
-      // Do not call scanImageWithScandit for now, as it is not implemented for images
-      this.errorMessage = "";
-      this.redraw();
-    } catch (error) {
-      this.errorMessage = error?.message || "Failed to process image file";
-      this.redraw();
-    }
-  }
+  // processImageFile removed
 
   _showImageInModal(image) {
     this._openModal();
@@ -1198,48 +1170,6 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
-  async _fileToImageData(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        let settled = false;
-        const cleanup = () => {
-          img.onload = null;
-          img.onerror = null;
-        };
-        img.onload = () => {
-          if (!settled) {
-            settled = true;
-            cleanup();
-            resolve(img);
-          }
-        };
-        img.onerror = (err) => {
-          console.error("Image load error:", err);
-          if (!settled) {
-            settled = true;
-            cleanup();
-            reject(new Error('Image failed to load'));
-          }
-        };
-        // Timeout in case onload/onerror never fire
-        setTimeout(() => {
-          if (!settled) {
-            console.warn("Image load timeout - rejecting");
-            settled = true;
-            cleanup();
-            reject(new Error('Image load timed out'));
-          }
-        }, 5000);
-        img.src = e.target.result;
-      };
-      reader.onerror = (err) => {
-        console.error("FileReader error:", err);
-        reject(new Error('FileReader failed'));
-      };
-      reader.readAsDataURL(file);
-    });
-  }
+  // _fileToImageData removed
 
 }
