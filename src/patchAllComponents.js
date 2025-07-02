@@ -50,39 +50,5 @@ setTimeout(() => {
     proto._patchedUpdateValue = true;
   });
 
-  // 3. Extend DataGrid to set labels dynamically from hardwareProduct
-  const DataGrid = Components.components.datagrid;
-  if (DataGrid && !DataGrid._patchedRowLabeling) {
-    const PatchedDataGrid = class extends DataGrid {
-      setValue(value, flags) {
-        const result = super.setValue(value, flags);
-
-        // Rename each row label inside the datagrid dynamically
-        this.rows?.forEach((row, index) => {
-          console.log(row);
-
-          // const formComponent = Object.values(row?.components || {}).find(
-          //   (c) => c.component?.type === "textField",
-          // );
-          const formComponent = row?.textField;
-          console.log("formComponent: ", formComponent);
-
-          if (!formComponent) return;
-
-          const label = formComponent.getValue()?.form?.data?.hardwareProduct;
-          console.log("label: ", label);
-
-          formComponent.component.label = label ? `Hardware: ${label}` : `Hardware ${index + 1}`;
-        });
-
-        return result;
-      }
-    };
-
-    Components.addComponent("datagrid", PatchedDataGrid);
-    DataGrid._patchedRowLabeling = true;
-    console.log("DataGrid patch applied for dynamic row labeling.");
-  }
-
-  console.log("ReviewVisible and DataGrid patches completed.");
+  console.log("ReviewVisible patch applied to all components.");
 }, 1000);
