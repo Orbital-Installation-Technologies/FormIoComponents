@@ -88,29 +88,54 @@ export default class ReviewButton extends FieldComponent {
           const key = comp.component.key;
           const label = comp.component.label || key;
           const value = comp.getValue();
+
           if (Array.isArray(value)) {
             return `
-              <div><strong>${label}:</strong></div>
-              <ol style="padding-left: 1.5rem;">
-                ${value
-                  .map((item, index) => {
-                    const itemData = item.form?.data || {};
-                    return `
-                      <li style="margin-bottom: 0.5rem;">
-                        <div><strong>Item ${index + 1}:</strong></div>
-                        ${Object.entries(itemData)
-                          .map(([nestedKey, nestedValue]) => {
-                            return `<div><strong>${nestedKey}:</strong> ${nestedValue || ""}</div>`;
-                          })
-                          .join("")}
-                      </li>
-                    `;
-                  })
-                  .join("")}
-              </ol>
-            `;
+    <div><strong>${label}:</strong></div>
+    <ol style="padding-left: 1.5rem;">
+      ${value
+        .map((item, index) => {
+          const itemData = item.form?.data || {};
+          const itemComponents =
+            comp?.components?.[index]?.components || comp.component.components || [];
+
+          const filteredEntries = Object.entries(itemData).filter(([nestedKey, nestedValue]) => {
+            if (nestedValue === null || nestedValue === "") return false;
+            const nestedComponent = itemComponents.find(
+              (c) => c.component?.key === nestedKey || c.key === nestedKey,
+            );
+
+            const nestedType = nestedComponent?.component?.type || nestedComponent?.type || "";
+            const keyLower = nestedKey.toLowerCase();
+
+            const likelyImageByName =
+              keyLower.includes("pic") || keyLower.includes("photo") || keyLower.includes("image");
+            const isArray = Array.isArray(nestedValue);
+
+            return nestedType !== "image" && !likelyImageByName && !isArray;
+          });
+
+          if (filteredEntries.length === 0) return "";
+
+          return `
+            <li style="margin-bottom: 0.5rem;">
+              <div><strong>Item ${index + 1}:</strong></div>
+              ${filteredEntries
+                .map(
+                  ([nestedKey, nestedValue]) =>
+                    `<div><strong>${nestedKey}:</strong> ${nestedValue}</div>`,
+                )
+                .join("")}
+            </li>
+          `;
+        })
+        .join("")}
+    </ol>
+  `;
           }
-          return `<div><strong>${label}:</strong> ${value ?? ""}</div>`;
+
+          if (value === null || value === "") return "";
+          return `<div><strong>${label}:</strong> ${value}</div>`;
         })
         .join("");
 
