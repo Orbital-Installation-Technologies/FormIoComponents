@@ -207,31 +207,37 @@ export default class ReviewButton extends FieldComponent {
         const notesRequired = modal.querySelector("#notesRequired").value;
         const notesOptional = modal.querySelector("#notesOptional").value;
         const screenshotInput = modal.querySelector("#screenshot");
-        const screenshot = screenshotInput.files.length > 0 ? screenshotInput.files[0] : null;
+        const file = screenshotInput.files[0];
         const supportNumber = modal.querySelector("#supportNumber").value;
 
-        // Conditional validation for modal fields
         if (verifiedSelectValue === "Not Verified" && !notesRequired.trim()) {
           alert("Please explain why not verified.");
           return;
         }
-        if ((verifiedSelectValue === "App" || verifiedSelectValue === "Support") && !screenshot) {
+        if ((verifiedSelectValue === "App" || verifiedSelectValue === "Support") && !file) {
           alert("Screenshot is required for App or Support verification.");
           return;
         }
 
-        // Always save form values first
-        const updatedData = {
-          ...this.root.getValue(),
-          supportNumber,
-          verifiedSelect: verifiedSelectValue,
-          screenshot,
-          notesOptional,
-          notesRequired,
-        };
-        this.root.setValue(updatedData);
+        if (file) {
+          const screenshotComponent = this.root.getComponent("screenshot");
+          if (screenshotComponent) {
+            const uploadedFiles = await screenshotComponent.upload(
+              file,
+              "file",
+              file.name,
+              file.size,
+            );
+            screenshotComponent.setValue(uploadedFiles);
+          }
+        }
 
-        // Store latest modal data into component state for reuse
+        this.root.getComponent("reviewed")?.setValue("true");
+        this.root.getComponent("supportNumber")?.setValue(supportNumber);
+        this.root.getComponent("verifiedSelect")?.setValue(verifiedSelectValue);
+        this.root.getComponent("notesOptional")?.setValue(notesOptional);
+        this.root.getComponent("notesRequired")?.setValue(notesRequired);
+
         this.component._reviewModalCache = {
           verifiedSelect: verifiedSelectValue,
           notesRequired,
@@ -239,11 +245,10 @@ export default class ReviewButton extends FieldComponent {
           supportNumber,
         };
 
-        const noShow = updatedData.data?.noShow;
         const requireValidation = noShow === "no";
 
         if (requireValidation) {
-          const isValid = await this.root.checkValidity(updatedData.data, true);
+          const isValid = await this.root.checkValidity(this.root.getValue().data, true);
           if (!isValid) {
             this.root.showErrors();
             alert("Some fields are invalid. Please fix them before submitting.");
@@ -256,7 +261,6 @@ export default class ReviewButton extends FieldComponent {
         this.emit("submitButton", { type: "submit" });
       };
 
-      // Restore cached modal values if available
       const cached = this.component._reviewModalCache;
       if (cached) {
         modal.querySelector("#verified").value = cached.verifiedSelect || "";
@@ -271,26 +275,22 @@ export default class ReviewButton extends FieldComponent {
   }
 
   resetAfterNextSubmit() {
-    if (this._waitingReset) return; // guard against re-registration
+    if (this._waitingReset) return;
     this._waitingReset = true;
 
     const doReset = () =>
       setTimeout(() => {
-        // let the toast mount first
         this._waitingReset = false;
         this.component._reviewModalCache = null;
 
-        /* Clear absolutely everything */
-        this.root.resetValue(); // wipes values + sets defaults
-
-        /* Make sure the UI is clean */
+        this.root.resetValue();
         this.root.setPristine(true);
         this.root.clearErrors();
         this.root.everyComponent((c) => {
-          c.setPristine(true); // remove red borders
+          c.setPristine(true);
           c.error = null;
         });
-      }, 50); // 50 ms for Toastify
+      }, 50);
 
     if (typeof this.root.once === "function") {
       this.root.once("submitDone", doReset);
