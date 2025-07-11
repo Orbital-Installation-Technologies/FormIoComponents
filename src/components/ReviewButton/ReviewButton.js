@@ -35,6 +35,10 @@ export default class ReviewButton extends FieldComponent {
 
   init() {
     super.init();
+
+    this.root.on("submitDone", () => {
+      window.location.reload();
+    });
   }
 
   conditionallyHidden(data) {
@@ -166,8 +170,8 @@ export default class ReviewButton extends FieldComponent {
             </div>
           </div>
           <div class="mb-4 text-sm w-full" id="screenshotWrapper" style="display: none;">
-            <label class="block font-medium mb-1">Screenshot Upload<span class="text-red-500">(Required)*</span></label>
-            <input type="file" id="screenshot" class="w-full text-sm" />
+            <label for="screenshotContainer">Screenshot Upload<span class="text-red-500">(Required)*</label>
+            <div id="screenshotContainer"></div>
           </div>
           <div class="mb-4 text-sm w-full" id="notesOptionalWrapper" style="display: none;">
             <label class="block font-medium mb-1">Notes (optional)</label>
@@ -185,6 +189,24 @@ export default class ReviewButton extends FieldComponent {
 
       document.body.appendChild(modal);
 
+      //Input file component into review modal
+      const screenshotComp = this.root.getComponent("screenshot");
+      if (screenshotComp) {
+        screenshotComp.component.hidden = false;
+        screenshotComp.visible = true;
+
+        const html = screenshotComp.render();
+
+        const tmp = document.createElement("div");
+        tmp.innerHTML = html;
+        const compEl = tmp.firstElementChild;
+
+        const container = modal.querySelector("#screenshotContainer");
+        container.appendChild(compEl);
+
+        screenshotComp.attach(compEl);
+      }
+
       const verifiedSelect = modal.querySelector("#verified");
       const screenshotWrapper = modal.querySelector("#screenshotWrapper");
       const notesOptionalWrapper = modal.querySelector("#notesOptionalWrapper");
@@ -199,6 +221,17 @@ export default class ReviewButton extends FieldComponent {
       };
 
       modal.querySelector("#cancelModal").onclick = () => {
+        const screenshotComp = this.root.getComponent("screenshot");
+        if (screenshotComp) {
+          screenshotComp.component.hidden = true;
+          if (typeof screenshotComp.setVisible === "function") {
+            screenshotComp.setVisible(false);
+          } else {
+            screenshotComp.visible = false;
+          }
+          this.root.redraw();
+        }
+
         document.body.removeChild(modal);
       };
 
@@ -206,30 +239,20 @@ export default class ReviewButton extends FieldComponent {
         const verifiedSelectValue = modal.querySelector("#verified").value;
         const notesRequired = modal.querySelector("#notesRequired").value;
         const notesOptional = modal.querySelector("#notesOptional").value;
-        const screenshotInput = modal.querySelector("#screenshot");
-        const file = screenshotInput.files[0];
         const supportNumber = modal.querySelector("#supportNumber").value;
+        const screenshotComp = this.root.getComponent("screenshot");
+        const uploadedFiles = screenshotComp.getValue() || [];
 
         if (verifiedSelectValue === "Not Verified" && !notesRequired.trim()) {
           alert("Please explain why not verified.");
           return;
         }
-        if ((verifiedSelectValue === "App" || verifiedSelectValue === "Support") && !file) {
+        if (
+          (verifiedSelectValue === "App" || verifiedSelectValue === "Support") &&
+          uploadedFiles.length === 0
+        ) {
           alert("Screenshot is required for App or Support verification.");
           return;
-        }
-
-        if (file) {
-          const screenshotComponent = this.root.getComponent("screenshot");
-          if (screenshotComponent) {
-            const uploadedFiles = await screenshotComponent.upload(
-              file,
-              "file",
-              file.name,
-              file.size,
-            );
-            screenshotComponent.setValue(uploadedFiles);
-          }
         }
 
         this.root.getComponent("reviewed")?.setValue("true");
@@ -257,7 +280,6 @@ export default class ReviewButton extends FieldComponent {
         }
 
         document.body.removeChild(modal);
-        this.resetAfterNextSubmit();
         this.emit("submitButton", { type: "submit" });
       };
 
@@ -272,34 +294,5 @@ export default class ReviewButton extends FieldComponent {
     });
 
     return super.attach(element);
-  }
-
-  resetAfterNextSubmit() {
-    if (this._waitingReset) return;
-    this._waitingReset = true;
-
-    const doReset = () =>
-      setTimeout(() => {
-        this._waitingReset = false;
-        this.component._reviewModalCache = null;
-
-        this.root.resetValue();
-        this.root.setPristine(true);
-        this.root.clearErrors();
-        this.root.everyComponent((c) => {
-          c.setPristine(true);
-          c.error = null;
-        });
-      }, 50);
-
-    if (typeof this.root.once === "function") {
-      this.root.once("submitDone", doReset);
-    } else {
-      const fn = () => {
-        this.root.off("submitDone", fn);
-        doReset();
-      };
-      this.root.on("submitDone", fn);
-    }
   }
 }
