@@ -1,6 +1,4 @@
 setTimeout(() => {
-  console.log("Patching Form.io components for reviewVisible and DataGrid row labels...");
-
   const Components = window.Formio?.Components;
   if (!Components) {
     console.warn("Formio.Components not found.");
@@ -49,6 +47,4 @@ setTimeout(() => {
 
     proto._patchedUpdateValue = true;
   });
-
-  console.log("ReviewVisible patch applied to all components.");
 }, 1000);
