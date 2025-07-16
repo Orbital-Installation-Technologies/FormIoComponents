@@ -218,4 +218,8 @@ export default class Gps extends FieldComponent {
       this.triggerChange();
     }
   }
+
+  get emptyValue(){
+    return "";
+  }
 }
