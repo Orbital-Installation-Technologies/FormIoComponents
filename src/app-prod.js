@@ -7,8 +7,8 @@ import Gps from "./components/Gps/Gps";
 import ReviewButton from "./components/ReviewButton/ReviewButton.js";
 
 Formio.license = process.env.FORMIO_PREMIUM_LICENSE;
-Formio.use(premium);
 Formio.use([
+  premium,
   {
     components: {
       rating: Rating,
