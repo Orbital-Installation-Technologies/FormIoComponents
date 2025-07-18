@@ -12,7 +12,7 @@ module.exports = (env) => {
     },
     plugins: [
       new Dotenv(),
-      new webpack.EnvironmentPlugin(["FORMIO_PREMIUM_LICENSE"]),
+      //new webpack.EnvironmentPlugin(["FORMIO_PREMIUM_LICENSE"]),
     ],
     output: {
       filename: `[name].bundle.${buildNumber}.js`,

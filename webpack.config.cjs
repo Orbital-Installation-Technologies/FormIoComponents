@@ -13,7 +13,7 @@ module.exports = {
     new webpack.DefinePlugin({
       'process': JSON.stringify({
         env: {
-          FORMIO_PREMIUM_LICENSE: process.env.FORMIO_PREMIUM_LICENSE || ''
+          //FORMIO_PREMIUM_LICENSE: process.env.FORMIO_PREMIUM_LICENSE || ''
         }
       })
     }),

@@ -6,8 +6,6 @@ import BarcodeScanner from "./components/BarcodeScanner/BarcodeScanner.js";
 import Gps from "./components/Gps/Gps.js";
 import ReviewButton from "./components/ReviewButton/ReviewButton.js";
 
-// Access the license key that webpack DefinePlugin has injected
-Formio.license = process.env.FORMIO_PREMIUM_LICENSE;
 Formio.use([
   {
     components: {
