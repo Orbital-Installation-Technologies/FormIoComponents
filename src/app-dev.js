@@ -9,8 +9,8 @@ import ReviewButton from "./components/ReviewButton/ReviewButton.js";
 
 // Access the license key that webpack DefinePlugin has injected
 Formio.license = process.env.FORMIO_PREMIUM_LICENSE;
-Formio.use(premium);
 Formio.use([
+  premium,
   {
     components: {
       rating: Rating,
