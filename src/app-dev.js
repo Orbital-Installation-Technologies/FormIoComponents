@@ -1,6 +1,5 @@
 import "./patchAllComponents.js";
 import { Formio } from '@formio/js';
-import premium from '@formio/premium';
 
 import Rating from "./components/Rating/Rating.js";
 import BarcodeScanner from "./components/BarcodeScanner/BarcodeScanner.js";
@@ -9,7 +8,6 @@ import ReviewButton from "./components/ReviewButton/ReviewButton.js";
 
 // Access the license key that webpack DefinePlugin has injected
 Formio.license = process.env.FORMIO_PREMIUM_LICENSE;
-Formio.use(premium);
 Formio.use([
   {
     components: {
