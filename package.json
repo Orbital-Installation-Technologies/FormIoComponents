@@ -10,7 +10,6 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "dotenv-webpack": "^8.1.1",
     "eslint": "^8.57.1",
     "eslint-config-airbnb-base": "^15.0.0",
     "html-webpack-plugin": "^5.6.3",
@@ -21,10 +20,9 @@
     "webpack-dev-server": "^5.1.0"
   },
   "dependencies": {
-    "@formio/js": "^5.1.2",
-    "@formio/premium": "^3.0.6",
+    "@formio/js": "^5.0.1",
     "@scandit/web-datacapture-barcode": "^7.4.0",
     "@scandit/web-datacapture-core": "^7.4.0",
-    "dotenv": "^16.6.1"
+    "dotenv": "^16.4.5"
   }
 }
