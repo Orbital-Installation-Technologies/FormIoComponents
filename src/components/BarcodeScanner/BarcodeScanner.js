@@ -59,8 +59,13 @@ export default class BarcodeScanner extends FieldComponent {
     this._usingBatch = false;
     this._dataCaptureView = null;
     this._drawingPending = false;
-    this._licenseKey = process.env.NEXT_PUBLIC_SCANDIT_KEY
+    // Use env var if available, fallback to hardcoded key, and avoid ReferenceError if process is undefined
+    let envKey;
+    if (typeof process !== 'undefined' && process?.env && process.env.NEXT_PUBLIC_SCANDIT_KEY) {
+      envKey = process?.env?.NEXT_PUBLIC_SCANDIT_KEY;
     }
+    this._licenseKey = envKey || 'undefined'
+  }
 
   init() {
     super.init();
