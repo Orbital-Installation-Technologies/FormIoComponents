@@ -16,15 +16,17 @@ import {
   configure
 } from "@scandit/web-datacapture-core";
 
+const TextField = Components.components.textfield;
+
 const FieldComponent = Components.components.field;
 
 let scanditConfigured = false;
 
-export default class BarcodeScanner extends FieldComponent {
-  static editForm = BarcodeScannerEditForm;
+export default class BarcodeScanner extends TextField {
+
 
   static schema(...extend) {
-    return FieldComponent.schema(
+    return TextField.schema(
       {
         type: "barcode",
         label: "Barcode",
@@ -68,6 +70,7 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   init() {
+    console.log("Initializing BarcodeScanner component ");
     super.init();
   }
 

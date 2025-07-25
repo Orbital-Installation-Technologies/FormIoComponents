@@ -13,10 +13,6 @@ export default function (...extend) {
         components: BarcodeEditDisplay,
       },
       {
-        key: 'conditional',
-        ignore: false,
-      },
-      {
         key: "validation",
         ignore: false,
       },
