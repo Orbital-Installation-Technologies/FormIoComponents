@@ -4,6 +4,8 @@ import BarcodeScanner from "./components/BarcodeScanner/BarcodeScanner";
 import Gps from "./components/Gps/Gps";
 import ReviewButton from "./components/ReviewButton/ReviewButton.js";
 
+Formio.use(premium);
+
 Formio.use([
   {
     components: {

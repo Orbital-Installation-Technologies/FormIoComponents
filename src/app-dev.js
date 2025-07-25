@@ -5,6 +5,8 @@ import BarcodeScanner from "./components/BarcodeScanner/BarcodeScanner.js";
 import Gps from "./components/Gps/Gps.js";
 import ReviewButton from "./components/ReviewButton/ReviewButton.js";
 
+Formio.use(premium);
+
 Formio.use([
   {
     components: {
@@ -16,26 +18,26 @@ Formio.use([
   },
 ]);
 
-Formio.builder(
-  document.getElementById("builder"),
-  {},
-  {
-    sanitizeConfig: {
-      addTags: ["svg", "path"],
-      addAttr: ["d", "viewBox"],
-    },
-  },
-).then(() => {});
+// Formio.builder(
+//   document.getElementById("builder"),
+//   {},
+//   {
+//     sanitizeConfig: {
+//       addTags: ["svg", "path"],
+//       addAttr: ["d", "viewBox"],
+//     },
+//   },
+// ).then(() => {});
 
-Formio.createForm(
-  document.getElementById("formio"),
-  {
-    components: [Gps.schema(), Rating.schema(), BarcodeScanner.schema(), ReviewButton.schema()],
-  },
-  {
-    sanitizeConfig: {
-      addTags: ["svg", "path"],
-      addAttr: ["d", "viewBox"],
-    },
-  },
-);
+// Formio.createForm(
+//   document.getElementById("formio"),
+//   {
+//     components: [Gps.schema(), Rating.schema(), BarcodeScanner.schema(), ReviewButton.schema()],
+//   },
+//   {
+//     sanitizeConfig: {
+//       addTags: ["svg", "path"],
+//       addAttr: ["d", "viewBox"],
+//     },
+//   },
+// );
