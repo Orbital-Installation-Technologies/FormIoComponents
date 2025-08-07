@@ -27,10 +27,6 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-      - name: Remove Form.io imports
-        run: sed -i.bak '/import { Components } from "@formio/js";/d' ./src/components/**/*.js
-        run: sed -i.bak '/import { Formio } from "formiojs";/d' ./src/components/**/*.js
-
       - name: Build Webpack Bundle
         run: webpack --config ./webpack.prod.cjs --env buildNumber=${{github.run_number }}
 
