@@ -1,12 +1,10 @@
 import { Components } from "@formio/js";
 import ratingEditForm from "./Rating.form.js";
 
-const FieldComponent = Components.components.field;
-
-const Field = Formio.Components.components.field;
+const Field = Components.components.field;
 
 export default class Rating extends Field {
-  static editForm = editForm
+  static editForm = ratingEditForm
 
   static schema(...extend) {
     return Field.schema({
