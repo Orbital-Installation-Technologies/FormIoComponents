@@ -1,21 +1,16 @@
 import { Components } from "@formio/js";
 import RatingEditDisplay from "./Rating.edit.display.js";
-export default function (...extend) {
-  return Components.baseEditForm(
-    [
+const baseEditForm = Formio.Components.baseEditForm
+
+export default function (...extend){
+  return baseEditForm([
       {
-        key: "data",
-        ignore: true,
+          key: 'display',
+          components: RatingEditDisplay
       },
       {
-        key: "display",
-        components: RatingEditDisplay,
-      },
-      {
-        key: "validation",
-        ignore: true,
-      },
-    ],
-    ...extend,
-  );
+          key: 'layout',
+          ignore: true
+      }
+  ], ... extend)
 }
