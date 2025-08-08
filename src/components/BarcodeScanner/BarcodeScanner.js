@@ -22,15 +22,19 @@ const FieldComponent = Components.components.field;
 
 let scanditConfigured = false;
 
-export default class BarcodeScanner extends TextField {
+export default class BarcodeScanner extends FieldComponent {
 
 
   static schema(...extend) {
-    return TextField.schema(
+    return FieldComponent.schema(
       {
         type: "barcode",
         label: "Barcode",
         key: "",
+        icon: "barcode",
+        iconSize: '2rem',
+        color: 'blue',
+        numberOfIcons: 1,
       },
       ...extend,
     );
@@ -220,9 +224,6 @@ export default class BarcodeScanner extends TextField {
     return attached;
   }
 
-  detach() {
-    return super.detach();
-  }
 
   // processImageFile removed
 
