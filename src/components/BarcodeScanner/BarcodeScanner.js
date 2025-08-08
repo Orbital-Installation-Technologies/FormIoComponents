@@ -1207,10 +1207,13 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   setValue(value, flags = {}) {
-    super.setValue(value, flags);
-    if (this.refs.barcode) {
-      this.refs.barcode.value = value || "";
-    }
+    const changed = super.setValue(value);
+    this.redraw();
+    return changed;
+  }
+
+  get defaultSchema() {
+    return BarcodeScanner.schema();
   }
 
   // _fileToImageData removed
