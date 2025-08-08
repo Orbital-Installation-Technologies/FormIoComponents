@@ -11,11 +11,7 @@ export default function (...extend) {
       {
         key: "display",
         components: BarcodeEditDisplay,
-      },
-      {
-        key: "validation",
-        ignore: false,
-      },
+      }
     ],
     ...extend,
   );
