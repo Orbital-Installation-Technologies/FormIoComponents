@@ -38,17 +38,8 @@ export default class Gps extends FieldComponent {
   }
 
   conditionallyHidden(data) {
-    if (!this.component.customConditional) return false;
-
-    try {
-      return !this.evaluate(this.component.customConditional, {
-        ...this.data,
-        ...data
-      }, this.data);
-    } catch (e) {
-      console.warn('Conditional logic error:', e);
-      return false;
-    }
+    console.log("data", data)
+    return data
   }
 
   get inputInfo() {
