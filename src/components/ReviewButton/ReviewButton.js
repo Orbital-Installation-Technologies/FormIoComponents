@@ -40,24 +40,7 @@ export default class ReviewButton extends FieldComponent {
       window.location.reload();
     });
   }
-
-  conditionallyHidden(data) {
-    if (!this.component.customConditional) return false;
-    try {
-      return !this.evaluate(
-        this.component.customConditional,
-        {
-          ...this.data,
-          ...data,
-        },
-        this.data,
-      );
-    } catch (e) {
-      console.warn("Conditional logic error:", e);
-      return false;
-    }
-  }
-
+  
   render() {
     return super.render(
       `<button ref="button" type="button" class="btn btn-primary" style="width: 100% !important;">${this.component.label}</button>`,

@@ -5,12 +5,12 @@ export default function (...extend) {
   return Components.baseEditForm(
     [
       {
-        key: "data",
-        ignore: true,
-      },
-      {
         key: "display",
         components: BarcodeEditDisplay,
+      },
+      {
+          key: 'layout',
+          ignore: true
       }
     ],
     ...extend,

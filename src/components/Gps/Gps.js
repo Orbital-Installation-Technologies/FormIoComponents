@@ -37,11 +37,6 @@ export default class Gps extends FieldComponent {
     super.init();
   }
 
-  conditionallyHidden(data) {
-    console.log("data", data)
-    return data
-  }
-
   get inputInfo() {
     return super.inputInfo;
   }
