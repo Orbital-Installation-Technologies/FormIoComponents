@@ -4,17 +4,13 @@ export default function (...extend) {
   return Components.baseEditForm(
     [
       {
-        key: "data",
-        ignore: true,
-      },
-      {
         key: "display",
         components: ReviewButtonEditDisplay,
       },
       {
-        key: "validation",
-        ignore: false,
-      },
+          key: 'layout',
+          ignore: true
+      }
     ],
     ...extend,
   );

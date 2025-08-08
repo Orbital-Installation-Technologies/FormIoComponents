@@ -78,24 +78,6 @@ export default class BarcodeScanner extends FieldComponent {
     super.init();
   }
 
-  conditionallyHidden(data) {
-    if (!this.component.customConditional) return false;
-
-    try {
-      return !this.evaluate(
-        this.component.customConditional,
-
-        {
-          ...this.data,
-          ...data,
-        },
-        this.data,
-      );
-    } catch (e) {
-      console.warn("Conditional logic error:", e);
-      return false;
-    }
-  }
 
   render() {
     const cameraSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="16" height="16" fill="currentColor">
