@@ -293,9 +293,12 @@ export default class BarcodeScanner extends FieldComponent {
       if (!this._dataCaptureContext) {
         await this._initializeScandit();
       }
-      await this._setupCamera();
+      if (this._dataCaptureContext) {
+        await this._setupCamera();
+      }
     } catch (error) {
       this.errorMessage = "Failed to initialize scanner";
+      console.error(this.errorMessage, error);
     }
   }
 
@@ -342,101 +345,105 @@ export default class BarcodeScanner extends FieldComponent {
 
   async _initializeScandit() {
     try {
-      if (!scanditConfigured) {
-        await configure({
-          licenseKey: this._licenseKey,
-          libraryLocation: "https://cdn.jsdelivr.net/npm/@scandit/web-datacapture-barcode@7.4.0/sdc-lib/",
-          moduleLoaders: [barcodeCaptureLoader()]
-        });
-        scanditConfigured = true;
-      }
-
-      this._dataCaptureContext = await DataCaptureContext.create();
-
-      // Use BarcodeBatchSettings for multi-barcode scanning
-      let settings = new BarcodeBatchSettings();
-      const allSymbologies = [
-        Symbology.Code128, Symbology.Code39, Symbology.Code93, Symbology.Code11, Symbology.Codabar,
-        Symbology.EAN13UPCA, Symbology.EAN8, Symbology.UPCE, Symbology.ITF, Symbology.MSIPlessey,
-        Symbology.QR, Symbology.DataMatrix, Symbology.PDF417, Symbology.Aztec, Symbology.MaxiCode,
-        Symbology.KIX, Symbology.RM4SCC, Symbology.GS1Databar, Symbology.GS1DatabarExpanded,
-        Symbology.GS1DatabarLimited, Symbology.MicroPDF417, Symbology.MicroQR, Symbology.DotCode,
-        Symbology.ArUco, Symbology.Code25, Symbology.Code32, Symbology.Pharmacode, Symbology.TwoDigitAddOn,
-        Symbology.FiveDigitAddOn, Symbology.Matrix2of5, Symbology.IATA2of5, Symbology.Industrial2of5
-      ];
-      const availableSymbologies = allSymbologies.filter(sym => sym !== undefined);
-      settings.enableSymbologies(availableSymbologies);
-
-      settings.codeDuplicateFilter = 0;
-
-      if (settings.locationSelection) {
-        settings.locationSelection = null;
-      }
-
-      if (typeof settings.maxNumberOfCodesPerFrame !== 'undefined') {
-        settings.maxNumberOfCodesPerFrame = 10;
-      }
-
-      if (typeof settings.batterySaving !== 'undefined') {
-        settings.batterySaving = false;
-      }
-
-      this._configureAdvancedSymbologySettings(settings);
-
-      if (!this._dataCaptureContext) {
-        throw new Error("DataCaptureContext is null - cannot create BarcodeCapture");
-      }
-
-      // Create BarcodeBatch for multi-barcode scanning
-      this._barcodeBatch = await BarcodeBatch.forContext(this._dataCaptureContext, settings);
-      await this._barcodeBatch.setEnabled(true);
-      this._usingBatch = true;
-
-      // Listen for tracked barcodes
-      this._trackedBarcodes = {};
-      this._barcodeBatch.addListener({
-        didUpdateSession: (barcodeBatchMode, session) => {
-          this._trackedBarcodes = session.trackedBarcodes || {};
-          // Always update the tracked barcodes for the animation loop
-          const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
-          this._currentBarcodes = barcodes;
-          // Force a redraw immediately to ensure overlays appear as soon as barcodes are detected
-          this._drawBoundingBoxes(this._currentBarcodes);
+        if (!scanditConfigured) {
+            await configure({
+                licenseKey: this._licenseKey,
+                libraryLocation: "https://cdn.jsdelivr.net/npm/@scandit/web-datacapture-barcode@7.4.0/sdc-lib/",
+                moduleLoaders: [barcodeCaptureLoader()]
+            });
+            scanditConfigured = true;
         }
-      });
 
-      this._dataCaptureView = await DataCaptureView.forContext(this._dataCaptureContext);
-      this._dataCaptureView.connectToElement(this.refs.scanditContainer);
+        this._dataCaptureContext = await DataCaptureContext.create();
+        console.log("DataCaptureContext initialized:", this._dataCaptureContext);
 
-      // Add batch overlay for visual feedback, but hide default blue boxes with CSS
-      await BarcodeBatchBasicOverlay.withBarcodeBatchForViewWithStyle(
-        this._barcodeBatch,
-        this._dataCaptureView,
-        BarcodeBatchBasicOverlayStyle.Frame // Use Frame for real-time tracking
-      );
-      // Inject CSS to hide Scandit blue overlay frames
-      if (!document.getElementById('hide-scandit-blue-frames')) {
-        const style = document.createElement('style');
-        style.id = 'hide-scandit-blue-frames';
-        style.textContent = `
-          .scandit-barcode-batch-basic-overlay-frame,
-          .scandit-barcode-batch-basic-overlay-frame * {
-            opacity: 0 !important;
-            pointer-events: none !important;
-          }
-        `;
-        document.head.appendChild(style);
-      }
+        // Use BarcodeBatchSettings for multi-barcode scanning
+        let settings = new BarcodeBatchSettings();
+        const allSymbologies = [
+            Symbology.Code128, Symbology.Code39, Symbology.Code93, Symbology.Code11, Symbology.Codabar,
+            Symbology.EAN13UPCA, Symbology.EAN8, Symbology.UPCE, Symbology.ITF, Symbology.MSIPlessey,
+            Symbology.QR, Symbology.DataMatrix, Symbology.PDF417, Symbology.Aztec, Symbology.MaxiCode,
+            Symbology.KIX, Symbology.RM4SCC, Symbology.GS1Databar, Symbology.GS1DatabarExpanded,
+            Symbology.GS1DatabarLimited, Symbology.MicroPDF417, Symbology.MicroQR, Symbology.DotCode,
+            Symbology.ArUco, Symbology.Code25, Symbology.Code32, Symbology.Pharmacode, Symbology.TwoDigitAddOn,
+            Symbology.FiveDigitAddOn, Symbology.Matrix2of5, Symbology.IATA2of5, Symbology.Industrial2of5
+        ];
+        const availableSymbologies = allSymbologies.filter(sym => sym !== undefined);
+        settings.enableSymbologies(availableSymbologies);
 
-      this._configureCameraView();
-      this._createBoundingBoxOverlay();
-      this._startLiveScanningMode();
+        settings.codeDuplicateFilter = 0;
 
-      // Start the animation frame loop for overlays after everything is initialized
-      this._currentBarcodes = [];
-      this._drawBoundingBoxes(this._currentBarcodes);
+        if (settings.locationSelection) {
+            settings.locationSelection = null;
+        }
+
+        if (typeof settings.maxNumberOfCodesPerFrame !== 'undefined') {
+            settings.maxNumberOfCodesPerFrame = 10;
+        }
+
+        if (typeof settings.batterySaving !== 'undefined') {
+            settings.batterySaving = false;
+        }
+
+        this._configureAdvancedSymbologySettings(settings);
+
+        if (!this._dataCaptureContext) {
+            throw new Error("DataCaptureContext is null - cannot create BarcodeCapture");
+        }
+
+        // Create BarcodeBatch for multi-barcode scanning
+        this._barcodeBatch = await BarcodeBatch.forContext(this._dataCaptureContext, settings);
+        console.log("BarcodeBatch initialized:", this._barcodeBatch);
+
+        await this._barcodeBatch.setEnabled(true);
+        this._usingBatch = true;
+
+        // Listen for tracked barcodes
+        this._trackedBarcodes = {};
+        this._barcodeBatch.addListener({
+            didUpdateSession: (barcodeBatchMode, session) => {
+                this._trackedBarcodes = session.trackedBarcodes || {};
+                // Always update the tracked barcodes for the animation loop
+                const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
+                this._currentBarcodes = barcodes;
+                // Force a redraw immediately to ensure overlays appear as soon as barcodes are detected
+                this._drawBoundingBoxes(this._currentBarcodes);
+            }
+        });
+
+        this._dataCaptureView = await DataCaptureView.forContext(this._dataCaptureContext);
+        this._dataCaptureView.connectToElement(this.refs.scanditContainer);
+
+        // Add batch overlay for visual feedback, but hide default blue boxes with CSS
+        await BarcodeBatchBasicOverlay.withBarcodeBatchForViewWithStyle(
+            this._barcodeBatch,
+            this._dataCaptureView,
+            BarcodeBatchBasicOverlayStyle.Frame // Use Frame for real-time tracking
+        );
+        // Inject CSS to hide Scandit blue overlay frames
+        if (!document.getElementById('hide-scandit-blue-frames')) {
+            const style = document.createElement('style');
+            style.id = 'hide-scandit-blue-frames';
+            style.textContent = `
+                .scandit-barcode-batch-basic-overlay-frame,
+                .scandit-barcode-batch-basic-overlay-frame * {
+                    opacity: 0 !important;
+                    pointer-events: none !important;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        this._configureCameraView();
+        this._createBoundingBoxOverlay();
+        this._startLiveScanningMode();
+
+        // Start the animation frame loop for overlays after everything is initialized
+        this._currentBarcodes = [];
+        this._drawBoundingBoxes(this._currentBarcodes);
     } catch (error) {
-      this.errorMessage = "Failed to initialize barcode scanner";
+        this.errorMessage = "Failed to initialize barcode scanner";
+        console.error(this.errorMessage, error);
     }
   }
 
@@ -462,46 +469,54 @@ export default class BarcodeScanner extends FieldComponent {
       if (!this._dataCaptureContext) {
         await this._initializeScandit();
       }
-      await this._setupCamera();
+      if (this._dataCaptureContext) {
+        await this._setupCamera();
+      }
     } catch (error) {
       this.errorMessage = "Failed to initialize scanner";
+      console.error(this.errorMessage, error);
     }
   }
 
   async _setupCamera() {
     try {
-      // Use BarcodeBatch recommended settings for multi-barcode scanning
-      const cameraSettings = BarcodeBatch.recommendedCameraSettings;
+        // Use BarcodeBatch recommended settings for multi-barcode scanning
+        const cameraSettings = BarcodeBatch.recommendedCameraSettings;
 
-      this._camera = Camera.default;
-      if (this._camera) {
-        await this._camera.applySettings(cameraSettings);
-        await this._dataCaptureContext.setFrameSource(this._camera);
-        await this._camera.switchToDesiredState(FrameSourceState.On);
+        this._camera = Camera.default;
 
-        if (this._barcodeBatch) {
-          await this._barcodeBatch.setEnabled(true);
+        if (this._camera) {
+            await this._camera.applySettings(cameraSettings);
+
+            await this._dataCaptureContext.setFrameSource(this._camera);
+
+            await this._camera.switchToDesiredState(FrameSourceState.On);
+
+            if (this._barcodeBatch) {
+                await this._barcodeBatch.setEnabled(true);
+            } else {
+                const errorMsg = this._initializationError
+                    ? `BarcodeBatch initialization failed: ${this._initializationError.message}`
+                    : "BarcodeBatch instance is null";
+                throw new Error(errorMsg);
+            }
         } else {
-          const errorMsg = this._initializationError
-            ? `BarcodeBatch initialization failed: ${this._initializationError.message}`
-            : "BarcodeBatch instance is null";
-          throw new Error(errorMsg);
+            this.errorMessage = "No camera available";
+            console.error(this.errorMessage);
         }
-      } else {
-        this.errorMessage = "No camera available";
-      }
     } catch (error) {
-      this.errorMessage = `Failed to access camera`;
-      this.refs.scanditContainer.innerHTML = `
-        <div style="
-          color: white;
-          text-align: center;
-          padding: 20px;
-          font-size: 1rem;
-        ">
-          🚫 Camera failed to start:<br>
-          ${error.name || error.message}
-        </div>`;
+        this.errorMessage = `Failed to access camera`;
+        console.error(this.errorMessage, error);
+        this.refs.scanditContainer.innerHTML = `
+            <div style="
+                color: white;
+                text-align: center;
+                padding: 20px;
+                font-size: 1rem;
+            ">
+                🚫 Camera failed to start:<br>
+                ${error.name || error.message}
+            </div>`;
     }
   }
 
