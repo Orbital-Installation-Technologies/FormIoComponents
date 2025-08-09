@@ -1,16 +1,12 @@
 import { Components } from "@formio/js";
 import editForm from "./ReviewButton.form";
 
-// Add an immediate console log to verify the file is loaded
-console.log("ReviewButton component file loaded");
-
 const FieldComponent = Components.components.field;
 
 export default class ReviewButton extends FieldComponent {
   static editForm = editForm;
 
   static schema(...extend) {
-    console.log("ReviewButton schema method called");
     return FieldComponent.schema(
       {
         type: "reviewbutton",
@@ -35,29 +31,10 @@ export default class ReviewButton extends FieldComponent {
 
   constructor(component, options, data) {
     super(component, options, data);
-    // Add console log with alert to ensure we see it
-    console.log("ReviewButton constructor called");
-    try {
-      // Create a temporary alert to confirm the component is being instantiated
-      // Comment this out after debugging
-      setTimeout(() => {
-        if (typeof window !== 'undefined' && window.alert) {
-          window.alert("ReviewButton component initialized");
-        }
-      }, 1000);
-    } catch (e) {
-      console.error("Alert error:", e);
-    }
   }
 
   init() {
     super.init();
-    console.log("ReviewButton init called");
-    try {
-      console.error("REVIEWBUTTON INIT: This should appear in console even in production");
-    } catch (e) {
-      console.error("Error in init:", e);
-    }
     this.root.on("submitDone", () => {
       window.location.reload();
     });
@@ -70,16 +47,12 @@ export default class ReviewButton extends FieldComponent {
   }
 
   attach(element) {
-    console.log("ReviewButton attach called");
-    console.error("REVIEWBUTTON ATTACH: This should appear in console even in production");
     this.loadRefs(element, { button: "single" });
 
     this.addEventListener(this.refs.button, "click", async () => {
-      console.error("REVIEWBUTTON BUTTON CLICKED");
       
       // Force a redraw and wait a moment for any pending updates to be applied
       try {
-        console.log("Forcing form redraw before retrieving data...");
         this.root.redraw();
         
         // Small delay to ensure all components are updated
@@ -92,13 +65,9 @@ export default class ReviewButton extends FieldComponent {
         );
         
         if (hardwareComponents.length > 0) {
-          console.error("Found hardware components:", hardwareComponents.map(c => c.component.key));
-          
           // Process each hardware component first
           for (const hardware of hardwareComponents) {
             try {
-              console.error(`Processing hardware component: ${hardware.component.key}`);
-              
               // Force update the datagrid itself
               if (hardware.updateValue) {
                 hardware.updateValue();
@@ -106,29 +75,16 @@ export default class ReviewButton extends FieldComponent {
               
               // Make sure all rows are updated
               if (hardware.rows) {
-                console.error(`Processing ${hardware.rows.length} rows in ${hardware.component.key}`);
-                
                 hardware.rows.forEach((row, idx) => {
                   Object.values(row).forEach(component => {
                     if (component && component.updateValue) {
                       component.updateValue();
-                      
-                      // Log all hardware field values to debug
-                      const hardwareFields = ['hardwareProduct', 'snCtrl', 'imeiCtrl', 'camViewCtrl', 'cableCtrl'];
-                      if (hardwareFields.includes(component.component.key)) {
-                        console.error(`Hardware field ${component.component.key} in row ${idx}: ${component.getValue()}`);
-                      }
                     }
                   });
                 });
               }
-              
-              // Extra check - can we access the raw data?
-              if (hardware.dataValue && Array.isArray(hardware.dataValue)) {
-                console.error(`Direct hardware data: ${JSON.stringify(hardware.dataValue)}`);
-              }
             } catch (e) {
-              console.error(`Error processing hardware component: ${e}`);
+              // Silent error handling
             }
           }
         }
@@ -139,17 +95,16 @@ export default class ReviewButton extends FieldComponent {
             try {
               comp.updateValue();
             } catch (e) {
-              console.error(`Error updating value for component ${comp.component?.key || 'unknown'}:`, e);
+              // Silent error handling
             }
           }
         });
       } catch (e) {
-        console.error("Error during pre-modal refresh:", e);
+        // Silent error handling
       }
       
       // Get the latest data after refresh
       const allData = this.root.getValue();
-      console.log("alldata (after refresh):", allData);
       const noShow = allData?.data?.noShow;
       const supportNumber = allData?.data?.billingCustomer || "Unavailable";
 
@@ -161,20 +116,8 @@ export default class ReviewButton extends FieldComponent {
         return;
       }
 
-      // Debug the components to see what's available
-      console.error("All components:", this.root?.components?.map(comp => ({
-        key: comp.component.key,
-        type: comp.component.type,
-        label: comp.component.label,
-        reviewVisible: comp.component.reviewVisible,
-        visible: comp.visible
-      })));
-
       const visibleFields = this.root?.components?.filter(
         (comp) => {
-          // Debug filter criteria for each component
-          console.error(`Component ${comp.component.key || 'unknown'}: reviewVisible=${comp.component.reviewVisible}, visible=${comp.visible}, type=${comp.component.type}`);
-          
           // Include component if reviewVisible is true OR if it contains data we want to show
           return (
             // Original criteria - explicitly marked as reviewVisible
@@ -195,11 +138,6 @@ export default class ReviewButton extends FieldComponent {
         ['datagrid', 'container', 'fieldset', 'editgrid', 'nested'].includes(comp.component.type) && 
         comp.visible !== false
       );
-      
-      console.error("Special components found:", specialComponents.map(c => ({
-        key: c.component.key,
-        type: c.component.type
-      })));
       
       // Force these components to refresh their values
       specialComponents.forEach(comp => {
@@ -225,7 +163,7 @@ export default class ReviewButton extends FieldComponent {
             visibleFields.push(comp);
           }
         } catch (e) {
-          console.error(`Error refreshing component ${comp.component?.key || 'unknown'}:`, e);
+          // Silent error handling
         }
       });
       
@@ -234,31 +172,16 @@ export default class ReviewButton extends FieldComponent {
           const key = comp.component.key;
           const label = comp.component.label || key;
           const value = comp.getValue();
-          // Enhanced debugging for component processing
-          console.error("ReviewButton - processing component:", {
-            key,
-            type: comp.component.type,
-            hasValue: value !== undefined && value !== null,
-            valueType: value !== null ? typeof value : 'null',
-            isArray: Array.isArray(value),
-            arrayLength: Array.isArray(value) ? value.length : 'n/a',
-            value: value
-          });
 
             if (Array.isArray(value)) {
-              console.error(`Processing array for ${label} with ${value.length} items:`, value);
-              
               // Special handling for hardware lists - ensure zero values are included
               const isHardwareList = label.includes('Hardware') || key === 'hardwareList';
               if (isHardwareList) {
-                console.error("Processing HARDWARE LIST component - special handling for zero values");
                 
                 // For hardware lists, check if we need to add missing items with zero values
                 try {
                   // Access the raw data directly from the component
                   if (comp.dataValue && Array.isArray(comp.dataValue)) {
-                    console.error("Found raw dataValue in hardware list:", comp.dataValue);
-                    
                     // Ensure the raw data has proper representation
                     value = comp.dataValue.map((item, idx) => {
                       // For hardware fields, ensure zero values are preserved
@@ -267,8 +190,6 @@ export default class ReviewButton extends FieldComponent {
                       
                       // Check if this is an item with empty form data - happens in second item
                       if (item.form && item.form.data && Object.keys(item.form.data).length === 0) {
-                        console.error(`Item ${idx} has empty form data - adding default zero values`);
-                        
                         // Add default zero values for hardware fields
                         hardwareFields.forEach(field => {
                           if (field !== 'hardwareProduct') { // Don't add hardwareProduct as 0
@@ -280,25 +201,20 @@ export default class ReviewButton extends FieldComponent {
                       // Also handle regular zero values
                       hardwareFields.forEach(field => {
                         if (item[field] === 0) {
-                          console.error(`Ensuring zero value for ${field} in item ${idx} is preserved`);
                           enhancedItem[field] = 0; // Ensure 0 is preserved
                         }
                       });
                       
                       return enhancedItem;
                     });
-                    
-                    console.error("Enhanced hardware list value:", value);
                   }
                 } catch (e) {
-                  console.error("Error processing hardware list data:", e);
+                  // Silent error handling
                 }
               }
               
               // Special handling for datagrid/container-like components
               if (['datagrid', 'container', 'fieldset', 'editgrid', 'nested'].includes(comp.component.type)) {
-                console.error(`Processing special component type ${comp.component.type}: ${label}`);
-                
                 // Ensure we have the most current data
                 if (comp.updateValue && typeof comp.updateValue === 'function') {
                   try {
@@ -307,10 +223,9 @@ export default class ReviewButton extends FieldComponent {
                     const refreshedValue = comp.getValue();
                     if (refreshedValue && Array.isArray(refreshedValue) && refreshedValue.length > 0) {
                       value = refreshedValue;
-                      console.error(`Updated value for ${label}:`, value);
                     }
                   } catch (e) {
-                    console.error(`Error updating value for ${label}:`, e);
+                    // Silent error handling
                   }
                 }
               }            return `
@@ -320,11 +235,9 @@ export default class ReviewButton extends FieldComponent {
         .map((item, index) => {
           // Prefer direct item data
           let row = item.data || item.form?.data || item;
-          console.error(`Processing item ${index} in ${label}:`, row);
           
           // Check if row is empty (common in second items of hardware lists)
           if (row && Object.keys(row).length === 0) {
-            console.error(`Empty row data found for item ${index} - handling special case`);
             // Check if we need to add default hardware control values
             const hardwareFields = ['hardwareProduct', 'snCtrl', 'imeiCtrl', 'camViewCtrl', 'cableCtrl'];
             
@@ -334,15 +247,12 @@ export default class ReviewButton extends FieldComponent {
                 row[field] = 0; // Add default value of 0 for all controls in empty items
               }
             });
-            
-            console.error(`Enhanced empty row for item ${index}:`, row);
           }
           
           // Try to find the corresponding component for this row if possible
           let rowComponent;
           if (comp.rows && comp.rows[index]) {
             rowComponent = comp.rows[index];
-            console.error(`Found row component for item ${index}:`, rowComponent);
             
             // If we have a row component, ensure we get the freshest data
             if (rowComponent) {
@@ -368,7 +278,6 @@ export default class ReviewButton extends FieldComponent {
                     // For hardware fields, explicitly get 0 values too
                     const hardwareFields = ['snCtrl', 'imeiCtrl', 'camViewCtrl', 'cableCtrl'];
                     if (hardwareFields.includes(component.component.key) && value === 0) {
-                      console.error(`Explicitly adding zero value for ${component.component.key}`);
                       freshRow[component.component.key] = 0;
                     }
                   }
@@ -376,7 +285,6 @@ export default class ReviewButton extends FieldComponent {
                 
                 // For datagrids, also try to access the raw data directly
                 if (comp.component.type === 'datagrid' && comp.dataValue && Array.isArray(comp.dataValue) && comp.dataValue[index]) {
-                  console.error(`Direct dataValue for item ${index}:`, comp.dataValue[index]);
                   // Extract hardware fields with special handling for zero values
                   const directRow = comp.dataValue[index];
                   const hardwareFields = ['hardwareProduct', 'snCtrl', 'imeiCtrl', 'camViewCtrl', 'cableCtrl'];
@@ -387,12 +295,10 @@ export default class ReviewButton extends FieldComponent {
                                          Object.keys(directRow.form.data).length === 0;
                                           
                   if (hasEmptyFormData) {
-                    console.error(`Item ${index} has empty form data - adding default zero values for hardware controls`);
                     // For empty form data, add default zero values for hardware controls
                     hardwareFields.forEach(field => {
                       if (field !== 'hardwareProduct') { // Don't set hardwareProduct to 0
                         freshRow[field] = 0;
-                        console.error(`Added default zero value for ${field} in empty form`);
                       }
                     });
                   }
@@ -401,12 +307,10 @@ export default class ReviewButton extends FieldComponent {
                   hardwareFields.forEach(field => {
                     // If the field exists in the direct data, add it
                     if (directRow[field] !== undefined) {
-                      console.error(`Found direct value for ${field}:`, directRow[field]);
                       freshRow[field] = directRow[field];
                     }
                     // Also check nested form data
                     else if (directRow.form?.data?.[field] !== undefined) {
-                      console.error(`Found nested form value for ${field}:`, directRow.form.data[field]);
                       freshRow[field] = directRow.form.data[field];
                     }
                   });
@@ -414,11 +318,10 @@ export default class ReviewButton extends FieldComponent {
                 
                 // Merge the fresh data with the original row
                 if (Object.keys(freshRow).length > 0) {
-                  console.error(`Fresh row data for item ${index}:`, freshRow);
                   row = { ...row, ...freshRow };
                 }
               } catch (e) {
-                console.error(`Error getting fresh row data for item ${index}:`, e);
+                // Silent error handling
               }
             }
           }
@@ -428,9 +331,6 @@ export default class ReviewButton extends FieldComponent {
             
           // Regular expression to identify internal/helper keys
           const INTERNAL_KEY_RE = /(DataSource|isDataSource|_raw|_meta|Controls)$/i;
-
-          // Log all available keys in the row for debugging
-          console.error(`Available keys in item ${index} of ${label}:`, Object.keys(row));
           
           const filteredEntries = Object.entries(row).filter(([nestedKey, nestedValue]) => {
             // Skip internal/datasource fields
@@ -440,7 +340,6 @@ export default class ReviewButton extends FieldComponent {
             // We want to show these even if they're 0
             const hardwareFields = ['hardwareProduct', 'snCtrl', 'imeiCtrl', 'camViewCtrl', 'cableCtrl'];
             if (hardwareFields.includes(nestedKey)) {
-              console.error(`Found hardware field ${nestedKey} with value:`, nestedValue);
               // Even if the value is null or undefined, we'll show it for these specific fields
               // This ensures hardware fields always appear in the review
               return true;
@@ -468,9 +367,6 @@ export default class ReviewButton extends FieldComponent {
             // We'll handle arrays, but skip likely image fields
             return nestedType !== "image" && !likelyImageByName;
           });
-          
-          // Debug the filtered entries
-          console.error(`Filtered entries for item ${index} of ${label}:`, filteredEntries);
 
           // Function to recursively process nested objects - for array items
           const renderNestedValue = (value, depth = 0) => {
@@ -547,7 +443,6 @@ export default class ReviewButton extends FieldComponent {
                                        Object.keys(item.form.data).length === 0;
             
             if (isEmptyHardwareItem) {
-              console.error(`Item ${index} appears to be an empty hardware item - adding control fields with zero values`);
               // For empty hardware items, always add the control fields with zero values
               ['snCtrl', 'imeiCtrl', 'camViewCtrl', 'cableCtrl'].forEach(field => {
                 hardwareEntries.push([field, 0]);
@@ -570,7 +465,6 @@ export default class ReviewButton extends FieldComponent {
             
             // If we found hardware fields with 0 values, show them
             if (hardwareEntries.length > 0) {
-              console.error(`Found hardware entries with zero values for item ${index}:`, hardwareEntries);
               return `
                 <li style="margin-bottom: 0.8rem; border-bottom: 1px solid #eee; padding-bottom: 0.5rem;">
                   <div style="font-weight: bold; font-size: 1.05em; margin-bottom: 5px;">Item ${index + 1}</div>
@@ -621,10 +515,6 @@ export default class ReviewButton extends FieldComponent {
           
           // Re-use the renderNestedValue function for top-level values as well
           const renderNestedValue = (value, depth = 0) => {
-            // Debug the value being processed
-            if (depth === 0) {
-              console.error(`Processing value for ${key}:`, value);
-            }
             
             if (value === null || value === undefined || value === "") {
               return "";
