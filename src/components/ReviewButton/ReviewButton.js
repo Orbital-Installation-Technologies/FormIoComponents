@@ -89,21 +89,72 @@ export default class ReviewButton extends FieldComponent {
         return;
       }
 
+      // Debug the components to see what's available
+      console.error("All components:", this.root?.components?.map(comp => ({
+        key: comp.component.key,
+        type: comp.component.type,
+        label: comp.component.label,
+        reviewVisible: comp.component.reviewVisible,
+        visible: comp.visible
+      })));
+
       const visibleFields = this.root?.components?.filter(
-        (comp) =>
-          comp.component.reviewVisible &&
-          comp.visible !== false &&
-          !["button", "hidden", "file", "image"].includes(comp.component.type),
+        (comp) => {
+          // Debug filter criteria for each component
+          console.error(`Component ${comp.component.key || 'unknown'}: reviewVisible=${comp.component.reviewVisible}, visible=${comp.visible}, type=${comp.component.type}`);
+          
+          // Include component if reviewVisible is true OR if it contains data we want to show
+          return (
+            // Original criteria - explicitly marked as reviewVisible
+            (comp.component.reviewVisible &&
+            comp.visible !== false) ||
+            
+            // OR it's a container-like component that might have nested components with data
+            (comp.component.type === 'datagrid' || 
+             comp.component.type === 'container' ||
+             comp.component.type === 'fieldset')
+          );
+        }
       );
 
+      // Find datagrid components specifically, as they need special handling
+      const dataGridComponents = this.root?.components?.filter(comp => 
+        comp.component.type === 'datagrid' && comp.visible !== false
+      );
+      
+      console.error("DataGrid components found:", dataGridComponents.map(c => c.component.key));
+      
+      // Add datagrids to visibleFields if they're not already included
+      dataGridComponents.forEach(dgComp => {
+        if (!visibleFields.includes(dgComp)) {
+          visibleFields.push(dgComp);
+        }
+      });
+      
       const reviewHtml = visibleFields
         .map((comp) => {
           const key = comp.component.key;
           const label = comp.component.label || key;
           const value = comp.getValue();
-          console.log("ReviewButton - processing component:", key, value, comp);
+          // Enhanced debugging for component processing
+          console.error("ReviewButton - processing component:", {
+            key,
+            type: comp.component.type,
+            hasValue: value !== undefined && value !== null,
+            valueType: value !== null ? typeof value : 'null',
+            isArray: Array.isArray(value),
+            arrayLength: Array.isArray(value) ? value.length : 'n/a',
+            value: value
+          });
 
           if (Array.isArray(value)) {
+            console.error(`Processing array for ${label} with ${value.length} items:`, value);
+            
+            // Special handling for datagrid/container-like components
+            if (comp.component.type === 'datagrid') {
+              console.error(`Processing datagrid component: ${label}`);
+            }
+            
             return `
     <div><strong>${label}:</strong></div>
     <ol style="padding-left: 1.5rem;">
@@ -111,6 +162,7 @@ export default class ReviewButton extends FieldComponent {
         .map((item, index) => {
           // Prefer direct item data
           const row = item.data || item.form?.data || item;
+          console.error(`Processing item ${index} in ${label}:`, row);
           
           const itemComponents =
             comp?.components?.[index]?.components || comp.component.components || [];
@@ -118,11 +170,19 @@ export default class ReviewButton extends FieldComponent {
           // Regular expression to identify internal/helper keys
           const INTERNAL_KEY_RE = /(DataSource|isDataSource|_raw|_meta|Controls)$/i;
 
+          // Log all available keys in the row for debugging
+          console.error(`Available keys in item ${index} of ${label}:`, Object.keys(row));
+          
           const filteredEntries = Object.entries(row).filter(([nestedKey, nestedValue]) => {
             // Skip internal/datasource fields
             if (INTERNAL_KEY_RE.test(nestedKey)) return false;
             
-            // Skip null/empty values but allow 0 and false
+            // Don't filter out zeros - they're valid values (e.g. "snCtrl: 0")
+            if (nestedValue === 0 || nestedValue === false) {
+              return true;
+            }
+            
+            // Skip null/empty values
             if (nestedValue === null || nestedValue === undefined || 
                 (typeof nestedValue === 'string' && nestedValue === "")) return false;
             
@@ -139,6 +199,9 @@ export default class ReviewButton extends FieldComponent {
             // We'll handle arrays, but skip likely image fields
             return nestedType !== "image" && !likelyImageByName;
           });
+          
+          // Debug the filtered entries
+          console.error(`Filtered entries for item ${index} of ${label}:`, filteredEntries);
 
           // Function to recursively process nested objects - for array items
           const renderNestedValue = (value, depth = 0) => {
@@ -237,6 +300,11 @@ export default class ReviewButton extends FieldComponent {
           
           // Re-use the renderNestedValue function for top-level values as well
           const renderNestedValue = (value, depth = 0) => {
+            // Debug the value being processed
+            if (depth === 0) {
+              console.error(`Processing value for ${key}:`, value);
+            }
+            
             if (value === null || value === undefined || value === "") {
               return "";
             }
