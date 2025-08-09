@@ -1,12 +1,16 @@
 import { Components } from "@formio/js";
 import editForm from "./ReviewButton.form";
 
+// Add an immediate console log to verify the file is loaded
+console.log("ReviewButton component file loaded");
+
 const FieldComponent = Components.components.field;
 
 export default class ReviewButton extends FieldComponent {
   static editForm = editForm;
 
   static schema(...extend) {
+    console.log("ReviewButton schema method called");
     return FieldComponent.schema(
       {
         type: "reviewbutton",
@@ -31,11 +35,29 @@ export default class ReviewButton extends FieldComponent {
 
   constructor(component, options, data) {
     super(component, options, data);
+    // Add console log with alert to ensure we see it
+    console.log("ReviewButton constructor called");
+    try {
+      // Create a temporary alert to confirm the component is being instantiated
+      // Comment this out after debugging
+      setTimeout(() => {
+        if (typeof window !== 'undefined' && window.alert) {
+          window.alert("ReviewButton component initialized");
+        }
+      }, 1000);
+    } catch (e) {
+      console.error("Alert error:", e);
+    }
   }
 
   init() {
     super.init();
-
+    console.log("ReviewButton init called");
+    try {
+      console.error("REVIEWBUTTON INIT: This should appear in console even in production");
+    } catch (e) {
+      console.error("Error in init:", e);
+    }
     this.root.on("submitDone", () => {
       window.location.reload();
     });
@@ -48,10 +70,14 @@ export default class ReviewButton extends FieldComponent {
   }
 
   attach(element) {
+    console.log("ReviewButton attach called");
+    console.error("REVIEWBUTTON ATTACH: This should appear in console even in production");
     this.loadRefs(element, { button: "single" });
 
     this.addEventListener(this.refs.button, "click", () => {
+      console.error("REVIEWBUTTON BUTTON CLICKED");
       const allData = this.root.getValue();
+      console.log("alldata", allData)
       const noShow = allData?.data?.noShow;
       const supportNumber = allData?.data?.billingCustomer || "Unavailable";
 
@@ -75,6 +101,7 @@ export default class ReviewButton extends FieldComponent {
           const key = comp.component.key;
           const label = comp.component.label || key;
           const value = comp.getValue();
+          console.log("ReviewButton - processing component:", key, value, comp);
 
           if (Array.isArray(value)) {
             return `
@@ -82,12 +109,23 @@ export default class ReviewButton extends FieldComponent {
     <ol style="padding-left: 1.5rem;">
       ${value
         .map((item, index) => {
-          const itemData = item.form?.data || {};
+          // Prefer direct item data
+          const row = item.data || item.form?.data || item;
+          
           const itemComponents =
             comp?.components?.[index]?.components || comp.component.components || [];
+            
+          // Regular expression to identify internal/helper keys
+          const INTERNAL_KEY_RE = /(DataSource|isDataSource|_raw|_meta|Controls)$/i;
 
-          const filteredEntries = Object.entries(itemData).filter(([nestedKey, nestedValue]) => {
-            if (nestedValue === null || nestedValue === "") return false;
+          const filteredEntries = Object.entries(row).filter(([nestedKey, nestedValue]) => {
+            // Skip internal/datasource fields
+            if (INTERNAL_KEY_RE.test(nestedKey)) return false;
+            
+            // Skip null/empty values but allow 0 and false
+            if (nestedValue === null || nestedValue === undefined || 
+                (typeof nestedValue === 'string' && nestedValue === "")) return false;
+            
             const nestedComponent = itemComponents.find(
               (c) => c.component?.key === nestedKey || c.key === nestedKey,
             );
@@ -97,22 +135,93 @@ export default class ReviewButton extends FieldComponent {
 
             const likelyImageByName =
               keyLower.includes("pic") || keyLower.includes("photo") || keyLower.includes("image");
-            const isArray = Array.isArray(nestedValue);
-
-            return nestedType !== "image" && !likelyImageByName && !isArray;
+              
+            // We'll handle arrays, but skip likely image fields
+            return nestedType !== "image" && !likelyImageByName;
           });
 
-          if (filteredEntries.length === 0) return "";
+          // Function to recursively process nested objects - for array items
+          const renderNestedValue = (value, depth = 0) => {
+            if (value === null || value === undefined || value === "") {
+              return "";
+            }
+            
+            // Skip internal objects
+            if (typeof value === 'object' && !Array.isArray(value)) {
+              // Don't traverse into DataSource objects
+              if (Object.keys(value).some(k => INTERNAL_KEY_RE.test(k))) {
+                return "(internal data)";
+              }
+              
+              // Handle object
+              const nestedEntries = Object.entries(value).filter(([key, val]) => {
+                // Skip internal/helper keys
+                if (INTERNAL_KEY_RE.test(key)) return false;
+                return val !== null && val !== undefined || 
+                  (typeof val === 'number' && val === 0) || 
+                  val === false;
+              });
+              
+              if (nestedEntries.length === 0) return "";
+              
+              return nestedEntries.map(([key, val]) => {
+                const renderedValue = renderNestedValue(val, depth + 1);
+                if (!renderedValue && typeof val !== 'number' && val !== false && val !== 0) return "";
+                
+                const displayValue = (typeof val !== 'object' || val === null) ? 
+                  String(val) : renderedValue;
+                  
+                return `
+                  <div style="margin-left: ${depth * 15}px; padding-left: 10px; border-left: 1px dotted #ccc;">
+                    <strong>${key}:</strong> ${displayValue}
+                  </div>`;
+              }).join("");
+            } else if (Array.isArray(value)) {
+              // Handle array of objects
+              if (value.length === 0) return "";
+              
+              if (typeof value[0] === 'object' && value[0] !== null) {
+                return `
+                <div style="margin-left: ${depth * 15}px;">
+                  <ul style="list-style-type: circle; margin-left: ${depth * 10}px; padding-left: 15px;">
+                    ${value.map((item, idx) => `
+                      <li>Item ${idx + 1}:
+                        ${renderNestedValue(item, depth + 1)}
+                      </li>
+                    `).join("")}
+                  </ul>
+                </div>`;
+              } else {
+                // Simple array values
+                return value.join(", ");
+              }
+            } else {
+              // Simple value
+              return String(value);
+            }
+          };
+          
+          // Always show items even if empty (just with default text)
+          if (filteredEntries.length === 0) {
+            return `
+              <li style="margin-bottom: 0.8rem; border-bottom: 1px solid #eee; padding-bottom: 0.5rem;">
+                <div style="font-weight: bold; font-size: 1.05em; margin-bottom: 5px;">Item ${index + 1}</div>
+                <div style="padding-left: 15px;"><em>No detailed information available</em></div>
+              </li>
+            `;
+          }
 
           return `
-            <li style="margin-bottom: 0.5rem;">
-              <div><strong>Item ${index + 1}:</strong></div>
-              ${filteredEntries
-                .map(
-                  ([nestedKey, nestedValue]) =>
-                    `<div><strong>${nestedKey}:</strong> ${nestedValue}</div>`,
-                )
-                .join("")}
+            <li style="margin-bottom: 0.8rem; border-bottom: 1px solid #eee; padding-bottom: 0.5rem;">
+              <div style="font-weight: bold; font-size: 1.05em; margin-bottom: 5px;">Item ${index + 1}</div>
+              <div style="padding-left: 15px;">
+                ${filteredEntries
+                  .map(
+                    ([nestedKey, nestedValue]) =>
+                      `<div style="margin-bottom: 4px;"><strong>${nestedKey}:</strong> ${renderNestedValue(nestedValue)}</div>`
+                  )
+                  .join("")}
+              </div>
             </li>
           `;
         })
@@ -122,7 +231,72 @@ export default class ReviewButton extends FieldComponent {
           }
 
           if (value === null || value === "") return "";
-          return `<div><strong>${label}:</strong> ${value}</div>`;
+          
+          // Regular expression to identify internal/helper keys for top-level objects
+          const INTERNAL_KEY_RE = /(DataSource|isDataSource|_raw|_meta|Controls)$/i;
+          
+          // Re-use the renderNestedValue function for top-level values as well
+          const renderNestedValue = (value, depth = 0) => {
+            if (value === null || value === undefined || value === "") {
+              return "";
+            }
+            
+            if (typeof value === 'object' && !Array.isArray(value)) {
+              // Don't traverse into DataSource objects
+              if (Object.keys(value).some(k => INTERNAL_KEY_RE.test(k))) {
+                return "(internal data)";
+              }
+              
+              // Handle object
+              const nestedEntries = Object.entries(value).filter(([key, val]) => {
+                // Skip internal/helper keys
+                if (INTERNAL_KEY_RE.test(key)) return false;
+                return val !== null && val !== undefined || 
+                  (typeof val === 'number' && val === 0) || 
+                  val === false;
+              });
+              
+              if (nestedEntries.length === 0) return "";
+              
+              return nestedEntries.map(([key, val]) => {
+                const renderedValue = renderNestedValue(val, depth + 1);
+                // Allow zero values and boolean false values to display
+                if (!renderedValue && typeof val !== 'number' && val !== false && val !== 0) return "";
+                
+                const displayValue = (typeof val !== 'object' || val === null) ? 
+                  String(val) : renderedValue;
+                  
+                return `
+                  <div style="margin-left: ${depth * 15}px; padding-left: 10px; border-left: 1px dotted #ccc;">
+                    <strong>${key}:</strong> ${displayValue}
+                  </div>`;
+              }).join("");
+            } else if (Array.isArray(value)) {
+              // Handle array of objects
+              if (value.length === 0) return "";
+              
+              if (typeof value[0] === 'object' && value[0] !== null) {
+                return `
+                <div style="margin-left: ${depth * 15}px;">
+                  <ul style="list-style-type: circle; margin-left: ${depth * 10}px; padding-left: 15px;">
+                    ${value.map((item, idx) => `
+                      <li>Item ${idx + 1}:
+                        ${renderNestedValue(item, depth + 1)}
+                      </li>
+                    `).join("")}
+                  </ul>
+                </div>`;
+              } else {
+                // Simple array values
+                return value.join(", ");
+              }
+            } else {
+              // Simple value
+              return String(value);
+            }
+          };
+          
+          return `<div><strong>${label}:</strong> ${renderNestedValue(value)}</div>`;
         })
         .join("");
 
