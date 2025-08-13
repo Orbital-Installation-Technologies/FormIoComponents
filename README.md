@@ -59,14 +59,15 @@ npm --version
    npm run dev
    ```
      Testing along side local **Form renderer**
+     First Change this package's Version in the package.json File
    ```bash
-   npx webpack --config webpack.prod.cjs --mode production
    npm pack
    ```
     Copy the full path of the ```formiocomponents-x.x.x.tgz``` file\
     Then inside of the form Renderer
    ```bash
    npm i [full path of .tgz file]
+   npm run dev
    ```
 
 ---
