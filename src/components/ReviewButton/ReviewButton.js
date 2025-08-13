@@ -376,9 +376,21 @@ export default class ReviewButton extends FieldComponent {
             
             // Skip internal objects
             if (typeof value === 'object' && !Array.isArray(value)) {
-              // Don't traverse into DataSource objects
+              // Don't traverse into DataSource objects, find the root key/value instead
               if (Object.keys(value).some(k => INTERNAL_KEY_RE.test(k))) {
-                return "(internal data)";
+                // Find all non-internal keys and values - display each one
+                const rootKeys = Object.keys(value).filter(k => !INTERNAL_KEY_RE.test(k));
+                if (rootKeys.length > 0) {
+                  // Display each root key and value on a new line with proper indentation
+                  return rootKeys.map(key => {
+                    const val = value[key];
+                    return `
+                    <div style="margin-left: ${depth * 15}px; padding-left: 10px;">
+                      <strong>${key}:</strong> ${String(val)}
+                    </div>`;
+                  }).join("");
+                }
+                return "No data available";
               }
               
               // Handle object
@@ -521,9 +533,21 @@ export default class ReviewButton extends FieldComponent {
             }
             
             if (typeof value === 'object' && !Array.isArray(value)) {
-              // Don't traverse into DataSource objects
+              // Don't traverse into DataSource objects, find the root key/value instead
               if (Object.keys(value).some(k => INTERNAL_KEY_RE.test(k))) {
-                return "(internal data)";
+                // Find all non-internal keys and values - display each one
+                const rootKeys = Object.keys(value).filter(k => !INTERNAL_KEY_RE.test(k));
+                if (rootKeys.length > 0) {
+                  // Display each root key and value on a new line with proper indentation
+                  return rootKeys.map(key => {
+                    const val = value[key];
+                    return `
+                    <div style="margin-left: ${depth * 15}px; padding-left: 10px;">
+                      <strong>${key}:</strong> ${String(val)}
+                    </div>`;
+                  }).join("");
+                }
+                return "No data available";
               }
               
               // Handle object
