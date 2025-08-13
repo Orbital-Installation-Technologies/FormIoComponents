@@ -174,44 +174,6 @@ export default class ReviewButton extends FieldComponent {
           const value = comp.getValue();
 
             if (Array.isArray(value)) {
-              // Special handling for hardware lists - ensure zero values are included
-              const isHardwareList = label.includes('Hardware') || key === 'hardwareList';
-              if (isHardwareList) {
-                
-                // For hardware lists, check if we need to add missing items with zero values
-                try {
-                  // Access the raw data directly from the component
-                  if (comp.dataValue && Array.isArray(comp.dataValue)) {
-                    // Ensure the raw data has proper representation
-                    value = comp.dataValue.map((item, idx) => {
-                      // For hardware fields, ensure zero values are preserved
-                      const hardwareFields = ['hardwareProduct', 'snCtrl', 'imeiCtrl', 'camViewCtrl', 'cableCtrl'];
-                      const enhancedItem = {...item};
-                      
-                      // Check if this is an item with empty form data - happens in second item
-                      if (item.form && item.form.data && Object.keys(item.form.data).length === 0) {
-                        // Add default zero values for hardware fields
-                        hardwareFields.forEach(field => {
-                          if (field !== 'hardwareProduct') { // Don't add hardwareProduct as 0
-                            enhancedItem[field] = 0; // Assume 0 for all controls when empty
-                          }
-                        });
-                      }
-                      
-                      // Also handle regular zero values
-                      hardwareFields.forEach(field => {
-                        if (item[field] === 0) {
-                          enhancedItem[field] = 0; // Ensure 0 is preserved
-                        }
-                      });
-                      
-                      return enhancedItem;
-                    });
-                  }
-                } catch (e) {
-                  // Silent error handling
-                }
-              }
               
               // Special handling for datagrid/container-like components
               if (['datagrid', 'container', 'fieldset', 'editgrid', 'nested'].includes(comp.component.type)) {
@@ -229,7 +191,7 @@ export default class ReviewButton extends FieldComponent {
                   }
                 }
               }            return `
-    <div><strong>${label}:</strong></div>
+    <div><strong>1${label}:</strong></div>
     <ol style="padding-left: 1.5rem;">
       ${value
         .map((item, index) => {
@@ -386,7 +348,7 @@ export default class ReviewButton extends FieldComponent {
                     const val = value[key];
                     return `
                     <div style="margin-left: ${depth * 15}px; padding-left: 10px;">
-                      <strong>${key}:</strong> ${String(val)}
+                      <strong>2${key}:</strong> ${String(val)}
                     </div>`;
                   }).join("");
                 }
@@ -413,7 +375,7 @@ export default class ReviewButton extends FieldComponent {
                   
                 return `
                   <div style="margin-left: ${depth * 15}px; padding-left: 10px; border-left: 1px dotted #ccc;">
-                    <strong>${key}:</strong> ${displayValue}
+                    <strong>3${key}:</strong> ${displayValue}
                   </div>`;
               }).join("");
             } else if (Array.isArray(value)) {
@@ -484,7 +446,7 @@ export default class ReviewButton extends FieldComponent {
                     ${hardwareEntries
                       .map(
                         ([nestedKey, nestedValue]) =>
-                          `<div style="margin-bottom: 4px;"><strong>${nestedKey}:</strong> ${nestedValue}</div>`
+                          `<div style="margin-bottom: 4px;"><strong>4${nestedKey}:</strong> ${nestedValue}</div>`
                       )
                       .join("")}
                   </div>
@@ -508,7 +470,7 @@ export default class ReviewButton extends FieldComponent {
                 ${filteredEntries
                   .map(
                     ([nestedKey, nestedValue]) =>
-                      `<div style="margin-bottom: 4px;"><strong>${nestedKey}:</strong> ${renderNestedValue(nestedValue)}</div>`
+                      `<div style="margin-bottom: 4px;"><strong>5${nestedKey}:</strong> ${renderNestedValue(nestedValue)}</div>`
                   )
                   .join("")}
               </div>
@@ -543,7 +505,7 @@ export default class ReviewButton extends FieldComponent {
                     const val = value[key];
                     return `
                     <div style="margin-left: ${depth * 15}px; padding-left: 10px;">
-                      <strong>${key}:</strong> ${String(val)}
+                      <strong>6${key}:</strong> ${String(val)}
                     </div>`;
                   }).join("");
                 }
@@ -571,7 +533,7 @@ export default class ReviewButton extends FieldComponent {
                   
                 return `
                   <div style="margin-left: ${depth * 15}px; padding-left: 10px; border-left: 1px dotted #ccc;">
-                    <strong>${key}:</strong> ${displayValue}
+                    <strong>7${key}:</strong> ${displayValue}
                   </div>`;
               }).join("");
             } else if (Array.isArray(value)) {
@@ -599,7 +561,7 @@ export default class ReviewButton extends FieldComponent {
             }
           };
           
-          return `<div><strong>${label}:</strong> ${renderNestedValue(value)}</div>`;
+          return `<div><strong>8${label}:</strong> ${renderNestedValue(value)}</div>`;
         })
         .join("");
 
