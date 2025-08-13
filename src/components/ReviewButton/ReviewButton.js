@@ -99,34 +99,26 @@ export default class ReviewButton extends FieldComponent {
       }
 
 
-      // --- Collect ONLY reviewVisible leaf instances + container labels (incl. Nested Form title)
+
+      // Collect reviewVisible leaves and container labels
       async function collectReviewLeavesAndLabels(root) {
         if (root.ready) await root.ready;
-
         const leaves = [];
-        const labelByPath = new Map();     // container path -> display label
-        const suppressLabelForKey = new Set(['dataGrid']); // never show these container keys
-
+        const labelByPath = new Map();
+        const suppressLabelForKey = new Set(['dataGrid']);
         const queue = [];
         const enqueueAll = (f) => f.everyComponent && f.everyComponent((c) => queue.push(c));
         enqueueAll(root);
-
         while (queue.length) {
           const comp = queue.shift();
           if (!comp) continue;
-
-          // store container labels (used when rendering tree)
-          // NOTE: for Nested Form ("form" type) use the child form title when available
           if (comp.type === 'form') {
-            // wait child form
             if (comp.subFormReady) await comp.subFormReady;
             if (comp.subForm) enqueueAll(comp.subForm);
             const title = comp.formObj?.title || comp.component?.label || comp.key || 'Form';
             labelByPath.set(comp.path, title);
             continue;
           }
-
-          // DataGrid rows → enqueue row children; record a label for the grid path (kept but suppressed when rendering)
           if (comp.component?.type === 'datagrid' && comp.rows) {
             labelByPath.set(comp.path, comp.component?.label || comp.key || 'List');
             comp.rows.forEach((row, rIdx) => {
@@ -139,8 +131,6 @@ export default class ReviewButton extends FieldComponent {
             });
             continue;
           }
-
-          // EditGrid
           if (comp.component?.type === 'editgrid' && comp.editRows?.length) {
             labelByPath.set(comp.path, comp.component?.label || comp.key || 'Items');
             comp.editRows.forEach((r, rIdx) => (r.components || []).forEach(ch => {
@@ -149,15 +139,11 @@ export default class ReviewButton extends FieldComponent {
             }));
             continue;
           }
-
-          // Generic containers
           if (Array.isArray(comp.components) && comp.components.length) {
             labelByPath.set(comp.path, comp.component?.label || comp.key || '');
             comp.components.forEach(ch => queue.push(ch));
             continue;
           }
-
-          // Leaf fields: include only explicitly reviewVisible AND currently visible
           if (comp.component?.reviewVisible === true && comp.visible !== false) {
             leaves.push({
               comp,
@@ -167,58 +153,42 @@ export default class ReviewButton extends FieldComponent {
             });
           }
         }
-
         return { leaves, labelByPath, suppressLabelForKey };
       }
 
-      // --- Build readable HTML tree using labels; replace "form" with real title; hide "dataGrid" label.
+      // Build readable HTML tree using labels
       function renderLeaves(leaves, labelByPath, suppressLabelForKey) {
-        // Build a tree from paths like "form.dataGrid[0].field"
         const root = {};
         const ensureNode = (obj, k) => (obj[k] ??= { __children: {}, __rows: {}, __label: null, __suppress: false });
-
-        // Helper: set container label on node if we know the path → label mapping
         function setNodeLabelForPath(node, containerPath) {
           if (!node.__label && labelByPath.has(containerPath)) node.__label = labelByPath.get(containerPath);
         }
-
         for (const { path, label, value } of leaves) {
           const parts = path.replace(/\.data\./g, '.').split('.');
           let ptr = root;
           let containerPath = '';
-
           for (let i = 0; i < parts.length; i++) {
             const seg = parts[i];
             const idxMatch = seg.match(/\[(\d+)\]/);
             const key = seg.replace(/\[\d+\]/g, '');
-
-            // advance containerPath (exactly matches component.path prefixes)
             containerPath = containerPath ? `${containerPath}.${key}` : key;
-
-            // create/get node for this segment
             const node = ensureNode(ptr, key);
-
-            // label + suppression
             if (suppressLabelForKey.has(key)) node.__suppress = true;
             setNodeLabelForPath(node, containerPath);
-
             if (idxMatch) {
               const idx = Number(idxMatch[1]);
               node.__rows[idx] ??= { __children: {} };
               ptr = node.__rows[idx].__children;
             } else if (i === parts.length - 1) {
-              // final (leaf)
               ptr[key] = { __leaf: true, __label: label, __value: value };
             } else {
               ptr = node.__children;
             }
           }
         }
-
         const renderNode = (node, depth = 0) => {
           const pad = `margin-left:${depth * 15}px; padding-left:10px; border-left:1px dotted #ccc;`;
           return Object.entries(node).map(([k, v]) => {
-            // leaf
             if (v && v.__leaf) {
               const val = Array.isArray(v.__value) ? v.__value.join(', ')
                        : v.__value === false ? 'No'
@@ -226,19 +196,13 @@ export default class ReviewButton extends FieldComponent {
                        : (v.__value ?? '');
               return `<div style="${pad}"><strong>${v.__label || k}:</strong> ${String(val)}</div>`;
             }
-
-            // container
             if (v && typeof v === 'object') {
               const hasChildren = v.__children && Object.keys(v.__children).length;
               const hasRows = v.__rows && Object.keys(v.__rows).length;
-
-              // choose display label
               const displayLabel = v.__suppress ? '' : (v.__label || (k === 'form' ? '' : k));
-
               const header = displayLabel
                 ? `<div style="${pad}"><strong>${displayLabel}:</strong>`
                 : `<div style="${pad}">`;
-
               const childrenHtml = [
                 hasRows
                   ? `<ul style="list-style-type:circle; padding-left:15px; margin:0;">${
@@ -249,13 +213,11 @@ export default class ReviewButton extends FieldComponent {
                   : '',
                 hasChildren ? renderNode(v.__children, depth + 1) : ''
               ].join('');
-
               return `${header}${childrenHtml}</div>`;
             }
             return '';
           }).join('');
         };
-
         return renderNode(root, 0);
       }
 
