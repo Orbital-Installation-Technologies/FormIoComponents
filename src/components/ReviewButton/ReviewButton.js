@@ -98,145 +98,175 @@ export default class ReviewButton extends FieldComponent {
         // Silent error handling
       }
 
-      // Utility to find all reviewVisible & visible components recursively
-      async function findReviewVisibleComponents(webformOrComp) {
-        const results = [];
-        const enqueue = (c) => queue.push(c);
-        const startForm = webformOrComp.subForm ? webformOrComp.subForm : webformOrComp;
-        if (startForm.ready) await startForm.ready;
+
+      // --- Collect ONLY reviewVisible leaf instances + container labels (incl. Nested Form title)
+      async function collectReviewLeavesAndLabels(root) {
+        if (root.ready) await root.ready;
+
+        const leaves = [];
+        const labelByPath = new Map();     // container path -> display label
+        const suppressLabelForKey = new Set(['dataGrid']); // never show these container keys
+
         const queue = [];
-        startForm.everyComponent(enqueue);
+        const enqueueAll = (f) => f.everyComponent && f.everyComponent((c) => queue.push(c));
+        enqueueAll(root);
+
         while (queue.length) {
           const comp = queue.shift();
-          if (comp?.component?.reviewVisible === true && comp.visible !== false) {
-            results.push(comp);
-          }
+          if (!comp) continue;
+
+          // store container labels (used when rendering tree)
+          // NOTE: for Nested Form ("form" type) use the child form title when available
           if (comp.type === 'form') {
+            // wait child form
             if (comp.subFormReady) await comp.subFormReady;
-            if (comp.subForm) {
-              comp.subForm.everyComponent(enqueue);
-            }
+            if (comp.subForm) enqueueAll(comp.subForm);
+            const title = comp.formObj?.title || comp.component?.label || comp.key || 'Form';
+            labelByPath.set(comp.path, title);
+            continue;
           }
+
+          // DataGrid rows → enqueue row children; record a label for the grid path (kept but suppressed when rendering)
           if (comp.component?.type === 'datagrid' && comp.rows) {
-            comp.rows.forEach(row => {
-              Object.values(row).forEach(child => child && enqueue(child));
+            labelByPath.set(comp.path, comp.component?.label || comp.key || 'List');
+            comp.rows.forEach((row, rIdx) => {
+              Object.values(row).forEach(child => {
+                if (child) {
+                  child.__reviewPath = `${comp.path}[${rIdx}].${child.path?.slice(comp.path.length + 1) || child.key}`;
+                  queue.push(child);
+                }
+              });
+            });
+            continue;
+          }
+
+          // EditGrid
+          if (comp.component?.type === 'editgrid' && comp.editRows?.length) {
+            labelByPath.set(comp.path, comp.component?.label || comp.key || 'Items');
+            comp.editRows.forEach((r, rIdx) => (r.components || []).forEach(ch => {
+              ch.__reviewPath = `${comp.path}[${rIdx}].${ch.path?.slice(comp.path.length + 1) || ch.key}`;
+              queue.push(ch);
+            }));
+            continue;
+          }
+
+          // Generic containers
+          if (Array.isArray(comp.components) && comp.components.length) {
+            labelByPath.set(comp.path, comp.component?.label || comp.key || '');
+            comp.components.forEach(ch => queue.push(ch));
+            continue;
+          }
+
+          // Leaf fields: include only explicitly reviewVisible AND currently visible
+          if (comp.component?.reviewVisible === true && comp.visible !== false) {
+            leaves.push({
+              comp,
+              path: comp.__reviewPath || comp.path || comp.key,
+              label: comp.component?.label || comp.key,
+              value: ('getValue' in comp) ? comp.getValue() : comp.dataValue
             });
           }
-          if (comp.component?.type === 'editgrid' && comp.editRows?.length) {
-            comp.editRows.forEach(r => (r.components || []).forEach(enqueue));
-          }
-          if (Array.isArray(comp.components) && comp.components.length) {
-            comp.components.forEach(enqueue);
+        }
+
+        return { leaves, labelByPath, suppressLabelForKey };
+      }
+
+      // --- Build readable HTML tree using labels; replace "form" with real title; hide "dataGrid" label.
+      function renderLeaves(leaves, labelByPath, suppressLabelForKey) {
+        // Build a tree from paths like "form.dataGrid[0].field"
+        const root = {};
+        const ensureNode = (obj, k) => (obj[k] ??= { __children: {}, __rows: {}, __label: null, __suppress: false });
+
+        // Helper: set container label on node if we know the path → label mapping
+        function setNodeLabelForPath(node, containerPath) {
+          if (!node.__label && labelByPath.has(containerPath)) node.__label = labelByPath.get(containerPath);
+        }
+
+        for (const { path, label, value } of leaves) {
+          const parts = path.replace(/\.data\./g, '.').split('.');
+          let ptr = root;
+          let containerPath = '';
+
+          for (let i = 0; i < parts.length; i++) {
+            const seg = parts[i];
+            const idxMatch = seg.match(/\[(\d+)\]/);
+            const key = seg.replace(/\[\d+\]/g, '');
+
+            // advance containerPath (exactly matches component.path prefixes)
+            containerPath = containerPath ? `${containerPath}.${key}` : key;
+
+            // create/get node for this segment
+            const node = ensureNode(ptr, key);
+
+            // label + suppression
+            if (suppressLabelForKey.has(key)) node.__suppress = true;
+            setNodeLabelForPath(node, containerPath);
+
+            if (idxMatch) {
+              const idx = Number(idxMatch[1]);
+              node.__rows[idx] ??= { __children: {} };
+              ptr = node.__rows[idx].__children;
+            } else if (i === parts.length - 1) {
+              // final (leaf)
+              ptr[key] = { __leaf: true, __label: label, __value: value };
+            } else {
+              ptr = node.__children;
+            }
           }
         }
-        return results;
+
+        const renderNode = (node, depth = 0) => {
+          const pad = `margin-left:${depth * 15}px; padding-left:10px; border-left:1px dotted #ccc;`;
+          return Object.entries(node).map(([k, v]) => {
+            // leaf
+            if (v && v.__leaf) {
+              const val = Array.isArray(v.__value) ? v.__value.join(', ')
+                       : v.__value === false ? 'No'
+                       : v.__value === true  ? 'Yes'
+                       : (v.__value ?? '');
+              return `<div style="${pad}"><strong>${v.__label || k}:</strong> ${String(val)}</div>`;
+            }
+
+            // container
+            if (v && typeof v === 'object') {
+              const hasChildren = v.__children && Object.keys(v.__children).length;
+              const hasRows = v.__rows && Object.keys(v.__rows).length;
+
+              // choose display label
+              const displayLabel = v.__suppress ? '' : (v.__label || (k === 'form' ? '' : k));
+
+              const header = displayLabel
+                ? `<div style="${pad}"><strong>${displayLabel}:</strong>`
+                : `<div style="${pad}">`;
+
+              const childrenHtml = [
+                hasRows
+                  ? `<ul style="list-style-type:circle; padding-left:15px; margin:0;">${
+                      Object.entries(v.__rows).map(([i, r]) =>
+                        `<li>Item ${Number(i)+1}:${renderNode(r.__children, depth + 1)}</li>`
+                      ).join('')
+                    }</ul>`
+                  : '',
+                hasChildren ? renderNode(v.__children, depth + 1) : ''
+              ].join('');
+
+              return `${header}${childrenHtml}</div>`;
+            }
+            return '';
+          }).join('');
+        };
+
+        return renderNode(root, 0);
       }
+
+
+      // --- USAGE inside your click handler (replace your current leaves/html logic):
+      const { leaves, labelByPath, suppressLabelForKey } = await collectReviewLeavesAndLabels(this.root);
+      const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey);
 
       // Get the latest data after refresh
       const allData = this.root.getValue();
-      const noShow = allData?.data?.noShow;
       const supportNumber = allData?.data?.billingCustomer || "Unavailable";
-
-      if (noShow === "yes") {
-        const confirmed = confirm("Are you sure you want to submit without verification?");
-        if (confirmed) {
-          this.emit("submitButton", { type: "submit" });
-        }
-        return;
-      }
-
-      // Find all reviewVisible & visible components
-      const visibleFields = await findReviewVisibleComponents(this.root);
-      console.log("Reviewable fields:", visibleFields.map(c => ({ key: c.key, type: c.component.type })));
-
-      const reviewHtml = visibleFields
-        .map((comp) => {
-          const key = comp.component.key;
-          const label = comp.component.label || key;
-          const value = comp.getValue();
-          console.log("123123123123 value", value)
-
-
-          if (value === null || value === "") return "";
-
-          // Regular expression to identify internal/helper keys for top-level objects
-          const INTERNAL_KEY_RE = /(DataSource|isDataSource|_raw|_meta|Controls)$/i;
-
-          // Re-use the renderNestedValue function for top-level values as well
-          const renderNestedValue = (value, depth = 0, itemComponents = []) => {
-            if (value === null || value === undefined || value === "") {
-              return "";
-            }
-            if (typeof value === 'object' && !Array.isArray(value)) {
-              if (Object.keys(value).some(k => INTERNAL_KEY_RE.test(k))) {
-                const rootKeys = Object.keys(value).filter(k => !INTERNAL_KEY_RE.test(k));
-                if (rootKeys.length > 0) {
-                  return rootKeys.map(key => {
-                    const val = value[key];
-                    let show = true;
-                    if (itemComponents && Array.isArray(itemComponents)) {
-                      const nestedComponent = itemComponents.find(
-                        c => c.component?.key === key || c.key === key
-                      );
-                      if (nestedComponent) {
-                        show = nestedComponent.component?.reviewVisible === true && nestedComponent.visible !== false;
-                      }
-                      console.log("nestedComponent:", nestedComponent);
-                    }
-                    console.log("itemComponents:", itemComponents);
-                    if (!show) return "";
-                    return `
-                    <div style="margin-left: ${depth * 15}px; padding-left: 10px;">
-                      <strong>6${key}:</strong> ${String(val)}
-                    </div>`;
-                  }).join("");
-                }
-                return "No data available";
-              }
-              const nestedEntries = Object.entries(value).filter(([key, val]) => {
-                if (INTERNAL_KEY_RE.test(key)) return false;
-                return val !== null && val !== undefined || (typeof val === 'number' && val === 0) || val === false;
-              });
-              if (nestedEntries.length === 0) return "";
-              return nestedEntries.map(([key, val]) => {
-                const renderedValue = renderNestedValue(val, depth + 1, itemComponents);
-                if (!renderedValue && typeof val !== 'number' && val !== false && val !== 0) return "";
-                const displayValue = (typeof val !== 'object' || val === null) ? String(val) : renderedValue;
-                if (key == "dataGrid" || key == "data") {
-                  return `
-                  <div style="margin-left: 0; padding-left: 0; border-left: 1px dotted #ccc;">
-                    ${displayValue}
-                  </div>`;
-                }
-                return `
-                  <div style="margin-left: ${depth * 15}px; padding-left: 10px; border-left: 1px dotted #ccc;">
-                    <strong>7${key}:</strong> ${displayValue}
-                  </div>`;
-              }).join("");
-            } else if (Array.isArray(value)) {
-              if (value.length === 0) return "";
-              if (typeof value[0] === 'object' && value[0] !== null) {
-                return `
-                <div style="margin-left: ${depth * 15}px;">
-                  <ul style="list-style-type: circle; margin-left: ${depth * 10}px; padding-left: 15px;">
-                    ${value.map((item, idx) => `
-                      <li>Item ${idx + 1}:
-                        ${renderNestedValue(item, depth + 1, itemComponents)}
-                      </li>
-                    `).join("")}
-                  </ul>
-                </div>`;
-              } else {
-                return value.join(", ");
-              }
-            } else {
-              return String(value);
-            }
-          };
-
-          return `<div><strong>8${label}:</strong> ${renderNestedValue(value)}</div>`;
-        })
-        .join("");
 
       const modal = document.createElement("div");
       modal.style.zIndex = "1000";
