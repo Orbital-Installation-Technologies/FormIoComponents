@@ -530,6 +530,13 @@ export default class ReviewButton extends FieldComponent {
                 
                 const displayValue = (typeof val !== 'object' || val === null) ? 
                   String(val) : renderedValue;
+
+                if(key == "dataGrid" || key == "data") {
+                  return `
+                  <div style="margin-left: 0; padding-left: 0; border-left: 1px dotted #ccc;">
+                    ${displayValue}
+                  </div>`;
+                }
                   
                 return `
                   <div style="margin-left: ${depth * 15}px; padding-left: 10px; border-left: 1px dotted #ccc;">
