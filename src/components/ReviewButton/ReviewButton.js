@@ -355,16 +355,16 @@ export default class ReviewButton extends FieldComponent {
           supportNumber,
         };
 
-        const requireValidation = noShow === "no";
+        // const requireValidation = noShow === "no";
 
-        if (requireValidation) {
-          const isValid = await this.root.checkValidity(this.root.getValue().data, true);
-          if (!isValid) {
-            this.root.showErrors();
-            alert("Some fields are invalid. Please fix them before submitting.");
-            return;
-          }
-        }
+        // if (requireValidation) {
+        //   const isValid = await this.root.checkValidity(this.root.getValue().data, true);
+        //   if (!isValid) {
+        //     this.root.showErrors();
+        //     alert("Some fields are invalid. Please fix them before submitting.");
+        //     return;
+        //   }
+        // }
 
         document.body.removeChild(modal);
         this.emit("submitButton", { type: "submit" });
