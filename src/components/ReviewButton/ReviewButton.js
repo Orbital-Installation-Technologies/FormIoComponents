@@ -309,24 +309,53 @@ export default class ReviewButton extends FieldComponent {
 
       document.body.appendChild(modal);
 
-      //Input file component into review modal
+      // ----- FILE COMPONENT WIRING -----
       const screenshotComp = this.root.getComponent("screenshot");
+
+      // helper to restore hidden state
+      const hideScreenshot = () => {
+        if (!screenshotComp) return;
+        screenshotComp.component.hidden = true;
+        if (typeof screenshotComp.setVisible === "function") {
+          screenshotComp.setVisible(false);
+        } else {
+          screenshotComp.visible = false;
+        }
+        // Make sure it disappears from the page again
+        if (typeof this.root.redraw === "function") this.root.redraw();
+      };
+
+      // show it in the modal
       if (screenshotComp) {
+        // remember original flags if you ever want to restore them later
+        this.component._screenshotPrev = {
+          hidden: screenshotComp.component.hidden,
+          visible: screenshotComp.visible,
+        };
+
         screenshotComp.component.hidden = false;
-        screenshotComp.visible = true;
+        if (typeof screenshotComp.setVisible === "function") {
+          screenshotComp.setVisible(true);
+        } else {
+          screenshotComp.visible = true;
+        }
 
         const html = screenshotComp.render();
-
         const tmp = document.createElement("div");
         tmp.innerHTML = html;
         const compEl = tmp.firstElementChild;
-
-        const container = modal.querySelector("#screenshotContainer");
-        container.appendChild(compEl);
-
+        modal.querySelector("#screenshotContainer").appendChild(compEl);
         screenshotComp.attach(compEl);
       }
 
+      // extra safety: if the submit fails validation, re-hide it
+      const onSubmitError = () => {
+        hideScreenshot();
+        this.root.off("submitError", onSubmitError);
+      };
+      this.root.on("submitError", onSubmitError);
+
+      // ----- MODAL WIRING -----
       const verifiedSelect = modal.querySelector("#verified");
       const screenshotWrapper = modal.querySelector("#screenshotWrapper");
       const notesOptionalWrapper = modal.querySelector("#notesOptionalWrapper");
@@ -334,25 +363,16 @@ export default class ReviewButton extends FieldComponent {
 
       verifiedSelect.onchange = () => {
         const value = verifiedSelect.value;
-        screenshotWrapper.style.display = value === "App" || value === "Support" ? "block" : "none";
-        notesOptionalWrapper.style.display =
-          value === "App" || value === "Support" ? "block" : "none";
+        const needShot = value === "App" || value === "Support";
+        screenshotWrapper.style.display = needShot ? "block" : "none";
+        notesOptionalWrapper.style.display = needShot ? "block" : "none";
         notesRequiredWrapper.style.display = value === "Not Verified" ? "block" : "none";
       };
 
       modal.querySelector("#cancelModal").onclick = () => {
-        const screenshotComp = this.root.getComponent("screenshot");
-        if (screenshotComp) {
-          screenshotComp.component.hidden = true;
-          if (typeof screenshotComp.setVisible === "function") {
-            screenshotComp.setVisible(false);
-          } else {
-            screenshotComp.visible = false;
-          }
-          this.root.redraw();
-        }
-
+        hideScreenshot();               // <— re-hide on cancel
         document.body.removeChild(modal);
+        this.root.off("submitError", onSubmitError);
       };
 
       modal.querySelector("#submitModal").onclick = async () => {
@@ -423,7 +443,11 @@ export default class ReviewButton extends FieldComponent {
           supportNumber,
         };
 
+        // IMPORTANT: re-hide before we trigger submit (even if form is invalid)
+        hideScreenshot();                // <— re-hide before submit
         document.body.removeChild(modal);
+        this.root.off("submitError", onSubmitError);
+
         this.emit("submitButton", { type: "submit" });
       };
 
