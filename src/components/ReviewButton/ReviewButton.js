@@ -160,57 +160,89 @@ export default class ReviewButton extends FieldComponent {
       function renderLeaves(leaves, labelByPath, suppressLabelForKey) {
         const root = {};
         const ensureNode = (obj, k) => (obj[k] ??= { __children: {}, __rows: {}, __label: null, __suppress: false });
+
         function setNodeLabelForPath(node, containerPath) {
           if (!node.__label && labelByPath.has(containerPath)) node.__label = labelByPath.get(containerPath);
         }
-        for (const { path, label, value } of leaves) {
+
+        // helper: make values pretty, especially files/images
+        function formatValue(value, comp) {
+          const isFileish =
+            comp?.component?.type === 'file' ||
+            comp?.component?.type === 'image' ||
+            comp?.component?.storage ||               // file component usually has storage set
+            comp?.component?.filePattern;             // sometimes present
+
+          if (Array.isArray(value)) {
+            if (isFileish && value.length && typeof value[0] === 'object') {
+              // Try common name fields from Form.io file objects
+              const names = value.map(v =>
+                v?.originalName || v?.name || v?.fileName || v?.path || '[file]'
+              );
+              return names.join(', ');
+            }
+            return value.join(', ');
+          }
+
+          if (value && typeof value === 'object') {
+            if (isFileish) {
+              return value.originalName || value.name || value.fileName || '[file]';
+            }
+            // fallback so you never see [object Object]
+            try { return JSON.stringify(value); } catch { return String(value); }
+          }
+
+          if (value === false) return 'No';
+          if (value === true) return 'Yes';
+          return value ?? '';
+        }
+
+        for (const { path, label, value, comp } of leaves) {
           const parts = path.replace(/\.data\./g, '.').split('.');
           let ptr = root;
           let containerPath = '';
+
           for (let i = 0; i < parts.length; i++) {
             const seg = parts[i];
             const idxMatch = seg.match(/\[(\d+)\]/);
             const key = seg.replace(/\[\d+\]/g, '');
             containerPath = containerPath ? `${containerPath}.${key}` : key;
+
             const node = ensureNode(ptr, key);
             if (suppressLabelForKey.has(key)) node.__suppress = true;
             setNodeLabelForPath(node, containerPath);
+
             if (idxMatch) {
               const idx = Number(idxMatch[1]);
               node.__rows[idx] ??= { __children: {} };
               ptr = node.__rows[idx].__children;
             } else if (i === parts.length - 1) {
-              ptr[key] = { __leaf: true, __label: label, __value: value };
+              ptr[key] = { __leaf: true, __label: label, __value: value, __comp: comp };
             } else {
               ptr = node.__children;
             }
           }
         }
+
         const renderNode = (node, depth = 0) => {
           const pad = `margin-left:${depth * 15}px; padding-left:10px; border-left:1px dotted #ccc;`;
           return Object.entries(node).map(([k, v]) => {
             if (v && v.__leaf) {
-              const val = Array.isArray(v.__value) ? v.__value.join(', ')
-                       : v.__value === false ? 'No'
-                       : v.__value === true  ? 'Yes'
-                       : (v.__value ?? '');
-              return `<div style="${pad}"><strong>${v.__label || k}:</strong> ${String(val)}</div>`;
+              const val = formatValue(v.__value, v.__comp);
+              return `<div style="${pad}"><strong>${v.__label || k}:</strong> ${val}</div>`;
             }
             if (v && typeof v === 'object') {
               const hasChildren = v.__children && Object.keys(v.__children).length;
               const hasRows = v.__rows && Object.keys(v.__rows).length;
               const displayLabel = v.__suppress ? '' : (v.__label || (k === 'form' ? '' : k));
-              const header = displayLabel
-                ? `<div style="${pad}"><strong>${displayLabel}:</strong>`
-                : `<div style="${pad}">`;
+              const header = displayLabel ? `<div style="${pad}"><strong>${displayLabel}:</strong>` : `<div style="${pad}">`;
               const childrenHtml = [
                 hasRows
                   ? `<ul style="list-style-type:circle; padding-left:15px; margin:0;">${
                       Object.entries(v.__rows).map(([i, r]) =>
                         `<li>Item ${Number(i)+1}:${renderNode(r.__children, depth + 1)}</li>`
                       ).join('')
-                    }</ul>`
-                  : '',
+                    }</ul>` : '',
                 hasChildren ? renderNode(v.__children, depth + 1) : ''
               ].join('');
               return `${header}${childrenHtml}</div>`;
@@ -218,6 +250,7 @@ export default class ReviewButton extends FieldComponent {
             return '';
           }).join('');
         };
+
         return renderNode(root, 0);
       }
 
