@@ -95,6 +95,14 @@ export default class Gps extends FieldComponent {
       gpsButton: "single",
     });
 
+    // Restore value from Formio data model
+    const value = this.getValue();
+    if (this.refs.latitude && this.refs.longitude && value) {
+      const [latitude, longitude] = value.split(",");
+      this.refs.latitude.value = latitude;
+      this.refs.longitude.value = longitude;
+    }
+
     if (!this.component.disabled) {
       if (this.refs.latitude && this.refs.longitude) {
         this.refs.latitude.addEventListener("change", () => {
@@ -122,7 +130,7 @@ export default class Gps extends FieldComponent {
 
   getLocation() {
     if (!navigator.geolocation) {
-      console.log("Geolocation is not supported in this browser.");
+      alert("Geolocation is not supported in this browser.");
       return;
     }
 
@@ -143,7 +151,7 @@ export default class Gps extends FieldComponent {
         this.fetchedInitially = true;
       },
       (error) => {
-        console.error("Geolocation error:", error);
+        alert("Geolocation error: " + error.message);
         this.fetchedInitially = true;
         this.setError("Unable to retrieve location.");
         this.updateState();
@@ -176,33 +184,47 @@ export default class Gps extends FieldComponent {
     return super.destroy();
   }
 
-  normalizeValue(value, flags = {}) {
-    if (typeof value === "string" && value.includes(",")) {
-      return value;
-    }
-    return "";
-  }
-
   getValue() {
     const value = super.getValue();
-    return this.normalizeValue(value);
+    return value;
   }
 
   setValue(value, flags = {}) {
-    const normalizedValue = this.normalizeValue(value);
-    if (this.dataValue !== normalizedValue) {
-      super.setValue(normalizedValue, flags);
-      this.triggerChange();
+    if (this.dataValue !== value) {
+      // Ensure the value is set in Formio's data model
+      super.setValue(value, flags);
+      
+      // Only trigger change if not noUpdateEvent
+      if (!flags.noUpdateEvent) {
+        this.triggerChange();
+      }
     }
-    this.redraw();
+    
+    // Always update input fields even with noUpdateEvent flag
+    if (this.refs && this.refs.latitude && this.refs.longitude) {
+      const [latitude, longitude] = value ? value.split(",") : ["", ""];
+      this.refs.latitude.value = latitude;
+      this.refs.longitude.value = longitude;
+    }
   }
 
   updateValue(value, flags = {}) {
-    const normalizedValue = this.normalizeValue(value);
-    if (this.dataValue !== normalizedValue) {
-      super.updateValue(normalizedValue, flags);
-      this.triggerChange();
+    if (this.dataValue !== value) {
+      // Always ensure modified and touched are set, even with noUpdateEvent
+      const updatedFlags = { 
+        ...flags, 
+        modified: true, 
+        touched: true
+      };
+      super.updateValue(value, updatedFlags);
+      
+      // Only trigger change if not noUpdateEvent
+      if (!flags.noUpdateEvent) {
+        this.triggerChange(updatedFlags);
+      }
     }
+    // Rely on Formio's built-in validation and redraw
+    this.redraw();
   }
 
   get emptyValue(){
