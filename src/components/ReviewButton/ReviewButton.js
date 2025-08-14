@@ -323,12 +323,32 @@ export default class ReviewButton extends FieldComponent {
       };
 
       modal.querySelector("#submitModal").onclick = async () => {
+        // Dynamically check for required modal fields and notify if missing
+        const requiredFields = [
+          { id: "verified", type: "select", label: "Verified" },
+          { id: "notesRequired", type: "textarea", label: "Explain why not verified" },
+          { id: "notesOptional", type: "textarea", label: "Notes (optional)" },
+          { id: "supportNumber", type: "input", label: "Support Number" },
+        ];
+        for (const field of requiredFields) {
+          if (!modal.querySelector(`#${field.id}`)) {
+            alert(`Review page can't find reference to field '${field.label}'. Please add a ${field.type} element with id '${field.id}'.`);
+            return;
+          }
+        }
+
         const verifiedSelectValue = modal.querySelector("#verified").value;
         const notesRequired = modal.querySelector("#notesRequired").value;
         const notesOptional = modal.querySelector("#notesOptional").value;
         const supportNumber = modal.querySelector("#supportNumber").value;
         const screenshotComp = this.root.getComponent("screenshot");
-        const uploadedFiles = screenshotComp.getValue() || [];
+        let uploadedFiles = [];
+        if (screenshotComp) {
+          uploadedFiles = screenshotComp.getValue() || [];
+        } else if (verifiedSelectValue === "App" || verifiedSelectValue === "Support") {
+          alert("Review page can't find reference to file upload screenshotComp. Please add a File Upload component with key 'screenshot'.");
+          return;
+        }
 
         if (verifiedSelectValue === "Not Verified" && !notesRequired.trim()) {
           alert("Please explain why not verified.");
@@ -339,6 +359,21 @@ export default class ReviewButton extends FieldComponent {
           uploadedFiles.length === 0
         ) {
           alert("Screenshot is required for App or Support verification.");
+          return;
+        }
+
+        // Dynamically check for required form components and notify if missing (show all missing at once)
+        const requiredComponents = [
+          { key: "reviewed", type: "hidden/text", label: "Reviewed" },
+          { key: "supportNumber", type: "text", label: "Support Number" },
+          { key: "verifiedSelect", type: "select", label: "Verified" },
+          { key: "notesOptional", type: "textarea", label: "Notes (optional)" },
+          { key: "notesRequired", type: "textarea", label: "Explain why not verified" },
+        ];
+        const missingComponents = requiredComponents.filter(comp => !this.root.getComponent(comp.key));
+        if (missingComponents.length > 0) {
+          const list = missingComponents.map(comp => `- '${comp.label}': Please add a ${comp.type} component with key '${comp.key}'.`).join('\n');
+          alert(`Review page can't find reference to the following form components:\n${list}`);
           return;
         }
 
@@ -354,17 +389,6 @@ export default class ReviewButton extends FieldComponent {
           notesOptional,
           supportNumber,
         };
-
-        // const requireValidation = noShow === "no";
-
-        // if (requireValidation) {
-        //   const isValid = await this.root.checkValidity(this.root.getValue().data, true);
-        //   if (!isValid) {
-        //     this.root.showErrors();
-        //     alert("Some fields are invalid. Please fix them before submitting.");
-        //     return;
-        //   }
-        // }
 
         document.body.removeChild(modal);
         this.emit("submitButton", { type: "submit" });
