@@ -14,7 +14,8 @@ module.exports = (env) => {
       clean: true,
     },
     externals: {
-      "@formio/js": "Formio"
+      "@formio/js": "Formio",
+      "@formio/premium": "premium",
     }
   };
 };
