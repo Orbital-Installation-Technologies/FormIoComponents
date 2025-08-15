@@ -282,7 +282,7 @@ export default class ReviewButton extends FieldComponent {
             <div class="text-sm w-1/2">
               <label class="block font-medium mb-1">Verified</label>
               <select id="verified" class="w-full border rounded p-2 text-sm">
-                <option value="">Select verification type</option>
+                <option value="Empty">Select verification type</option>
                 <option value="App">App</option>
                 <option value="Support">Support</option>
                 <option value="Not Verified">Not Verified</option>
@@ -412,6 +412,10 @@ export default class ReviewButton extends FieldComponent {
           uploadedFiles.length === 0
         ) {
           alert("Screenshot is required for App or Support verification.");
+          return;
+        }
+        if(verifiedSelectValue === "Empty"){
+          alert("Please Select a verifcation option.");
           return;
         }
 
