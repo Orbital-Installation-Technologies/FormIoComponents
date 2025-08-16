@@ -35,9 +35,541 @@ export default class ReviewButton extends FieldComponent {
 
   init() {
     super.init();
+    
+    // Listen for submission completion
     this.root.on("submitDone", () => {
       window.location.reload();
     });
+    
+    // Register all validation methods on the form instance for external use
+    if (this.root) {
+      // Main validation method with detailed results
+      this.root.validateFormExternal = async (options) => {
+        return await this.validateFormExternal(options);
+      };
+      
+      // Quick validity check without UI updates
+      this.root.isFormValid = async () => {
+        return await this.isFormValid();
+      };
+      
+      // Field-specific validation
+      this.root.validateFields = async (fieldKeys, options) => {
+        return await this.validateFields(fieldKeys, options);
+      };
+      
+      // Validation with UI feedback
+      this.root.triggerValidation = async (options) => {
+        return await this.triggerValidation(options);
+      };
+      
+      // Support for event-based validation
+      this.root.on("validateForm", async (callback) => {
+        const results = await this.validateFormExternal();
+        if (typeof callback === "function") {
+          callback(results);
+        }
+        return results;
+      });
+      
+      // Add global variable for easier access from external code
+      if (typeof window !== 'undefined') {
+        window.formValidation = {
+          validate: async (options) => await this.validateFormExternal(options),
+          validateFields: async (fields, options) => await this.validateFields(fields, options),
+          isValid: async () => await this.isFormValid()
+        };
+      }
+    }
+  }
+  
+  /**
+   * Validates all components in the form and displays errors if any
+   * Ensures error highlighting without submission
+   * @returns {Promise<boolean>} True if the form is valid, false otherwise
+   */
+  async validateForm() {
+    try {
+      let isValid = true;
+
+      // Validate each component individually
+      this.root.everyComponent(component => {
+        if (component.checkValidity) {
+          const valid = component.checkValidity(component.data, true);
+          if (!valid) {
+            isValid = false;
+            component.setCustomValidity(component.errors, true);
+          }
+        }
+      });
+
+      // Redraw components to show errors
+      this.root.redraw();
+
+      // Scroll to the first error
+      if (!isValid) {
+        const firstError = this.root.element.querySelector('.formio-error-wrapper, .has-error, .is-invalid');
+        if (firstError) {
+          firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+
+      return isValid;
+    } catch (err) {
+      console.error('Form validation error:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Validate the entire Form.io form and render errors WITHOUT submitting.
+   * Returns true if valid, false otherwise.
+   */
+  async validateFormHard() {
+    try {
+      // 1) Mark everything "dirty" so errors can show.
+      if (this.root?.everyComponent) {
+        this.root.everyComponent((c) => {
+          try {
+            if (typeof c.setPristine === 'function') c.setPristine(false);
+            if (typeof c.setDirty === 'function')   c.setDirty(true);
+          } catch {}
+        });
+      }
+
+      // 2) Check validity with dirty flag (ensures 4.x/5.x show errors).
+      const data = this.root?.submission?.data ?? this.root?.data ?? {};
+      let isValid = true;
+      if (typeof this.root?.checkValidity === 'function') {
+        isValid = this.root.checkValidity(data, /* dirty */ true);
+      }
+
+      // 3) Paint errors (and optional top alert list).
+      if (!isValid && typeof this.root?.showErrors === 'function') {
+        this.root.showErrors(); // shows the alert banner list
+      }
+      if (typeof this.root?.redraw === 'function') {
+        await this.root.redraw();
+      }
+
+      // 4) Make sure nested rows/components render their errors.
+      if (this.root?.everyComponent) {
+        this.root.everyComponent((c) => {
+          try {
+            if (c.component?.type === 'datagrid' && c.rows) {
+              c.rows.forEach((row) => {
+                Object.values(row).forEach((child) => {
+                  if (child?.setPristine) child.setPristine(false);
+                  if (child?.setDirty)    child.setDirty(true);
+                });
+              });
+            }
+          } catch {}
+        });
+      }
+
+      // 5) Scroll to first error.
+      if (!isValid) {
+        const firstError = this.root?.element?.querySelector?.(
+          '.formio-error-wrapper, .has-error, .is-invalid, [data-component-error="true"]'
+        );
+        if (firstError?.scrollIntoView) {
+          firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+
+      return !!isValid;
+    } catch (e) {
+      console.error('validateFormHard error', e);
+      return false;
+    }
+  }
+
+  /**
+   * Validate a specific field or set of fields by key or path
+   * This is useful for validating specific parts of the form without validating everything
+   * 
+   * @param {string|Array<string>} fieldKeys - The key(s) or path(s) of the field(s) to validate
+   * @param {Object} options - Validation options
+   * @param {boolean} options.showErrors - Whether to show errors in the UI
+   * @param {boolean} options.scrollToError - Whether to scroll to the first error
+   * @returns {Promise<Object>} Validation results for the specified fields
+   */
+  async validateFields(fieldKeys, options = {}) {
+    const keys = Array.isArray(fieldKeys) ? fieldKeys : [fieldKeys];
+    const opts = {
+      showErrors: true,
+      scrollToError: true,
+      ...options
+    };
+    
+    try {
+      // Prepare validation results object
+      const results = {
+        isValid: true,
+        fieldResults: {},
+        errors: {},
+        invalidComponents: []
+      };
+      
+      // Find all components matching the keys
+      const componentsToValidate = [];
+      
+      if (this.root?.everyComponent) {
+        this.root.everyComponent((component) => {
+          try {
+            if (keys.includes(component.key) || keys.includes(component.path)) {
+              componentsToValidate.push(component);
+            }
+          } catch {}
+        });
+      }
+      
+      // Validate each component
+      for (const component of componentsToValidate) {
+        const componentKey = component.key || component.path;
+        const componentLabel = component.component?.label || componentKey;
+        const componentPath = component.path || componentKey;
+        
+        // Set dirty flag to show errors
+        if (typeof component.setPristine === 'function') component.setPristine(false);
+        if (typeof component.setDirty === 'function') component.setDirty(true);
+        
+        // Validate component
+        const isValid = component.checkValidity ? component.checkValidity(component.data, true) : true;
+        
+        // Store results
+        results.fieldResults[componentKey] = {
+          isValid,
+          errors: component.errors || [],
+          label: componentLabel,
+          path: componentPath
+        };
+        
+        if (!isValid) {
+          results.isValid = false;
+          results.errors[componentKey] = {
+            label: componentLabel,
+            errors: component.errors || ['Invalid']
+          };
+          results.invalidComponents.push({
+            component,
+            path: componentPath,
+            label: componentLabel
+          });
+          
+          // Show errors in UI if requested
+          if (opts.showErrors && component.setCustomValidity) {
+            component.setCustomValidity(component.errors, true);
+          }
+        }
+      }
+      
+      // Redraw the form if showing errors
+      if (opts.showErrors && typeof this.root?.redraw === 'function') {
+        await this.root.redraw();
+      }
+      
+      // Scroll to first error if needed
+      if (opts.scrollToError && !results.isValid && results.invalidComponents.length > 0) {
+        const firstComponent = results.invalidComponents[0].component;
+        if (firstComponent.element?.scrollIntoView) {
+          firstComponent.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+      
+      return results;
+    } catch (err) {
+      console.error('Field validation error:', err);
+      return {
+        isValid: false,
+        fieldResults: {},
+        errors: { system: { label: 'System', errors: ['Field validation failed'] } },
+        invalidComponents: []
+      };
+    }
+  }
+  
+  /**
+   * Check if the form is valid without showing errors or updating UI
+   * This is useful for conditional logic that depends on form validity
+   * 
+   * @returns {Promise<boolean>} True if the form is valid, false otherwise
+   */
+  async isFormValid() {
+    try {
+      const data = this.root?.submission?.data ?? this.root?.data ?? {};
+      let isValid = true;
+      
+      // Validate each component without affecting UI
+      if (this.root?.everyComponent) {
+        this.root.everyComponent((c) => {
+          try {
+            if (c.checkValidity && c.visible !== false && !c.disabled) {
+              if (!c.checkValidity(c.data, false)) {
+                isValid = false;
+              }
+            }
+          } catch {}
+        });
+      }
+      
+      return isValid;
+    } catch (e) {
+      console.error('isFormValid check error:', e);
+      return false;
+    }
+  }
+  
+  /**
+   * External validation method that can be called from anywhere in the application
+   * Returns detailed validation results including validation status and error messages
+   * 
+   * Usage:
+   * ```
+   * const reviewButton = form.getComponent('reviewButton');
+   * const validation = await reviewButton.validateFormExternal();
+   * if (validation.isValid) {
+   *   // proceed with form submission
+   * } else {
+   *   // show error summary
+   *   console.log(validation.errorSummary);
+   * }
+   * ```
+   * 
+   * @param {Object} options - Validation options
+   * @param {boolean} options.showErrors - Whether to display errors in the UI
+   * @param {boolean} options.scrollToError - Whether to scroll to the first error
+   * @param {boolean} options.includeWarnings - Whether to include warnings in results
+   * @returns {Promise<Object>} Validation results object
+   */
+  async validateFormExternal(options = {}) {
+    const opts = {
+      showErrors: true,
+      scrollToError: true,
+      includeWarnings: true,
+      ...options
+    };
+
+    try {
+      // Prepare validation results object
+      const results = {
+        isValid: true,
+        errorCount: 0,
+        warningCount: 0,
+        errors: {},
+        warnings: {},
+        invalidComponents: [],
+        errorSummary: ''
+      };
+
+      // Mark all components as dirty to show validation errors
+      if (this.root?.everyComponent) {
+        this.root.everyComponent((c) => {
+          try {
+            if (typeof c.setPristine === 'function') c.setPristine(false);
+            if (typeof c.setDirty === 'function') c.setDirty(true);
+          } catch {}
+        });
+      }
+
+      // Get current form data
+      const data = this.root?.submission?.data ?? this.root?.data ?? {};
+      
+      // Collect all errors and warnings
+      const errorMap = new Map();
+      const warningMap = new Map();
+      
+      // Validate all components
+      if (this.root?.everyComponent) {
+        this.root.everyComponent((component) => {
+          try {
+            // Skip validation on invisible or disabled components
+            if (!component.visible || component.disabled) return;
+            
+            // Validate component
+            if (component.checkValidity) {
+              const isValid = component.checkValidity(component.data, true);
+              
+              // Handle invalid components
+              if (!isValid) {
+                results.isValid = false;
+                results.errorCount++;
+                
+                // Get component path and label for identification
+                const componentKey = component.key || component.path;
+                const componentLabel = component.component?.label || componentKey;
+                const componentPath = component.path || componentKey;
+                
+                // Store errors
+                if (component.errors && component.errors.length) {
+                  component.errors.forEach(error => {
+                    if (!errorMap.has(componentPath)) {
+                      errorMap.set(componentPath, {
+                        label: componentLabel,
+                        errors: []
+                      });
+                    }
+                    errorMap.get(componentPath).errors.push(error);
+                  });
+                }
+                
+                // Store component reference for further processing
+                results.invalidComponents.push({
+                  component,
+                  path: componentPath,
+                  label: componentLabel
+                });
+                
+                // Show errors in UI if requested
+                if (opts.showErrors) {
+                  component.setCustomValidity(component.errors, true);
+                }
+              }
+              
+              // Collect warnings if requested
+              if (opts.includeWarnings && component.warnings && component.warnings.length) {
+                results.warningCount += component.warnings.length;
+                
+                const componentKey = component.key || component.path;
+                const componentLabel = component.component?.label || componentKey;
+                const componentPath = component.path || componentKey;
+                
+                if (!warningMap.has(componentPath)) {
+                  warningMap.set(componentPath, {
+                    label: componentLabel,
+                    warnings: []
+                  });
+                }
+                
+                component.warnings.forEach(warning => {
+                  warningMap.get(componentPath).warnings.push(warning);
+                });
+              }
+            }
+          } catch (err) {
+            console.error(`Error validating component ${component.key}:`, err);
+          }
+        });
+      }
+      
+      // Convert Maps to regular objects for results
+      results.errors = Object.fromEntries(errorMap);
+      results.warnings = Object.fromEntries(warningMap);
+      
+      // Generate human-readable error summary
+      const errorSummaryLines = [];
+      errorMap.forEach((data, path) => {
+        data.errors.forEach(error => {
+          errorSummaryLines.push(`${data.label}: ${error}`);
+        });
+      });
+      results.errorSummary = errorSummaryLines.join('\n');
+      
+      // Redraw the form to show validation messages
+      if (opts.showErrors && typeof this.root?.redraw === 'function') {
+        await this.root.redraw();
+        
+        // Show global errors in form
+        if (!results.isValid && typeof this.root?.showErrors === 'function') {
+          this.root.showErrors();
+        }
+        
+        // Scroll to first error if needed
+        if (opts.scrollToError && !results.isValid) {
+          const firstError = this.root?.element?.querySelector?.(
+            '.formio-error-wrapper, .has-error, .is-invalid, [data-component-error="true"]'
+          );
+          if (firstError?.scrollIntoView) {
+            firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }
+      }
+      
+      return results;
+    } catch (err) {
+      console.error('External form validation error:', err);
+      return {
+        isValid: false,
+        errorCount: 1,
+        warningCount: 0,
+        errors: { system: { label: 'System', errors: ['An unexpected error occurred during validation'] } },
+        warnings: {},
+        invalidComponents: [],
+        errorSummary: 'An unexpected error occurred during validation'
+      };
+    }
+  }
+
+  /**
+   * Trigger form validation with visual feedback
+   * This method can be called externally to validate the form
+   * 
+   * @param {Object} options - Validation options
+   * @param {boolean} options.showErrors - Whether to display errors in the UI (default: true)
+   * @param {boolean} options.scrollToError - Whether to scroll to the first error (default: true)
+   * @param {boolean} options.showSummary - Whether to show an error summary alert (default: false)
+   * @returns {Promise<Object>} Validation results
+   */
+  async triggerValidation(options = {}) {
+    const opts = {
+      showErrors: true,
+      scrollToError: true,
+      showSummary: false,
+      ...options
+    };
+    
+    const results = await this.validateFormExternal({
+      showErrors: opts.showErrors,
+      scrollToError: opts.scrollToError,
+      includeWarnings: true
+    });
+    
+    // Show summary alert if requested and there are errors
+    if (opts.showSummary && !results.isValid) {
+      // Create error summary element
+      const errorSummaryEl = document.createElement('div');
+      errorSummaryEl.className = 'alert alert-danger validation-summary';
+      errorSummaryEl.style.position = 'fixed';
+      errorSummaryEl.style.top = '20px';
+      errorSummaryEl.style.left = '50%';
+      errorSummaryEl.style.transform = 'translateX(-50%)';
+      errorSummaryEl.style.zIndex = '9999';
+      errorSummaryEl.style.maxWidth = '80%';
+      errorSummaryEl.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
+      
+      // Add close button
+      errorSummaryEl.innerHTML = `
+        <h4>Form Validation Errors</h4>
+        <button type="button" class="close" style="position: absolute; top: 5px; right: 10px;">&times;</button>
+        <p>Please fix the following errors:</p>
+        <ul>
+          ${Object.values(results.errors)
+            .flatMap(item => item.errors.map(error => `<li>${item.label}: ${error}</li>`))
+            .join('')}
+        </ul>
+      `;
+      
+      // Add to document
+      document.body.appendChild(errorSummaryEl);
+      
+      // Handle close button
+      const closeButton = errorSummaryEl.querySelector('.close');
+      if (closeButton) {
+        closeButton.addEventListener('click', () => {
+          document.body.removeChild(errorSummaryEl);
+        });
+      }
+      
+      // Auto-remove after 10 seconds
+      setTimeout(() => {
+        if (document.body.contains(errorSummaryEl)) {
+          document.body.removeChild(errorSummaryEl);
+        }
+      }, 10000);
+    }
+    
+    return results;
   }
 
   render() {
@@ -50,10 +582,26 @@ export default class ReviewButton extends FieldComponent {
     this.loadRefs(element, { button: "single" });
 
     this.addEventListener(this.refs.button, "click", async () => {
+      // Use the enhanced validation method to validate the form first
+      const validation = await this.validateFormExternal({
+        showErrors: true,
+        scrollToError: true
+      });
+      console.log("Form validation results:", validation);
+      
+      // // Don't proceed to the review modal if the form is invalid
+      // if (!validation.isValid) {
+      //   // Show a summary of errors in an alert
+      //   if (validation.errorCount > 0) {
+      //     alert(`Please fix the following errors before proceeding:\n\n${validation.errorSummary}`);
+      //   }
+      //   return;
+      // }
 
+      // Form is valid - continue with review modal
       // Force a redraw and wait a moment for any pending updates to be applied
       try {
-        this.root.redraw();
+        //this.root.redraw();
         // Small delay to ensure all components are updated
         await new Promise(resolve => setTimeout(resolve, 100));
         // Special handling for Hardware List datagrids - find and update them first
@@ -322,7 +870,7 @@ export default class ReviewButton extends FieldComponent {
           screenshotComp.visible = false;
         }
         // Make sure it disappears from the page again
-        if (typeof this.root.redraw === "function") this.root.redraw();
+        //if (typeof this.root.redraw === "function") this.root.redraw();
       };
 
       // show it in the modal
@@ -376,79 +924,121 @@ export default class ReviewButton extends FieldComponent {
       };
 
       modal.querySelector("#submitModal").onclick = async () => {
-        // Dynamically check for required modal fields and notify if missing
-        const requiredFields = [
-          { id: "verified", type: "select", label: "Verified" },
-          { id: "notesRequired", type: "textarea", label: "Explain why not verified" },
-          { id: "notesOptional", type: "textarea", label: "Notes (optional)" },
-          { id: "supportNumber", type: "input", label: "Support Number" },
-        ];
-        for (const field of requiredFields) {
-          if (!modal.querySelector(`#${field.id}`)) {
-            alert(`Review page can't find reference to field '${field.label}'. Please add a ${field.type} element with id '${field.id}'.`);
-            return;
+        let hasErrors = false;
+        
+        // Get verification type first - we'll need it for all validation checks
+        const verifiedElement = modal.querySelector("#verified");
+        const selectedVerificationType = verifiedElement ? verifiedElement.value : "Empty";
+        
+        // 1. Always validate the verification selection
+        if (verifiedElement && selectedVerificationType === "Empty") {
+          verifiedElement.style.border = "2px solid red";
+          verifiedElement.classList.add("invalid-field");
+          hasErrors = true;
+          console.log("Invalid field: verified, Value:", selectedVerificationType);
+        } else if (verifiedElement) {
+          verifiedElement.style.border = "";
+          verifiedElement.classList.remove("invalid-field");
+        }
+        
+        // 2. Validate support number field
+        const supportNumberElement = modal.querySelector("#supportNumber");
+        if (supportNumberElement && !supportNumberElement.value.trim()) {
+          supportNumberElement.style.border = "2px solid red";
+          supportNumberElement.classList.add("invalid-field");
+          hasErrors = true;
+          console.log("Invalid field: supportNumber, Value:", supportNumberElement.value);
+        } else if (supportNumberElement) {
+          supportNumberElement.style.border = "";
+          supportNumberElement.classList.remove("invalid-field");
+        }
+        
+        // 3. For "App" or "Support" verification, screenshot is required
+        if (selectedVerificationType === "App" || selectedVerificationType === "Support") {
+          const screenshotComp = this.root.getComponent("screenshot");
+          const uploadedFiles = screenshotComp ? (screenshotComp.getValue() || []) : [];
+          
+          if (uploadedFiles.length === 0) {
+            const screenshotContainer = modal.querySelector("#screenshotContainer");
+            if (screenshotContainer) {
+              screenshotContainer.style.border = "2px solid red";
+              console.log("Invalid field: screenshot, No files uploaded");
+              hasErrors = true;
+            }
+          } else if (modal.querySelector("#screenshotContainer")) {
+            modal.querySelector("#screenshotContainer").style.border = "";
+          }
+        }
+        
+        // 4. For "Not Verified", notes are required
+        if (selectedVerificationType === "Not Verified") {
+          const notesRequiredElement = modal.querySelector("#notesRequired");
+          if (notesRequiredElement && !notesRequiredElement.value.trim()) {
+            notesRequiredElement.style.border = "2px solid red";
+            notesRequiredElement.classList.add("invalid-field");
+            hasErrors = true;
+            console.log("Invalid field: notesRequired, Value:", notesRequiredElement.value);
+          } else if (notesRequiredElement) {
+            notesRequiredElement.style.border = "";
+            notesRequiredElement.classList.remove("invalid-field");
           }
         }
 
-        const verifiedSelectValue = modal.querySelector("#verified").value;
-        const notesRequired = modal.querySelector("#notesRequired").value;
-        const notesOptional = modal.querySelector("#notesOptional").value;
-        const supportNumber = modal.querySelector("#supportNumber").value;
+        const submitButton = modal.querySelector("#submitModal");
+        if (hasErrors) {
+          submitButton.style.backgroundColor = "gray";
+          submitButton.style.cursor = "not-allowed";
+          submitButton.disabled = true;
+          alert("Please fill out all required fields correctly.");
+          return;
+        } else {
+          submitButton.style.backgroundColor = "";
+          submitButton.style.cursor = "pointer";
+          submitButton.disabled = false;
+        }
+
+        // Get values for submission after validation is complete
+        const notesRequired = modal.querySelector("#notesRequired")?.value || "";
+        const notesOptional = modal.querySelector("#notesOptional")?.value || "";
+        const supportNumber = supportNumberElement?.value || "Unavailable";
+
         const screenshotComp = this.root.getComponent("screenshot");
         let uploadedFiles = [];
         if (screenshotComp) {
           uploadedFiles = screenshotComp.getValue() || [];
-        } else if (verifiedSelectValue === "App" || verifiedSelectValue === "Support") {
+        } else if (selectedVerificationType === "App" || selectedVerificationType === "Support") {
           alert("Review page can't find reference to file upload screenshotComp. Please add a File Upload component with key 'screenshot'.");
           return;
         }
 
-        if (verifiedSelectValue === "Not Verified" && !notesRequired.trim()) {
+        // These validation checks are redundant with our dynamic validation above,
+        // but we'll keep them as an extra safeguard
+        if (selectedVerificationType === "Not Verified" && !notesRequired.trim()) {
           alert("Please explain why not verified.");
           return;
         }
         if (
-          (verifiedSelectValue === "App" || verifiedSelectValue === "Support") &&
+          (selectedVerificationType === "App" || selectedVerificationType === "Support") &&
           uploadedFiles.length === 0
         ) {
           alert("Screenshot is required for App or Support verification.");
           return;
         }
-        if(verifiedSelectValue === "Empty"){
-          alert("Please Select a verifcation option.");
-          return;
-        }
-
-        // Dynamically check for required form components and notify if missing (show all missing at once)
-        const requiredComponents = [
-          { key: "reviewed", type: "hidden/text", label: "Reviewed" },
-          { key: "supportNumber", type: "text", label: "Support Number" },
-          { key: "verifiedSelect", type: "select", label: "Verified" },
-          { key: "notesOptional", type: "textarea", label: "Notes (optional)" },
-          { key: "notesRequired", type: "textarea", label: "Explain why not verified" },
-        ];
-        const missingComponents = requiredComponents.filter(comp => !this.root.getComponent(comp.key));
-        if (missingComponents.length > 0) {
-          const list = missingComponents.map(comp => `- '${comp.label}': Please add a ${comp.type} component with key '${comp.key}'.`).join('\n');
-          alert(`Review page can't find reference to the following form components:\n${list}`);
-          return;
-        }
 
         this.root.getComponent("reviewed")?.setValue("true");
         this.root.getComponent("supportNumber")?.setValue(supportNumber);
-        this.root.getComponent("verifiedSelect")?.setValue(verifiedSelectValue);
+        this.root.getComponent("verifiedSelect")?.setValue(selectedVerificationType);
         this.root.getComponent("notesOptional")?.setValue(notesOptional);
         this.root.getComponent("notesRequired")?.setValue(notesRequired);
 
         this.component._reviewModalCache = {
-          verifiedSelect: verifiedSelectValue,
+          verifiedSelect: selectedVerificationType,
           notesRequired,
           notesOptional,
           supportNumber,
         };
 
-        // IMPORTANT: re-hide before we trigger submit (even if form is invalid)
-        hideScreenshot();                // <— re-hide before submit
+        hideScreenshot();
         document.body.removeChild(modal);
         this.root.off("submitError", onSubmitError);
 
