@@ -589,14 +589,14 @@ export default class ReviewButton extends FieldComponent {
       });
       console.log("Form validation results:", validation);
       
-      // // Don't proceed to the review modal if the form is invalid
-      // if (!validation.isValid) {
-      //   // Show a summary of errors in an alert
-      //   if (validation.errorCount > 0) {
-      //     alert(`Please fix the following errors before proceeding:\n\n${validation.errorSummary}`);
-      //   }
-      //   return;
-      // }
+      // Don't proceed to the review modal if the form is invalid
+      if (!validation.isValid) {
+        // Show a summary of errors in an alert
+        if (validation.errorCount > 0) {
+          alert(`Please fix the following errors before proceeding:\n\n${validation.errorSummary}`);
+        }
+        return;
+      }
 
       // Form is valid - continue with review modal
       // Force a redraw and wait a moment for any pending updates to be applied
@@ -870,7 +870,7 @@ export default class ReviewButton extends FieldComponent {
           screenshotComp.visible = false;
         }
         // Make sure it disappears from the page again
-        //if (typeof this.root.redraw === "function") this.root.redraw();
+        if (typeof this.root.redraw === "function") this.root.redraw();
       };
 
       // show it in the modal
