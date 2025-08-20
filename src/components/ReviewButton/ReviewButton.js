@@ -529,7 +529,7 @@ export default class ReviewButton extends FieldComponent {
         if (root.ready) await root.ready;
         const leaves = [];
         const labelByPathMap = new Map();
-        const suppressLabelForKey = new Set(['data']);
+        const suppressLabelForKey = new Set(['data', 'dataGrid']);
         const queue = [];
         const enqueueAll = (f) => f.everyComponent && f.everyComponent((c) => queue.push(c));
         enqueueAll(root);
@@ -686,7 +686,12 @@ export default class ReviewButton extends FieldComponent {
         }
 
         for (const { path, label, value, comp } of leaves) {
-          const parts = path.replace(/\.data\./g, '.').split('.');
+          // AFTER: drop empty bits and stray "0]", "1]", "2]" tokens
+          const parts = path
+            .replace(/\.data\./g, '.')
+            .split('.')
+            .filter(Boolean)
+            .filter(seg => !/^\d+\]$/.test(seg));
           let ptr = root;
           let containerPath = '';
 
@@ -715,6 +720,12 @@ export default class ReviewButton extends FieldComponent {
           const renderNode = (node, depth = 0) => {
           const pad = `margin-left:${depth * 15}px; padding-left:10px; border-left:1px dotted #ccc;`;
           return Object.entries(node).map(([k, v]) => {
+            // Ignore stray numeric bracket tokens like "0]" if any slipped through
+            if (/^\d+\]$/.test(k)) {
+              return v && typeof v === 'object'
+                ? renderNode(v.__children || {}, depth)
+                : '';
+            }
             if (v && v.__leaf) {
               const val = formatValue(v.__value, v.__comp);
               return `<div style="${pad}"><strong>${v.__label || k}:</strong> ${val}</div>`;
