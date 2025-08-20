@@ -604,32 +604,29 @@ export default class ReviewButton extends FieldComponent {
         //this.root.redraw();
         // Small delay to ensure all components are updated
         await new Promise(resolve => setTimeout(resolve, 100));
-        // Special handling for Hardware List datagrids - find and update them first
-        const hardwareComponents = this.root.components.filter(comp => 
-          comp.component.type === 'datagrid' && 
-          (comp.component.key === 'hardwareList' || comp.component.label?.includes('Hardware'))
-        );
-        if (hardwareComponents.length > 0) {
-          // Process each hardware component first
-          for (const hardware of hardwareComponents) {
-            try {
-              // Force update the datagrid itself
-              if (hardware.updateValue) {
-                hardware.updateValue();
-              }
-              // Make sure all rows are updated
-              if (hardware.rows) {
-                hardware.rows.forEach((row, idx) => {
-                  Object.values(row).forEach(component => {
-                    if (component && component.updateValue) {
-                      component.updateValue();
-                    }
-                  });
-                });
-              }
-            } catch (e) {
-              // Silent error handling
+        // Update all datagrids and their rows/components
+        const allDatagrids = [];
+        this.root.everyComponent(comp => {
+          if (comp.component?.type === 'datagrid') {
+            allDatagrids.push(comp);
+          }
+        });
+        for (const datagrid of allDatagrids) {
+          try {
+            if (datagrid.updateValue) {
+              datagrid.updateValue();
             }
+            if (datagrid.rows) {
+              datagrid.rows.forEach(row => {
+                Object.values(row).forEach(component => {
+                  if (component && component.updateValue) {
+                    component.updateValue();
+                  }
+                });
+              });
+            }
+          } catch (e) {
+            // Silent error handling
           }
         }
         // Then update all other components
@@ -652,55 +649,87 @@ export default class ReviewButton extends FieldComponent {
       async function collectReviewLeavesAndLabels(root) {
         if (root.ready) await root.ready;
         const leaves = [];
-        const labelByPath = new Map();
-        const suppressLabelForKey = new Set(['dataGrid']);
+        const labelByPathMap = new Map();
+        const suppressLabelForKey = new Set(['data']); // only hide the root submission wrapper, not real components
         const queue = [];
         const enqueueAll = (f) => f.everyComponent && f.everyComponent((c) => queue.push(c));
         enqueueAll(root);
+
         while (queue.length) {
           const comp = queue.shift();
           if (!comp) continue;
+
           if (comp.type === 'form') {
             if (comp.subFormReady) await comp.subFormReady;
-            if (comp.subForm) enqueueAll(comp.subForm);
-            const title = comp.formObj?.title || comp.component?.label || comp.key || 'Form';
-            labelByPath.set(comp.path, title);
+            if (comp.subForm) {
+              enqueueAll(comp.subForm);
+              const title = comp.formObj?.title || comp.component?.label || comp.key || 'Form';
+              labelByPathMap.set(comp.path, title);
+            } else {
+              // If subForm is missing, fallback to datagrid or component label
+              if (comp.component?.type === 'datagrid') {
+                labelByPathMap.set(comp.path, comp.component?.label || comp.key || 'List');
+              } else {
+                labelByPathMap.set(comp.path, comp.component?.label || comp.key || 'Form');
+              }
+            }
             continue;
           }
+
           if (comp.component?.type === 'datagrid' && comp.rows) {
-            labelByPath.set(comp.path, comp.component?.label || comp.key || 'List');
+            labelByPathMap.set(comp.path, comp.component?.label || comp.key || 'List');
             comp.rows.forEach((row, rIdx) => {
-              Object.values(row).forEach(child => {
+              Object.values(row).forEach((child) => {
                 if (child) {
                   child.__reviewPath = `${comp.path}[${rIdx}].${child.path?.slice(comp.path.length + 1) || child.key}`;
+                  // If this is a nested form within a datagrid row, set its label in the map
+                  if (child.type === 'form') {
+                    const formPath = child.__reviewPath;
+                    const formTitle = child.formObj?.title || child.component?.label || child.key || 'Form';
+                    labelByPathMap.set(formPath, formTitle);
+                  }
                   queue.push(child);
                 }
               });
             });
             continue;
           }
+
+          if (comp.component?.type === 'datagrid' && !comp.rows) {
+            // Ensure datagrid labels are set even if rows are absent
+            labelByPathMap.set(comp.path, comp.component?.label || comp.key || 'List');
+            continue;
+          }
+
           if (comp.component?.type === 'editgrid' && comp.editRows?.length) {
-            labelByPath.set(comp.path, comp.component?.label || comp.key || 'Items');
-            comp.editRows.forEach((r, rIdx) => (r.components || []).forEach(ch => {
+            labelByPathMap.set(comp.path, comp.component?.label || comp.key || 'Items');
+            comp.editRows.forEach((r, rIdx) => (r.components || []).forEach((ch) => {
               ch.__reviewPath = `${comp.path}[${rIdx}].${ch.path?.slice(comp.path.length + 1) || ch.key}`;
               queue.push(ch);
             }));
             continue;
           }
+
           if (Array.isArray(comp.components) && comp.components.length) {
-            labelByPath.set(comp.path, comp.component?.label || comp.key || '');
-            comp.components.forEach(ch => queue.push(ch));
+            labelByPathMap.set(comp.path, comp.component?.label || comp.key || '');
+            comp.components.forEach((ch) => queue.push(ch));
             continue;
           }
+
           if (comp.component?.reviewVisible === true && comp.visible !== false) {
             leaves.push({
               comp,
               path: comp.__reviewPath || comp.path || comp.key,
               label: comp.component?.label || comp.key,
-              value: ('getValue' in comp) ? comp.getValue() : comp.dataValue
+              value: 'getValue' in comp ? comp.getValue() : comp.dataValue,
             });
           }
         }
+        // Convert Map to plain object more safely
+        const labelByPath = {};
+        labelByPathMap.forEach((value, key) => {
+          labelByPath[key] = value;
+        });
         return { leaves, labelByPath, suppressLabelForKey };
       }
 
@@ -710,12 +739,14 @@ export default class ReviewButton extends FieldComponent {
         const ensureNode = (obj, k) => (obj[k] ??= { __children: {}, __rows: {}, __label: null, __suppress: false });
 
         function setNodeLabelForPath(node, containerPath) {
-          if (!node.__label && labelByPath.has(containerPath)) node.__label = labelByPath.get(containerPath);
+          if (!node.__label && labelByPath && typeof labelByPath === 'object' && containerPath in labelByPath) {
+            node.__label = labelByPath[containerPath];
+          }
         }
 
         // helper: make values pretty, especially files/images
         function formatValue(value, comp) {
-          console.log("comp?.component", comp?.component)
+          // Remove console.log to avoid noise in the console
           const isFileish =
             comp?.component?.type === 'file' ||
             comp?.component?.type === 'image' ||
@@ -803,7 +834,7 @@ export default class ReviewButton extends FieldComponent {
           }
         }
 
-        const renderNode = (node, depth = 0) => {
+          const renderNode = (node, depth = 0) => {
           const pad = `margin-left:${depth * 15}px; padding-left:10px; border-left:1px dotted #ccc;`;
           return Object.entries(node).map(([k, v]) => {
             if (v && v.__leaf) {
@@ -818,9 +849,10 @@ export default class ReviewButton extends FieldComponent {
               const childrenHtml = [
                 hasRows
                   ? `<ul style="list-style-type:circle; padding-left:15px; margin:0;">${
-                      Object.entries(v.__rows).map(([i, r]) =>
-                        `<li>Item ${Number(i)+1}:${renderNode(r.__children, depth + 1)}</li>`
-                      ).join('')
+                      Object.entries(v.__rows).map(([i, r]) => {
+                        // Each row may contain a form or other nested components with their own labels
+                        return `<li>Item ${Number(i)+1}:${renderNode(r.__children, depth + 1)}</li>`;
+                      }).join('')
                     }</ul>` : '',
                 hasChildren ? renderNode(v.__children, depth + 1) : ''
               ].join('');
@@ -829,13 +861,14 @@ export default class ReviewButton extends FieldComponent {
             return '';
           }).join('');
         };
-
+        
         return renderNode(root, 0);
       }
 
 
       // --- USAGE inside your click handler (replace your current leaves/html logic):
       const { leaves, labelByPath, suppressLabelForKey } = await collectReviewLeavesAndLabels(this.root);
+      // labelByPath is already a plain object, no need for conversion
       const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey);
 
       // Get the latest data after refresh
