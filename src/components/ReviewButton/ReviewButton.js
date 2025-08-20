@@ -715,12 +715,33 @@ export default class ReviewButton extends FieldComponent {
 
         // helper: make values pretty, especially files/images
         function formatValue(value, comp) {
+          console.log("comp?.component", comp?.component)
           const isFileish =
             comp?.component?.type === 'file' ||
             comp?.component?.type === 'image' ||
             comp?.component?.storage ||               // file component usually has storage set
             comp?.component?.filePattern;             // sometimes present
 
+
+          // Handle select boxes with multiple selections
+          if (comp?.component?.type === "selectboxes") {
+            console.log("~!~~!!~!found Select Box", comp?.component)
+            // Format 1: {"value1":true,"value2":true} - object with boolean flags
+            if (Object.values(value).some(v => typeof v === 'boolean')) {
+              const selectedValues = Object.keys(value).filter(key => value[key] === true);
+              if (selectedValues.length) {
+                return selectedValues.join(', ');
+              }
+            }
+            
+            // Format 2: If the value is an array of objects with label/value properties
+            if (Array.isArray(value) && value.length && typeof value[0] === 'object') {
+              if ('label' in value[0] || 'value' in value[0]) {
+                return value.map(item => item.label || item.value).join(', ');
+              }
+            }
+          }
+          
           if (Array.isArray(value)) {
             if (isFileish && value.length && typeof value[0] === 'object') {
               // Try common name fields from Form.io file objects
@@ -739,6 +760,8 @@ export default class ReviewButton extends FieldComponent {
             // fallback so you never see [object Object]
             try { return JSON.stringify(value); } catch { return String(value); }
           }
+          
+          
 
           if (value === false) return 'No';
           if (value === true) return 'Yes';
