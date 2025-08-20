@@ -725,19 +725,27 @@ export default class ReviewButton extends FieldComponent {
 
           // Handle select boxes with multiple selections
           if (comp?.component?.type === "selectboxes") {
-            console.log("~!~~!!~!found Select Box", comp?.component)
             // Format 1: {"value1":true,"value2":true} - object with boolean flags
             if (Object.values(value).some(v => typeof v === 'boolean')) {
               const selectedValues = Object.keys(value).filter(key => value[key] === true);
               if (selectedValues.length) {
+                // Only show values set to true
                 return selectedValues.join(', ');
+              } else {
+                // If all values are false, show "None selected"
+                return "";
               }
             }
             
             // Format 2: If the value is an array of objects with label/value properties
             if (Array.isArray(value) && value.length && typeof value[0] === 'object') {
               if ('label' in value[0] || 'value' in value[0]) {
-                return value.map(item => item.label || item.value).join(', ');
+                const selectedItems = value.filter(item => item.selected || item.checked);
+                if (selectedItems.length) {
+                  return selectedItems.map(item => item.label || item.value).join(', ');
+                } else {
+                  return "";
+                }
               }
             }
           }
