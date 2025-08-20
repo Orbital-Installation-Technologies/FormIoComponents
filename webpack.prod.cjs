@@ -15,7 +15,6 @@ module.exports = (env) => {
     },
     externals: {
       "@formio/js": "Formio",
-      "@formio/premium": "premium",
     }
   };
 };
