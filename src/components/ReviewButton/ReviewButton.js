@@ -36,34 +36,27 @@ export default class ReviewButton extends FieldComponent {
   init() {
     super.init();
     
-    // Listen for submission completion
     this.root.on("submitDone", () => {
       window.location.reload();
     });
     
-    // Register all validation methods on the form instance for external use
     if (this.root) {
-      // Main validation method with detailed results
       this.root.validateFormExternal = async (options) => {
         return await this.validateFormExternal(options);
       };
       
-      // Quick validity check without UI updates
       this.root.isFormValid = async () => {
         return await this.isFormValid();
       };
       
-      // Field-specific validation
       this.root.validateFields = async (fieldKeys, options) => {
         return await this.validateFields(fieldKeys, options);
       };
       
-      // Validation with UI feedback
       this.root.triggerValidation = async (options) => {
         return await this.triggerValidation(options);
       };
       
-      // Support for event-based validation
       this.root.on("validateForm", async (callback) => {
         const results = await this.validateFormExternal();
         if (typeof callback === "function") {
@@ -72,7 +65,6 @@ export default class ReviewButton extends FieldComponent {
         return results;
       });
       
-      // Add global variable for easier access from external code
       if (typeof window !== 'undefined') {
         window.formValidation = {
           validate: async (options) => await this.validateFormExternal(options),
@@ -83,16 +75,10 @@ export default class ReviewButton extends FieldComponent {
     }
   }
   
-  /**
-   * Validates all components in the form and displays errors if any
-   * Ensures error highlighting without submission
-   * @returns {Promise<boolean>} True if the form is valid, false otherwise
-   */
   async validateForm() {
     try {
       let isValid = true;
 
-      // Validate each component individually
       this.root.everyComponent(component => {
         if (component.checkValidity) {
           const valid = component.checkValidity(component.data, true);
@@ -103,10 +89,8 @@ export default class ReviewButton extends FieldComponent {
         }
       });
 
-      // Redraw components to show errors
       this.root.redraw();
 
-      // Scroll to the first error
       if (!isValid) {
         const firstError = this.root.element.querySelector('.formio-error-wrapper, .has-error, .is-invalid');
         if (firstError) {
@@ -121,13 +105,8 @@ export default class ReviewButton extends FieldComponent {
     }
   }
 
-  /**
-   * Validate the entire Form.io form and render errors WITHOUT submitting.
-   * Returns true if valid, false otherwise.
-   */
   async validateFormHard() {
     try {
-      // 1) Mark everything "dirty" so errors can show.
       if (this.root?.everyComponent) {
         this.root.everyComponent((c) => {
           try {
@@ -137,22 +116,19 @@ export default class ReviewButton extends FieldComponent {
         });
       }
 
-      // 2) Check validity with dirty flag (ensures 4.x/5.x show errors).
       const data = this.root?.submission?.data ?? this.root?.data ?? {};
       let isValid = true;
       if (typeof this.root?.checkValidity === 'function') {
-        isValid = this.root.checkValidity(data, /* dirty */ true);
+        isValid = this.root.checkValidity(data, true);
       }
 
-      // 3) Paint errors (and optional top alert list).
       if (!isValid && typeof this.root?.showErrors === 'function') {
-        this.root.showErrors(); // shows the alert banner list
+        this.root.showErrors();
       }
       if (typeof this.root?.redraw === 'function') {
         await this.root.redraw();
       }
 
-      // 4) Make sure nested rows/components render their errors.
       if (this.root?.everyComponent) {
         this.root.everyComponent((c) => {
           try {
@@ -168,7 +144,6 @@ export default class ReviewButton extends FieldComponent {
         });
       }
 
-      // 5) Scroll to first error.
       if (!isValid) {
         const firstError = this.root?.element?.querySelector?.(
           '.formio-error-wrapper, .has-error, .is-invalid, [data-component-error="true"]'
@@ -185,16 +160,6 @@ export default class ReviewButton extends FieldComponent {
     }
   }
 
-  /**
-   * Validate a specific field or set of fields by key or path
-   * This is useful for validating specific parts of the form without validating everything
-   * 
-   * @param {string|Array<string>} fieldKeys - The key(s) or path(s) of the field(s) to validate
-   * @param {Object} options - Validation options
-   * @param {boolean} options.showErrors - Whether to show errors in the UI
-   * @param {boolean} options.scrollToError - Whether to scroll to the first error
-   * @returns {Promise<Object>} Validation results for the specified fields
-   */
   async validateFields(fieldKeys, options = {}) {
     const keys = Array.isArray(fieldKeys) ? fieldKeys : [fieldKeys];
     const opts = {
@@ -204,7 +169,6 @@ export default class ReviewButton extends FieldComponent {
     };
     
     try {
-      // Prepare validation results object
       const results = {
         isValid: true,
         fieldResults: {},
@@ -212,7 +176,6 @@ export default class ReviewButton extends FieldComponent {
         invalidComponents: []
       };
       
-      // Find all components matching the keys
       const componentsToValidate = [];
       
       if (this.root?.everyComponent) {
@@ -225,20 +188,16 @@ export default class ReviewButton extends FieldComponent {
         });
       }
       
-      // Validate each component
       for (const component of componentsToValidate) {
         const componentKey = component.key || component.path;
         const componentLabel = component.component?.label || componentKey;
         const componentPath = component.path || componentKey;
         
-        // Set dirty flag to show errors
         if (typeof component.setPristine === 'function') component.setPristine(false);
         if (typeof component.setDirty === 'function') component.setDirty(true);
         
-        // Validate component
         const isValid = component.checkValidity ? component.checkValidity(component.data, true) : true;
         
-        // Store results
         results.fieldResults[componentKey] = {
           isValid,
           errors: component.errors || [],
@@ -258,19 +217,16 @@ export default class ReviewButton extends FieldComponent {
             label: componentLabel
           });
           
-          // Show errors in UI if requested
           if (opts.showErrors && component.setCustomValidity) {
             component.setCustomValidity(component.errors, true);
           }
         }
       }
       
-      // Redraw the form if showing errors
       if (opts.showErrors && typeof this.root?.redraw === 'function') {
         await this.root.redraw();
       }
       
-      // Scroll to first error if needed
       if (opts.scrollToError && !results.isValid && results.invalidComponents.length > 0) {
         const firstComponent = results.invalidComponents[0].component;
         if (firstComponent.element?.scrollIntoView) {
@@ -290,18 +246,11 @@ export default class ReviewButton extends FieldComponent {
     }
   }
   
-  /**
-   * Check if the form is valid without showing errors or updating UI
-   * This is useful for conditional logic that depends on form validity
-   * 
-   * @returns {Promise<boolean>} True if the form is valid, false otherwise
-   */
   async isFormValid() {
     try {
       const data = this.root?.submission?.data ?? this.root?.data ?? {};
       let isValid = true;
       
-      // Validate each component without affecting UI
       if (this.root?.everyComponent) {
         this.root.everyComponent((c) => {
           try {
@@ -321,28 +270,7 @@ export default class ReviewButton extends FieldComponent {
     }
   }
   
-  /**
-   * External validation method that can be called from anywhere in the application
-   * Returns detailed validation results including validation status and error messages
-   * 
-   * Usage:
-   * ```
-   * const reviewButton = form.getComponent('reviewButton');
-   * const validation = await reviewButton.validateFormExternal();
-   * if (validation.isValid) {
-   *   // proceed with form submission
-   * } else {
-   *   // show error summary
-   *   console.log(validation.errorSummary);
-   * }
-   * ```
-   * 
-   * @param {Object} options - Validation options
-   * @param {boolean} options.showErrors - Whether to display errors in the UI
-   * @param {boolean} options.scrollToError - Whether to scroll to the first error
-   * @param {boolean} options.includeWarnings - Whether to include warnings in results
-   * @returns {Promise<Object>} Validation results object
-   */
+
   async validateFormExternal(options = {}) {
     const opts = {
       showErrors: true,
@@ -352,7 +280,6 @@ export default class ReviewButton extends FieldComponent {
     };
 
     try {
-      // Prepare validation results object
       const results = {
         isValid: true,
         errorCount: 0,
@@ -363,7 +290,6 @@ export default class ReviewButton extends FieldComponent {
         errorSummary: ''
       };
 
-      // Mark all components as dirty to show validation errors
       if (this.root?.everyComponent) {
         this.root.everyComponent((c) => {
           try {
@@ -373,35 +299,27 @@ export default class ReviewButton extends FieldComponent {
         });
       }
 
-      // Get current form data
       const data = this.root?.submission?.data ?? this.root?.data ?? {};
       
-      // Collect all errors and warnings
       const errorMap = new Map();
       const warningMap = new Map();
       
-      // Validate all components
       if (this.root?.everyComponent) {
         this.root.everyComponent((component) => {
           try {
-            // Skip validation on invisible or disabled components
             if (!component.visible || component.disabled) return;
             
-            // Validate component
             if (component.checkValidity) {
               const isValid = component.checkValidity(component.data, true);
               
-              // Handle invalid components
               if (!isValid) {
                 results.isValid = false;
                 results.errorCount++;
                 
-                // Get component path and label for identification
                 const componentKey = component.key || component.path;
                 const componentLabel = component.component?.label || componentKey;
                 const componentPath = component.path || componentKey;
                 
-                // Store errors
                 if (component.errors && component.errors.length) {
                   component.errors.forEach(error => {
                     if (!errorMap.has(componentPath)) {
@@ -414,20 +332,17 @@ export default class ReviewButton extends FieldComponent {
                   });
                 }
                 
-                // Store component reference for further processing
                 results.invalidComponents.push({
                   component,
                   path: componentPath,
                   label: componentLabel
                 });
                 
-                // Show errors in UI if requested
                 if (opts.showErrors) {
                   component.setCustomValidity(component.errors, true);
                 }
               }
               
-              // Collect warnings if requested
               if (opts.includeWarnings && component.warnings && component.warnings.length) {
                 results.warningCount += component.warnings.length;
                 
@@ -453,11 +368,9 @@ export default class ReviewButton extends FieldComponent {
         });
       }
       
-      // Convert Maps to regular objects for results
       results.errors = Object.fromEntries(errorMap);
       results.warnings = Object.fromEntries(warningMap);
       
-      // Generate human-readable error summary
       const errorSummaryLines = [];
       errorMap.forEach((data, path) => {
         data.errors.forEach(error => {
@@ -466,16 +379,13 @@ export default class ReviewButton extends FieldComponent {
       });
       results.errorSummary = errorSummaryLines.join('\n');
       
-      // Redraw the form to show validation messages
       if (opts.showErrors && typeof this.root?.redraw === 'function') {
         await this.root.redraw();
         
-        // Show global errors in form
         if (!results.isValid && typeof this.root?.showErrors === 'function') {
           this.root.showErrors();
         }
         
-        // Scroll to first error if needed
         if (opts.scrollToError && !results.isValid) {
           const firstError = this.root?.element?.querySelector?.(
             '.formio-error-wrapper, .has-error, .is-invalid, [data-component-error="true"]'
@@ -501,16 +411,6 @@ export default class ReviewButton extends FieldComponent {
     }
   }
 
-  /**
-   * Trigger form validation with visual feedback
-   * This method can be called externally to validate the form
-   * 
-   * @param {Object} options - Validation options
-   * @param {boolean} options.showErrors - Whether to display errors in the UI (default: true)
-   * @param {boolean} options.scrollToError - Whether to scroll to the first error (default: true)
-   * @param {boolean} options.showSummary - Whether to show an error summary alert (default: false)
-   * @returns {Promise<Object>} Validation results
-   */
   async triggerValidation(options = {}) {
     const opts = {
       showErrors: true,
@@ -525,9 +425,7 @@ export default class ReviewButton extends FieldComponent {
       includeWarnings: true
     });
     
-    // Show summary alert if requested and there are errors
     if (opts.showSummary && !results.isValid) {
-      // Create error summary element
       const errorSummaryEl = document.createElement('div');
       errorSummaryEl.className = 'alert alert-danger validation-summary';
       errorSummaryEl.style.position = 'fixed';
@@ -538,7 +436,6 @@ export default class ReviewButton extends FieldComponent {
       errorSummaryEl.style.maxWidth = '80%';
       errorSummaryEl.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
       
-      // Add close button
       errorSummaryEl.innerHTML = `
         <h4>Form Validation Errors</h4>
         <button type="button" class="close" style="position: absolute; top: 5px; right: 10px;">&times;</button>
@@ -550,10 +447,8 @@ export default class ReviewButton extends FieldComponent {
         </ul>
       `;
       
-      // Add to document
       document.body.appendChild(errorSummaryEl);
       
-      // Handle close button
       const closeButton = errorSummaryEl.querySelector('.close');
       if (closeButton) {
         closeButton.addEventListener('click', () => {
@@ -561,7 +456,6 @@ export default class ReviewButton extends FieldComponent {
         });
       }
       
-      // Auto-remove after 10 seconds
       setTimeout(() => {
         if (document.body.contains(errorSummaryEl)) {
           document.body.removeChild(errorSummaryEl);
@@ -582,29 +476,21 @@ export default class ReviewButton extends FieldComponent {
     this.loadRefs(element, { button: "single" });
 
     this.addEventListener(this.refs.button, "click", async () => {
-      // Use the enhanced validation method to validate the form first
       const validation = await this.validateFormExternal({
         showErrors: true,
         scrollToError: true
       });
       console.log("Form validation results:", validation);
       
-      // Don't proceed to the review modal if the form is invalid
       if (!validation.isValid) {
-        // Show a summary of errors in an alert
         if (validation.errorCount > 0) {
           alert(`Please fix the following errors before proceeding:\n\n${validation.errorSummary}`);
         }
         return;
       }
 
-      // Form is valid - continue with review modal
-      // Force a redraw and wait a moment for any pending updates to be applied
       try {
-        //this.root.redraw();
-        // Small delay to ensure all components are updated
         await new Promise(resolve => setTimeout(resolve, 100));
-        // Update all datagrids and their rows/components
         const allDatagrids = [];
         this.root.everyComponent(comp => {
           if (comp.component?.type === 'datagrid') {
@@ -625,23 +511,16 @@ export default class ReviewButton extends FieldComponent {
                 });
               });
             }
-          } catch (e) {
-            // Silent error handling
-          }
+          } catch (e) {}
         }
-        // Then update all other components
         this.root.components.forEach(comp => {
           if (comp.updateValue && typeof comp.updateValue === 'function') {
             try {
               comp.updateValue();
-            } catch (e) {
-              // Silent error handling
-            }
+            } catch (e) {}
           }
         });
-      } catch (e) {
-        // Silent error handling
-      }
+      } catch (e) {}
 
 
 
@@ -650,7 +529,7 @@ export default class ReviewButton extends FieldComponent {
         if (root.ready) await root.ready;
         const leaves = [];
         const labelByPathMap = new Map();
-        const suppressLabelForKey = new Set(['data']); // only hide the root submission wrapper, not real components
+        const suppressLabelForKey = new Set(['data']);
         const queue = [];
         const enqueueAll = (f) => f.everyComponent && f.everyComponent((c) => queue.push(c));
         enqueueAll(root);
@@ -746,12 +625,11 @@ export default class ReviewButton extends FieldComponent {
 
         // helper: make values pretty, especially files/images
         function formatValue(value, comp) {
-          // Remove console.log to avoid noise in the console
           const isFileish =
             comp?.component?.type === 'file' ||
             comp?.component?.type === 'image' ||
-            comp?.component?.storage ||               // file component usually has storage set
-            comp?.component?.filePattern;             // sometimes present
+            comp?.component?.storage ||
+            comp?.component?.filePattern;
 
 
           // Handle select boxes with multiple selections
@@ -924,7 +802,6 @@ export default class ReviewButton extends FieldComponent {
       // ----- FILE COMPONENT WIRING -----
       const screenshotComp = this.root.getComponent("screenshot");
 
-      // helper to restore hidden state
       const hideScreenshot = () => {
         if (!screenshotComp) return;
         screenshotComp.component.hidden = true;
@@ -933,13 +810,10 @@ export default class ReviewButton extends FieldComponent {
         } else {
           screenshotComp.visible = false;
         }
-        // Make sure it disappears from the page again
         if (typeof this.root.redraw === "function") this.root.redraw();
       };
 
-      // show it in the modal
       if (screenshotComp) {
-        // remember original flags if you ever want to restore them later
         this.component._screenshotPrev = {
           hidden: screenshotComp.component.hidden,
           visible: screenshotComp.visible,
@@ -960,14 +834,14 @@ export default class ReviewButton extends FieldComponent {
         screenshotComp.attach(compEl);
       }
 
-      // extra safety: if the submit fails validation, re-hide it
+
       const onSubmitError = () => {
         hideScreenshot();
         this.root.off("submitError", onSubmitError);
       };
       this.root.on("submitError", onSubmitError);
 
-      // ----- MODAL WIRING -----
+
       const verifiedSelect = modal.querySelector("#verified");
       const screenshotWrapper = modal.querySelector("#screenshotWrapper");
       const notesOptionalWrapper = modal.querySelector("#notesOptionalWrapper");
@@ -982,7 +856,7 @@ export default class ReviewButton extends FieldComponent {
       };
 
       modal.querySelector("#cancelModal").onclick = () => {
-        hideScreenshot();               // <— re-hide on cancel
+        hideScreenshot();
         document.body.removeChild(modal);
         this.root.off("submitError", onSubmitError);
       };
@@ -1061,7 +935,7 @@ export default class ReviewButton extends FieldComponent {
           submitButton.disabled = false;
         }
 
-        // Get values for submission after validation is complete
+
         const notesRequired = modal.querySelector("#notesRequired")?.value || "";
         const notesOptional = modal.querySelector("#notesOptional")?.value || "";
         const supportNumber = supportNumberElement?.value || "Unavailable";
@@ -1075,8 +949,7 @@ export default class ReviewButton extends FieldComponent {
           return;
         }
 
-        // These validation checks are redundant with our dynamic validation above,
-        // but we'll keep them as an extra safeguard
+
         if (selectedVerificationType === "Not Verified" && !notesRequired.trim()) {
           alert("Please explain why not verified.");
           return;
