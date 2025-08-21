@@ -557,7 +557,7 @@ export default class ReviewButton extends FieldComponent {
             continue;
           }
 
-          if (comp.component?.type === 'datagrid') {
+          if (comp.component?.type === 'datagrid' || comp.component?.type === 'datatable') {
             labelByPathMap.set(comp.path, comp.component?.label || comp.key || 'List');
 
             // Capture leaf columns for this datagrid (used for the review view)
@@ -593,15 +593,24 @@ export default class ReviewButton extends FieldComponent {
               columnLabels
             });
 
-            if (comp.rows) {
-              console.log(`Processing DataGrid rows for ${comp.path}:`, comp.rows);
+            // For DataTable, use savedRows instead of rows
+            const rowsToProcess = comp.component?.type === 'datatable' && Array.isArray(comp.savedRows) ? 
+              comp.savedRows.map(row => ({ ...row, components: row.components || [] })) : 
+              comp.rows;
               
-              comp.rows.forEach((row, rIdx) => {
+            if (rowsToProcess && rowsToProcess.length) {
+              console.log(`Processing ${comp.component?.type} rows for ${comp.path}:`, rowsToProcess);
+              
+              rowsToProcess.forEach((row, rIdx) => {
                 console.log(`Row ${rIdx} contents:`, row);
                 
-                Object.values(row).forEach((child) => {
+                // For DataTable, process row.components; for DataGrid, process the row object directly
+                const rowComponents = comp.component?.type === 'datatable' ? row.components : Object.values(row);
+                
+                rowComponents.forEach((child) => {
                   if (child) {
-                    child.__reviewPath = `${comp.path}[${rIdx}].${child.path?.slice(comp.path.length + 1) || child.key}`;
+                    const childKey = child?.key || child?.component?.key || child?.path?.split('.').pop() || 'value';
+                    child.__reviewPath = `${comp.path}[${rIdx}].${childKey}`;
                     console.log(`Child in row ${rIdx}:`, {
                       key: child.key,
                       type: child.type,
@@ -609,7 +618,7 @@ export default class ReviewButton extends FieldComponent {
                       reviewPath: child.__reviewPath
                     });
                     
-                    // If this is a nested form within a datagrid row, set its label in the map
+                    // If this is a nested form within a row, set its label in the map
                     if (child.type === 'form') {
                       const formPath = child.__reviewPath;
                       const formTitle = child.formObj?.title || child.component?.label || child.key || 'Form';
@@ -620,13 +629,14 @@ export default class ReviewButton extends FieldComponent {
                 });
               });
             } else {
-              console.log(`DataGrid ${comp.path} has no rows`);
+              console.log(`${comp.component?.type} ${comp.path} has no rows`);
             }
             continue;
           }
 
-          if (comp.component?.type === 'datagrid' && !comp.rows) {
-            // Ensure datagrid labels are set even if rows are absent
+          if ((comp.component?.type === 'datagrid' && !comp.rows) || 
+              (comp.component?.type === 'datatable' && !comp.savedRows)) {
+            // Ensure datagrid/datatable labels are set even if rows are absent
             labelByPathMap.set(comp.path, comp.component?.label || comp.key || 'List');
             continue;
           }
@@ -636,7 +646,7 @@ export default class ReviewButton extends FieldComponent {
             labelByPathMap.set(comp.path, comp.component?.label || comp.key || 'Items');
 
             comp.editRows.forEach((r, rIdx) => (r.components || []).forEach((ch) => {
-              ch.__reviewPath = `${comp.path}[${rIdx}].${ch.path?.slice(comp.path.length + 1) || ch.key}`;
+              ch.__reviewPath = `${comp.path}[${rIdx}].${ch.key || 'value'}`;
               queue.push(ch);
             }));
             continue;
@@ -709,9 +719,11 @@ export default class ReviewButton extends FieldComponent {
           const inRepeater =
             parentType === 'editgrid' ||
             parentType === 'datagrid' ||
+            parentType === 'datatable' ||
             parentType === 'tagpad' ||            
             isInTagpadForm ||                     // Component is in a TagPad form
             Array.isArray(parent?.rows) ||        // datagrid-like
+            Array.isArray(parent?.savedRows) ||   // datatable specific
             Array.isArray(parent?.editForms) ||   // TagPad edit forms array
             Array.isArray(parent?.editRows);      // editgrid-like
             
@@ -851,7 +863,8 @@ export default class ReviewButton extends FieldComponent {
             .replace(/\.data\./g, '.')
             .split('.')
             .filter(Boolean)
-            .filter(seg => !/^\d+\]$/.test(seg));
+            // ignore tokens like "0]" (already handled by [idx]) AND bare "0"
+            .filter(seg => !/^\d+\]$/.test(seg) && !/^\d+$/.test(seg));
           let ptr = root;
           let containerPath = '';
 
