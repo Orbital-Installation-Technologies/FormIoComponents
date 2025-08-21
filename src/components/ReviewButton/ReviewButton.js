@@ -631,12 +631,56 @@ export default class ReviewButton extends FieldComponent {
             continue;
           }
 
-          if (comp.component?.type === 'editgrid' && comp.editRows?.length) {
+          // Handle EditGrid
+          if (comp.component?.type === 'editgrid' && Array.isArray(comp.editRows) && comp.editRows.length) {
             labelByPathMap.set(comp.path, comp.component?.label || comp.key || 'Items');
+
             comp.editRows.forEach((r, rIdx) => (r.components || []).forEach((ch) => {
               ch.__reviewPath = `${comp.path}[${rIdx}].${ch.path?.slice(comp.path.length + 1) || ch.key}`;
               queue.push(ch);
             }));
+            continue;
+          }
+
+          // ---- Tagpad (fix: expand editForms -> fields)
+          if (comp.component?.type === 'tagpad') {
+            // Tagpad container label
+            labelByPathMap.set(comp.path, comp.component?.label || comp.key || 'Tagpad');
+
+            const forms = Array.isArray(comp.editForms) ? comp.editForms : [];
+            const tagpadArray = Array.isArray(comp._data?.tagpad) ? comp._data.tagpad : [];
+
+            forms.forEach((form, idx) => {
+              const basePath = `${comp.path}[${idx}]`;
+              const formLabel = `Tag ${idx + 1}`;
+              labelByPathMap.set(basePath, formLabel);
+
+              // Prefer the edit form's data; fall back to the tagpad array slot
+              const formData = (form && form.data) ? form.data : (tagpadArray[idx] || {});
+              const formComps = Array.isArray(form?.components) ? form.components : [];
+
+              formComps.forEach((ch) => {
+                const key =
+                  ch?.key ||
+                  ch?.path ||
+                  ch?.component?.key;
+                if (!key) return;
+
+                // Value: use editForm.data first, then component value
+                let val = (formData && Object.prototype.hasOwnProperty.call(formData, key))
+                  ? formData[key]
+                  : ('getValue' in ch ? ch.getValue() : (ch.dataValue ?? ''));
+
+                leaves.push({
+                  comp: ch,
+                  path: `${basePath}.${key}`,
+                  label: ch.component?.label || ch.label || key,
+                  value: val
+                });
+              });
+            });
+
+            // Don't traverse comp.components for tagpad to avoid duplicates
             continue;
           }
 
@@ -653,14 +697,31 @@ export default class ReviewButton extends FieldComponent {
             comp?.type !== 'button' &&
             comp?.type !== 'panel';
 
-          const inRepeater =
-            comp?.parent?.component?.type === 'editgrid' ||
-            comp?.parent?.component?.type === 'datagrid';
+          const parent = comp?.parent;
+          const parentType = parent?.component?.type;
+          
+          // Check if component is inside a TagPad form
+          const isInTagpadForm = 
+            parent && parentType === 'tagpad' && 
+            comp.__reviewPath && comp.__reviewPath.includes('[') && comp.__reviewPath.includes(']');
 
-          // include if explicitly reviewVisible OR it's a normal input inside a grid
+          // inside a repeating container?
+          const inRepeater =
+            parentType === 'editgrid' ||
+            parentType === 'datagrid' ||
+            parentType === 'tagpad' ||            
+            isInTagpadForm ||                     // Component is in a TagPad form
+            Array.isArray(parent?.rows) ||        // datagrid-like
+            Array.isArray(parent?.editForms) ||   // TagPad edit forms array
+            Array.isArray(parent?.editRows);      // editgrid-like
+            
+          // Always include Tagpad components regardless of visibility
+          const isTagpadComponent = comp.type === 'tagpad' || comp.component?.type === 'tagpad' || isInTagpadForm;
+
+          // include if explicitly reviewVisible OR it's a normal input inside a grid OR it's a tagpad component
           if (
-            comp.visible !== false &&
-            (comp.component?.reviewVisible === true || (isInputish && inRepeater))
+            (comp.visible !== false || isTagpadComponent) &&
+            (comp.component?.reviewVisible === true || (isInputish && inRepeater) || isTagpadComponent)
           ) {
             leaves.push({
               comp,
@@ -716,6 +777,28 @@ export default class ReviewButton extends FieldComponent {
           // Handle signature components
           if (comp?.component?.type === 'signature') {
             return value ? 'Signed' : 'Not Signed';
+          }
+
+          // Handle tagpad directly - with simpler processing to avoid recursion
+          if (comp?.type === 'tagpad' || (comp?.parent?.type === 'tagpad' && comp?.parent?.component?.type === 'tagpad')) {
+            // For simple values, just return as is
+            if (typeof value !== 'object' || value === null) {
+              return value ?? '';
+            }
+            // For objects or arrays, convert to string directly
+            try {
+              if (Array.isArray(value)) {
+                return value.join(', ');
+              } else if (typeof value === 'object') {
+                // For objects, try to extract a useful representation
+                return String(value?.value || value?.data || value?.text || 
+                      Object.values(value)[0] || JSON.stringify(value));
+              }
+            } catch (e) {
+              console.warn('Error formatting tagpad value:', e);
+            }
+            // Default fallback
+            return String(value);
           }
 
           if (comp?.component?.type === 'selectboxes') {
@@ -797,7 +880,19 @@ export default class ReviewButton extends FieldComponent {
 
             if (v && v.__leaf) {
               const val = firstLeafVal(v);
-              return `<div style="${pad}"><strong>${v.__label || k}:</strong> ${val}</div>`;
+              // Check if this is a tagpad form entry from path - simplified check to avoid potential recursion
+              const isTagpadDot = v.__label?.startsWith('Tag ') || 
+                                 (v.__comp?.type === 'tagpad') ||
+                                 (v.__comp?.parent?.type === 'tagpad');
+              
+              if (isTagpadDot) {
+                // For tagpad forms, simplify to just show label: value (without nested divs)
+                // If the value is a simple number, show it directly
+                return `<div style="${pad}"><strong>${v.__label || k}:</strong> ${val}</div>`;
+              } else {
+                // Normal rendering for other leaf nodes
+                return `<div style="${pad}"><strong>${v.__label || k}:</strong> ${val}</div>`;
+              }
             }
 
             if (v && typeof v === 'object') {
@@ -868,9 +963,12 @@ export default class ReviewButton extends FieldComponent {
               const childrenHtml = [
                 hasRows
                   ? `<ul style="list-style-type:circle; padding-left:30px; margin:0;">${
-                      Object.entries(v.__rows).map(([i, r]) =>
-                        `<li style="margin-left:0 !important; padding-left: 0 !important;">Row ${Number(i)+1}:${renderNode(r.__children, depth + 1)}</li>`
-                      ).join('')
+                      Object.entries(v.__rows).map(([i, r]) => {
+                        // For tagpad components, show "Tag X" instead of "Row X"
+                        const isTagpad = k === 'tagpad' || v.__label === 'Tagpad';
+                        const rowLabel = isTagpad ? `Tag ${Number(i)+1}` : `Row ${Number(i)+1}`;
+                        return `<li style="margin-left:0 !important; padding-left: 0 !important;">${rowLabel}:${renderNode(r.__children, depth + 1)}</li>`;
+                      }).join('')
                     }</ul>` : '',
                 hasChildren ? renderNode(v.__children, depth + 1) : ''
               ].join('');
