@@ -713,6 +713,11 @@ export default class ReviewButton extends FieldComponent {
             comp?.component?.storage ||
             comp?.component?.filePattern;
 
+          // Handle signature components
+          if (comp?.component?.type === 'signature') {
+            return value ? 'Signed' : 'Not Signed';
+          }
+
           if (comp?.component?.type === 'selectboxes') {
             if (value && typeof value === 'object' && Object.values(value).some(v => typeof v === 'boolean')) {
               const selected = Object.keys(value).filter(k => value[k] === true);
