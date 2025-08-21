@@ -646,7 +646,22 @@ export default class ReviewButton extends FieldComponent {
             continue;
           }
 
-          if (comp.component?.reviewVisible === true && comp.visible !== false) {
+          const isContainer = Array.isArray(comp.components) && comp.components.length > 0;
+          const isInputish =
+            comp?.component?.input !== false &&
+            !isContainer &&
+            comp?.type !== 'button' &&
+            comp?.type !== 'panel';
+
+          const inRepeater =
+            comp?.parent?.component?.type === 'editgrid' ||
+            comp?.parent?.component?.type === 'datagrid';
+
+          // include if explicitly reviewVisible OR it's a normal input inside a grid
+          if (
+            comp.visible !== false &&
+            (comp.component?.reviewVisible === true || (isInputish && inRepeater))
+          ) {
             leaves.push({
               comp,
               path: comp.__reviewPath || comp.path || comp.key,
