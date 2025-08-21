@@ -493,6 +493,7 @@ export default class ReviewButton extends FieldComponent {
         await new Promise(resolve => setTimeout(resolve, 100));
         const allDatagrids = [];
         this.root.everyComponent(comp => {
+          console.log("Comp", comp)
           if (comp.component?.type === 'datagrid') {
             allDatagrids.push(comp);
           }
@@ -529,7 +530,8 @@ export default class ReviewButton extends FieldComponent {
         if (root.ready) await root.ready;
         const leaves = [];
         const labelByPathMap = new Map();
-        const suppressLabelForKey = new Set(['data', 'dataGrid']);
+        const metaByPathMap = new Map(); // <— NEW
+        const suppressLabelForKey = new Set(['data']);
         const queue = [];
         const enqueueAll = (f) => f.everyComponent && f.everyComponent((c) => queue.push(c));
         enqueueAll(root);
@@ -555,22 +557,71 @@ export default class ReviewButton extends FieldComponent {
             continue;
           }
 
-          if (comp.component?.type === 'datagrid' && comp.rows) {
+          if (comp.component?.type === 'datagrid') {
             labelByPathMap.set(comp.path, comp.component?.label || comp.key || 'List');
-            comp.rows.forEach((row, rIdx) => {
-              Object.values(row).forEach((child) => {
-                if (child) {
-                  child.__reviewPath = `${comp.path}[${rIdx}].${child.path?.slice(comp.path.length + 1) || child.key}`;
-                  // If this is a nested form within a datagrid row, set its label in the map
-                  if (child.type === 'form') {
-                    const formPath = child.__reviewPath;
-                    const formTitle = child.formObj?.title || child.component?.label || child.key || 'Form';
-                    labelByPathMap.set(formPath, formTitle);
-                  }
-                  queue.push(child);
-                }
-              });
+
+            // Capture leaf columns for this datagrid (used for the review view)
+            // First check if we have comp.columns (from the console.log)
+            let colDefs = [];
+            
+            if (comp.columns && Array.isArray(comp.columns)) {
+              // Use columns property if available
+              colDefs = comp.columns;
+              console.log("Using DataGrid columns property:", colDefs);
+            } else if (comp.components && Array.isArray(comp.components)) {
+              // Fall back to components
+              colDefs = comp.components.filter(c =>
+                c?.input !== false &&
+                !['panel','form','container','columns','datagrid','editgrid'].includes(c.type)
+              );
+              console.log("Using DataGrid components property:", colDefs);
+            }
+            
+            const columnKeys = colDefs.map(c => c.key || c.path || c.component?.key || '');
+            const columnLabels = colDefs.map(c => c.label || c.component?.label || c.key || '');
+            
+            console.log(`DataGrid metadata for ${comp.path}:`, {
+              colDefs,
+              columnKeys,
+              columnLabels,
+              componentObj: comp
             });
+            
+            metaByPathMap.set(comp.path, {
+              kind: 'datagrid',
+              columnKeys,
+              columnLabels
+            });
+
+            if (comp.rows) {
+              console.log(`Processing DataGrid rows for ${comp.path}:`, comp.rows);
+              
+              comp.rows.forEach((row, rIdx) => {
+                console.log(`Row ${rIdx} contents:`, row);
+                
+                Object.values(row).forEach((child) => {
+                  if (child) {
+                    child.__reviewPath = `${comp.path}[${rIdx}].${child.path?.slice(comp.path.length + 1) || child.key}`;
+                    console.log(`Child in row ${rIdx}:`, {
+                      key: child.key,
+                      type: child.type,
+                      path: child.path,
+                      reviewPath: child.__reviewPath
+                    });
+                    
+                    // If this is a nested form within a datagrid row, set its label in the map
+                    if (child.type === 'form') {
+                      const formPath = child.__reviewPath;
+                      const formTitle = child.formObj?.title || child.component?.label || child.key || 'Form';
+                      labelByPathMap.set(formPath, formTitle);
+                    }
+                    queue.push(child);
+                  }
+                });
+              });
+            } else {
+              console.log(`DataGrid ${comp.path} has no rows`);
+            }
             continue;
           }
 
@@ -609,13 +660,20 @@ export default class ReviewButton extends FieldComponent {
         labelByPathMap.forEach((value, key) => {
           labelByPath[key] = value;
         });
-        return { leaves, labelByPath, suppressLabelForKey };
+        const metaByPath = {};
+        metaByPathMap.forEach((value, key) => {
+          metaByPath[key] = value;
+        });
+        return { leaves, labelByPath, suppressLabelForKey, metaByPath };
       }
 
       // Build readable HTML tree using labels
-      function renderLeaves(leaves, labelByPath, suppressLabelForKey) {
+      function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath) {
         const root = {};
-        const ensureNode = (obj, k) => (obj[k] ??= { __children: {}, __rows: {}, __label: null, __suppress: false });
+        const ensureNode = (obj, k) => (obj[k] ??= {
+          __children: {}, __rows: {}, __label: null, __suppress: false,
+          __kind: null, __colKeys: null, __colLabels: null
+        });
 
         function setNodeLabelForPath(node, containerPath) {
           if (!node.__label && labelByPath && typeof labelByPath === 'object' && containerPath in labelByPath) {
@@ -623,7 +681,16 @@ export default class ReviewButton extends FieldComponent {
           }
         }
 
-        // helper: make values pretty, especially files/images
+        function setNodeMetaForPath(node, containerPath) {
+          const m = metaByPath && metaByPath[containerPath];
+          if (m && !node.__kind) {
+            node.__kind = m.kind;
+            node.__colKeys = m.columnKeys || [];
+            node.__colLabels = m.columnLabels || [];
+          }
+        }
+
+        // pretty-print values (files, arrays, booleans, etc.)
         function formatValue(value, comp) {
           const isFileish =
             comp?.component?.type === 'file' ||
@@ -631,62 +698,43 @@ export default class ReviewButton extends FieldComponent {
             comp?.component?.storage ||
             comp?.component?.filePattern;
 
-
-          // Handle select boxes with multiple selections
-          if (comp?.component?.type === "selectboxes") {
-            // Format 1: {"value1":true,"value2":true} - object with boolean flags
-            if (Object.values(value).some(v => typeof v === 'boolean')) {
-              const selectedValues = Object.keys(value).filter(key => value[key] === true);
-              if (selectedValues.length) {
-                // Only show values set to true
-                return selectedValues.join(', ');
-              } else {
-                // If all values are false, show "None selected"
-                return "";
-              }
-            }
-            
-            // Format 2: If the value is an array of objects with label/value properties
-            if (Array.isArray(value) && value.length && typeof value[0] === 'object') {
-              if ('label' in value[0] || 'value' in value[0]) {
-                const selectedItems = value.filter(item => item.selected || item.checked);
-                if (selectedItems.length) {
-                  return selectedItems.map(item => item.label || item.value).join(', ');
-                } else {
-                  return "";
-                }
-              }
+          if (comp?.component?.type === 'selectboxes') {
+            if (value && typeof value === 'object' && Object.values(value).some(v => typeof v === 'boolean')) {
+              const selected = Object.keys(value).filter(k => value[k] === true);
+              return selected.join(', ');
             }
           }
-          
+
           if (Array.isArray(value)) {
             if (isFileish && value.length && typeof value[0] === 'object') {
-              // Try common name fields from Form.io file objects
-              const names = value.map(v =>
-                v?.originalName || v?.name || v?.fileName || v?.path || '[file]'
-              );
+              const names = value.map(v => v?.originalName || v?.name || v?.fileName || v?.path || '[file]');
               return names.join(', ');
             }
             return value.join(', ');
           }
 
           if (value && typeof value === 'object') {
-            if (isFileish) {
-              return value.originalName || value.name || value.fileName || '[file]';
-            }
-            // fallback so you never see [object Object]
+            if (isFileish) return value.originalName || value.name || value.fileName || '[file]';
             try { return JSON.stringify(value); } catch { return String(value); }
           }
-          
-          
 
           if (value === false) return 'No';
-          if (value === true) return 'Yes';
+          if (value === true)  return 'Yes';
           return value ?? '';
         }
 
+        function firstLeafVal(n) {
+          if (!n) return '';
+          if (n.__leaf) return formatValue(n.__value, n.__comp);
+          for (const [, child] of Object.entries(n.__children || {})) {
+            const v = firstLeafVal(child);
+            if (v !== '') return v;
+          }
+          return '';
+        }
+
+        // ---- build tree from leaf paths
         for (const { path, label, value, comp } of leaves) {
-          // AFTER: drop empty bits and stray "0]", "1]", "2]" tokens
           const parts = path
             .replace(/\.data\./g, '.')
             .split('.')
@@ -704,6 +752,7 @@ export default class ReviewButton extends FieldComponent {
             const node = ensureNode(ptr, key);
             if (suppressLabelForKey.has(key)) node.__suppress = true;
             setNodeLabelForPath(node, containerPath);
+            setNodeMetaForPath(node, containerPath);
 
             if (idxMatch) {
               const idx = Number(idxMatch[1]);
@@ -717,31 +766,91 @@ export default class ReviewButton extends FieldComponent {
           }
         }
 
-          const renderNode = (node, depth = 0) => {
+        // ---- render tree
+        const renderNode = (node, depth = 0) => {
           const pad = `margin-left:${depth * 15}px; padding-left:10px; border-left:1px dotted #ccc;`;
           return Object.entries(node).map(([k, v]) => {
-            // Ignore stray numeric bracket tokens like "0]" if any slipped through
+            // ignore stray tokens
             if (/^\d+\]$/.test(k)) {
-              return v && typeof v === 'object'
-                ? renderNode(v.__children || {}, depth)
-                : '';
+              return v && typeof v === 'object' ? renderNode(v.__children || {}, depth) : '';
             }
+
             if (v && v.__leaf) {
-              const val = formatValue(v.__value, v.__comp);
+              const val = firstLeafVal(v);
               return `<div style="${pad}"><strong>${v.__label || k}:</strong> ${val}</div>`;
             }
+
             if (v && typeof v === 'object') {
               const hasChildren = v.__children && Object.keys(v.__children).length;
               const hasRows = v.__rows && Object.keys(v.__rows).length;
               const displayLabel = v.__suppress ? '' : (v.__label || (k === 'form' ? '' : k));
               const header = displayLabel ? `<div style="${pad}"><strong>${displayLabel}:</strong>` : `<div style="${pad}">`;
+
+              // ---- DataGrid: render as Rows -> Columns -> fields
+              if (v.__kind === 'datagrid' && hasRows) {
+                // which columns are present across rows?
+                const presentKeys = new Set();
+                Object.values(v.__rows).forEach(r => {
+                  Object.keys(r.__children || {}).forEach(cKey => presentKeys.add(cKey));
+                });
+
+                // keep schema order if we have it
+                const orderedKeys = Array.isArray(v.__colKeys) && v.__colKeys.length
+                  ? v.__colKeys.filter(cKey => presentKeys.has(cKey))
+                  : Array.from(presentKeys);
+
+                const labelByKey = new Map(
+                  (v.__colKeys || []).map((cKey, i) => [cKey, (v.__colLabels || [])[i] || cKey])
+                );
+
+                const rowIdxs = Object.keys(v.__rows).map(n => Number(n)).sort((a,b)=>a-b);
+                const rowsHtml = rowIdxs.map((rowIdx) => {
+                  const row = v.__rows[rowIdx];
+                  const haveMultiCols = orderedKeys.length > 1;
+
+                  // indent for "Column" lines
+                  const padRow = `margin-left:${(depth + 1) * 15}px; padding-left:10px; border-left:1px dotted #ccc;`;
+                  const padCol = `margin-left:${(depth + 2) * 15}px; padding-left:10px; border-left:1px dotted #ccc;`;
+
+                  if (haveMultiCols) {
+                    const colsHtml = orderedKeys.map((colKey, colIdx) => {
+                      const cell = row.__children[colKey];
+                      let cellContent = '';
+                      if (!cell) {
+                        cellContent = '<div style="'+padCol+'">(empty)</div>';
+                      } else if (cell.__leaf) {
+                        const val = firstLeafVal(cell);
+                        cellContent = `<div style="${padCol}"><strong>${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${val}</div>`;
+                      } else {
+                        // list any leaves under this column (labels + values)
+                        const inner = renderNode(cell.__children || {}, depth + 2);
+                        cellContent = inner || `<div style="${padCol}">(empty)</div>`;
+                      }
+                      return `<div style="${padCol}"><em>Column ${colIdx+1}</em>${innerSpacer()}</div>${cellContent}`;
+                    }).join('');
+
+                    return `<li style="margin-left:0 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;','')}">Row ${rowIdx+1}:${colsHtml}</li>`;
+                  } else {
+                    // single-column grid → just render the cell contents under the row
+                    const onlyKey = orderedKeys[0];
+                    const cell = row.__children[onlyKey];
+                    const inner = cell?.__leaf
+                      ? `<div style="${padRow}"><strong>${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong> ${firstLeafVal(cell)}</div>`
+                      : renderNode(cell?.__children || {}, depth + 1);
+                    return `<li style="margin-left:0 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;','')}">Row ${rowIdx+1}:${inner}</li>`;
+                  }
+                }).join('');
+
+                return `${header}<ul style="list-style-type:circle; padding-left:30px; margin:0;">${rowsHtml}</ul></div>`;
+              }
+
+              // ---- default rendering
               const childrenHtml = [
                 hasRows
-                  ? `<ul style="list-style-type:circle; padding-left:15px; margin:0;">${
-                      Object.entries(v.__rows).map(([i, r]) => {
-                        // Each row may contain a form or other nested components with their own labels
-                        return `<li>Item ${Number(i)+1}:${renderNode(r.__children, depth + 1)}</li>`;
-                      }).join('')
+                  ? `<ul style="list-style-type:circle; padding-left:30px; margin:0;">${
+                      Object.entries(v.__rows).map(([i, r]) =>
+                        `<li style="margin-left:0 !important; padding-left: 0 !important;">Row ${Number(i)+1}:${renderNode(r.__children, depth + 1)}</li>`
+                      ).join('')
                     }</ul>` : '',
                 hasChildren ? renderNode(v.__children, depth + 1) : ''
               ].join('');
@@ -750,15 +859,18 @@ export default class ReviewButton extends FieldComponent {
             return '';
           }).join('');
         };
-        
+
+        // tiny spacer to keep "Column X" label on its own line before fields
+        function innerSpacer(){ return `<span style="display:block;height:2px;"></span>`; }
+
         return renderNode(root, 0);
       }
 
 
       // --- USAGE inside your click handler (replace your current leaves/html logic):
-      const { leaves, labelByPath, suppressLabelForKey } = await collectReviewLeavesAndLabels(this.root);
+      const { leaves, labelByPath, suppressLabelForKey, metaByPath } = await collectReviewLeavesAndLabels(this.root);
       // labelByPath is already a plain object, no need for conversion
-      const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey);
+      const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath);
 
       // Get the latest data after refresh
       const allData = this.root.getValue();
