@@ -718,8 +718,17 @@ export default class ReviewButton extends FieldComponent {
           // Always include Tagpad components regardless of visibility
           const isTagpadComponent = comp.type === 'tagpad' || comp.component?.type === 'tagpad' || isInTagpadForm;
 
+          // Skip content and htmlelement components
+          const isContentComponent = 
+            comp?.component?.type === 'content' || 
+            comp?.component?.type === 'htmlelement' || 
+            comp?.type === 'content' ||
+            comp?.type === 'htmlelement';
+            
           // include if explicitly reviewVisible OR it's a normal input inside a grid OR it's a tagpad component
+          // BUT exclude content and HTML components
           if (
+            !isContentComponent &&
             (comp.visible !== false || isTagpadComponent) &&
             (comp.component?.reviewVisible === true || (isInputish && inRepeater) || isTagpadComponent)
           ) {
