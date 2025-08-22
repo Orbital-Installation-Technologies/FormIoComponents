@@ -3,9 +3,16 @@ import editForm from "./ReviewButton.form";
 
 const FieldComponent = Components.components.field;
 
+/**
+ * ReviewButton Component for Form.io
+ * Handles form validation and submission review functionality
+ */
 export default class ReviewButton extends FieldComponent {
   static editForm = editForm;
 
+  /**
+   * Schema definition for the component
+   */
   static schema(...extend) {
     return FieldComponent.schema(
       {
@@ -18,6 +25,9 @@ export default class ReviewButton extends FieldComponent {
     );
   }
 
+  /**
+   * Builder information for Form.io builder
+   */
   static get builderInfo() {
     return {
       title: "Review Button",
@@ -29,56 +39,85 @@ export default class ReviewButton extends FieldComponent {
     };
   }
 
-  constructor(component, options, data) {
-    super(component, options, data);
-  }
-
+  /**
+   * Initialize component
+   */
   init() {
     super.init();
 
+    // Refresh page after successful submission
     this.root.on("submitDone", () => {
       window.location.reload();
     });
 
     if (this.root) {
-      this.root.validateFormExternal = async (options) => {
-        return await this.validateFormExternal(options);
-      };
+      // Register validation methods on the root form
+      this.registerFormValidationMethods();
 
-      this.root.isFormValid = async () => {
-        return await this.isFormValid();
-      };
+      // Setup validation event handler
+      this.setupValidationEventHandler();
 
-      this.root.validateFields = async (fieldKeys, options) => {
-        return await this.validateFields(fieldKeys, options);
-      };
-
-      this.root.triggerValidation = async (options) => {
-        return await this.triggerValidation(options);
-      };
-
-      this.root.on("validateForm", async (callback) => {
-        const results = await this.validateFormExternal();
-        if (typeof callback === "function") {
-          callback(results);
-        }
-        return results;
-      });
-
-      if (typeof window !== 'undefined') {
-        window.formValidation = {
-          validate: async (options) => await this.validateFormExternal(options),
-          validateFields: async (fields, options) => await this.validateFields(fields, options),
-          isValid: async () => await this.isFormValid()
-        };
-      }
+      // Expose validation methods to window for external access
+      this.exposeValidationMethods();
     }
   }
 
+  /**
+   * Register validation methods on the root form
+   */
+  registerFormValidationMethods() {
+    this.root.validateFormExternal = async (options) => {
+      return await this.validateFormExternal(options);
+    };
+
+    this.root.isFormValid = async () => {
+      return await this.isFormValid();
+    };
+
+    this.root.validateFields = async (fieldKeys, options) => {
+      return await this.validateFields(fieldKeys, options);
+    };
+
+    this.root.triggerValidation = async (options) => {
+      return await this.triggerValidation(options);
+    };
+  }
+
+  /**
+   * Setup validation event handler
+   */
+  setupValidationEventHandler() {
+    this.root.on("validateForm", async (callback) => {
+      const results = await this.validateFormExternal();
+      if (typeof callback === "function") {
+        callback(results);
+      }
+      return results;
+    });
+  }
+
+  /**
+   * Expose validation methods to window object for external access
+   */
+  exposeValidationMethods() {
+    if (typeof window !== 'undefined') {
+      window.formValidation = {
+        validate: async (options) => await this.validateFormExternal(options),
+        validateFields: async (fields, options) => await this.validateFields(fields, options),
+        isValid: async () => await this.isFormValid()
+      };
+    }
+  }
+
+  /**
+   * Basic form validation
+   * @returns {Promise<boolean>} Whether the form is valid
+   */
   async validateForm() {
     try {
       let isValid = true;
 
+      // Validate each component
       this.root.everyComponent(component => {
         if (component.checkValidity) {
           const valid = component.checkValidity(component.data, true);
@@ -89,13 +128,12 @@ export default class ReviewButton extends FieldComponent {
         }
       });
 
+      // Redraw the form to show validation messages
       this.root.redraw();
 
+      // Scroll to the first error if validation failed
       if (!isValid) {
-        const firstError = this.root.element.querySelector('.formio-error-wrapper, .has-error, .is-invalid');
-        if (firstError) {
-          firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
+        this.scrollToFirstError();
       }
 
       return isValid;
@@ -104,52 +142,48 @@ export default class ReviewButton extends FieldComponent {
     }
   }
 
+  /**
+   * Scroll to the first error element in the form
+   */
+  scrollToFirstError() {
+    const firstError = this.root.element.querySelector('.formio-error-wrapper, .has-error, .is-invalid');
+    if (firstError) {
+      firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
+  /**
+   * Thorough form validation that marks all components as dirty
+   * @returns {Promise<boolean>} Whether the form is valid
+   */
   async validateFormHard() {
     try {
-      if (this.root?.everyComponent) {
-        this.root.everyComponent((c) => {
-          try {
-            if (typeof c.setPristine === 'function') c.setPristine(false);
-            if (typeof c.setDirty === 'function') c.setDirty(true);
-          } catch { }
-        });
-      }
+      // Mark all components as dirty
+      this.markAllComponentsAsDirty();
 
+      // Get form data and validate
       const data = this.root?.submission?.data ?? this.root?.data ?? {};
       let isValid = true;
+
       if (typeof this.root?.checkValidity === 'function') {
         isValid = this.root.checkValidity(data, true);
       }
 
+      // Show errors and redraw
       if (!isValid && typeof this.root?.showErrors === 'function') {
         this.root.showErrors();
       }
+
       if (typeof this.root?.redraw === 'function') {
         await this.root.redraw();
       }
 
-      if (this.root?.everyComponent) {
-        this.root.everyComponent((c) => {
-          try {
-            if (c.component?.type === 'datagrid' && c.rows) {
-              c.rows.forEach((row) => {
-                Object.values(row).forEach((child) => {
-                  if (child?.setPristine) child.setPristine(false);
-                  if (child?.setDirty) child.setDirty(true);
-                });
-              });
-            }
-          } catch { }
-        });
-      }
+      // Special handling for datagrid components
+      this.markDatagridRowsAsDirty();
 
+      // Scroll to first error if validation failed
       if (!isValid) {
-        const firstError = this.root?.element?.querySelector?.(
-          '.formio-error-wrapper, .has-error, .is-invalid, [data-component-error="true"]'
-        );
-        if (firstError?.scrollIntoView) {
-          firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
+        this.scrollToFirstErrorAdvanced();
       }
 
       return !!isValid;
@@ -158,6 +192,58 @@ export default class ReviewButton extends FieldComponent {
     }
   }
 
+  /**
+   * Mark all components as dirty for validation
+   */
+  markAllComponentsAsDirty() {
+    if (this.root?.everyComponent) {
+      this.root.everyComponent((c) => {
+        try {
+          if (typeof c.setPristine === 'function') c.setPristine(false);
+          if (typeof c.setDirty === 'function') c.setDirty(true);
+        } catch { }
+      });
+    }
+  }
+
+  /**
+   * Mark all datagrid rows as dirty for validation
+   */
+  markDatagridRowsAsDirty() {
+    if (this.root?.everyComponent) {
+      this.root.everyComponent((c) => {
+        try {
+          if (c.component?.type === 'datagrid' && c.rows) {
+            c.rows.forEach((row) => {
+              Object.values(row).forEach((child) => {
+                if (child?.setPristine) child.setPristine(false);
+                if (child?.setDirty) child.setDirty(true);
+              });
+            });
+          }
+        } catch { }
+      });
+    }
+  }
+
+  /**
+   * Scroll to the first error element with advanced selector
+   */
+  scrollToFirstErrorAdvanced() {
+    const firstError = this.root?.element?.querySelector?.(
+      '.formio-error-wrapper, .has-error, .is-invalid, [data-component-error="true"]'
+    );
+    if (firstError?.scrollIntoView) {
+      firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
+  /**
+   * Validate specific fields in the form
+   * @param {string|string[]} fieldKeys - Keys of fields to validate
+   * @param {Object} options - Validation options
+   * @returns {Promise<Object>} Validation results
+   */
   async validateFields(fieldKeys, options = {}) {
     const keys = Array.isArray(fieldKeys) ? fieldKeys : [fieldKeys];
     const opts = {
@@ -167,94 +253,191 @@ export default class ReviewButton extends FieldComponent {
     };
 
     try {
-      const results = {
-        isValid: true,
-        fieldResults: {},
-        errors: {},
-        invalidComponents: []
-      };
+      // Initialize results object
+      const results = this.initializeValidationResults();
 
-      const componentsToValidate = [];
+      // Find components to validate
+      const componentsToValidate = this.findComponentsToValidate(keys);
 
-      if (this.root?.everyComponent) {
-        this.root.everyComponent((component) => {
-          try {
-            if (keys.includes(component.key) || keys.includes(component.path)) {
-              componentsToValidate.push(component);
-            }
-          } catch { }
-        });
-      }
+      // Validate each component
+      await this.validateSelectedComponents(componentsToValidate, results, opts);
 
-      for (const component of componentsToValidate) {
-        const componentKey = component.key || component.path;
-        const componentLabel = component.component?.label || componentKey;
-        const componentPath = component.path || componentKey;
-
-        if (typeof component.setPristine === 'function') component.setPristine(false);
-        if (typeof component.setDirty === 'function') component.setDirty(true);
-
-        const isValid = component.checkValidity ? component.checkValidity(component.data, true) : true;
-
-        results.fieldResults[componentKey] = {
-          isValid,
-          errors: component.errors || [],
-          label: componentLabel,
-          path: componentPath
-        };
-
-        if (!isValid) {
-          results.isValid = false;
-          results.errors[componentKey] = {
-            label: componentLabel,
-            errors: component.errors || ['Invalid']
-          };
-          results.invalidComponents.push({
-            component,
-            path: componentPath,
-            label: componentLabel
-          });
-
-          if (opts.showErrors && component.setCustomValidity) {
-            component.setCustomValidity(component.errors, true);
-          }
-        }
-      }
-
-      if (opts.showErrors && typeof this.root?.redraw === 'function') {
-        await this.root.redraw();
-      }
-
-      if (opts.scrollToError && !results.isValid && results.invalidComponents.length > 0) {
-        const firstComponent = results.invalidComponents[0].component;
-        if (firstComponent.element?.scrollIntoView) {
-          firstComponent.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
+      // Handle UI updates (show errors and scroll)
+      if (opts.showErrors) {
+        await this.updateUIWithErrors(results, opts.scrollToError);
       }
 
       return results;
     } catch (err) {
-      return {
-        isValid: false,
-        fieldResults: {},
-        errors: { system: { label: 'System', errors: ['Field validation failed'] } },
-        invalidComponents: []
-      };
+      return this.createErrorResults();
     }
   }
 
+  /**
+   * Initialize the validation results object
+   * @returns {Object} Empty validation results structure
+   */
+  initializeValidationResults() {
+    return {
+      isValid: true,
+      fieldResults: {},
+      errors: {},
+      invalidComponents: []
+    };
+  }
+
+  /**
+   * Find components that match the given keys
+   * @param {string[]} keys - Component keys to find
+   * @returns {Array} Array of matching components
+   */
+  findComponentsToValidate(keys) {
+    const componentsToValidate = [];
+
+    if (this.root?.everyComponent) {
+      this.root.everyComponent((component) => {
+        try {
+          if (keys.includes(component.key) || keys.includes(component.path)) {
+            componentsToValidate.push(component);
+          }
+        } catch { }
+      });
+    }
+
+    return componentsToValidate;
+  }
+
+  /**
+   * Validate the selected components and update results
+   * @param {Array} components - Components to validate
+   * @param {Object} results - Results object to update
+   * @param {Object} options - Validation options
+   */
+  async validateSelectedComponents(components, results, options) {
+    for (const component of components) {
+      const componentKey = component.key || component.path;
+      const componentLabel = component.component?.label || componentKey;
+      const componentPath = component.path || componentKey;
+
+      // Mark component as dirty for validation
+      this.markComponentAsDirty(component);
+
+      // Validate the component
+      const isValid = component.checkValidity ? component.checkValidity(component.data, true) : true;
+
+      // Record results
+      this.recordComponentValidationResult(
+        results,
+        component,
+        componentKey,
+        componentLabel,
+        componentPath,
+        isValid,
+        options.showErrors
+      );
+    }
+  }
+
+  /**
+   * Mark a component as dirty for validation
+   * @param {Object} component - The component to mark as dirty
+   */
+  markComponentAsDirty(component) {
+    if (typeof component.setPristine === 'function') component.setPristine(false);
+    if (typeof component.setDirty === 'function') component.setDirty(true);
+  }
+
+  /**
+   * Record validation results for a component
+   * @param {Object} results - Results object to update
+   * @param {Object} component - The component that was validated
+   * @param {string} key - Component key
+   * @param {string} label - Component label
+   * @param {string} path - Component path
+   * @param {boolean} isValid - Whether the component is valid
+   * @param {boolean} showErrors - Whether to display errors
+   */
+  recordComponentValidationResult(results, component, key, label, path, isValid, showErrors) {
+    // Always record result
+    results.fieldResults[key] = {
+      isValid,
+      errors: component.errors || [],
+      label,
+      path
+    };
+
+    // If invalid, record error information
+    if (!isValid) {
+      results.isValid = false;
+      results.errors[key] = {
+        label,
+        errors: component.errors || ['Invalid']
+      };
+      results.invalidComponents.push({
+        component,
+        path,
+        label
+      });
+
+      // Show validation errors on the component if needed
+      if (showErrors && component.setCustomValidity) {
+        component.setCustomValidity(component.errors, true);
+      }
+    }
+  }
+
+  /**
+   * Update UI with validation errors
+   * @param {Object} results - Validation results
+   * @param {boolean} scrollToError - Whether to scroll to the first error
+   */
+  async updateUIWithErrors(results, scrollToError) {
+    // Redraw the form to show validation errors
+    if (typeof this.root?.redraw === 'function') {
+      await this.root.redraw();
+    }
+
+    // Scroll to first invalid component if needed
+    if (scrollToError && !results.isValid && results.invalidComponents.length > 0) {
+      const firstComponent = results.invalidComponents[0].component;
+      if (firstComponent.element?.scrollIntoView) {
+        firstComponent.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }
+
+  /**
+   * Create error results when validation fails unexpectedly
+   * @returns {Object} Error results object
+   */
+  createErrorResults() {
+    return {
+      isValid: false,
+      fieldResults: {},
+      errors: { system: { label: 'System', errors: ['Field validation failed'] } },
+      invalidComponents: []
+    };
+  }
+
+  /**
+   * Check if the form is valid without showing errors
+   * @returns {Promise<boolean>} Whether the form is valid
+   */
   async isFormValid() {
     try {
+      // Get form data
       const data = this.root?.submission?.data ?? this.root?.data ?? {};
       let isValid = true;
 
+      // Check each visible and enabled component
       if (this.root?.everyComponent) {
         this.root.everyComponent((c) => {
           try {
-            if (c.checkValidity && c.visible !== false && !c.disabled) {
-              if (!c.checkValidity(c.data, false)) {
-                isValid = false;
-              }
+            // Only validate components that are visible and not disabled
+            const shouldValidate = c.checkValidity && c.visible !== false && !c.disabled;
+
+            if (shouldValidate && !c.checkValidity(c.data, false)) {
+              isValid = false;
             }
           } catch { }
         });
@@ -268,6 +451,11 @@ export default class ReviewButton extends FieldComponent {
   }
 
 
+  /**
+   * Comprehensive form validation with detailed results
+   * @param {Object} options - Validation options
+   * @returns {Promise<Object>} Detailed validation results
+   */
   async validateFormExternal(options = {}) {
     const opts = {
       showErrors: true,
@@ -277,136 +465,223 @@ export default class ReviewButton extends FieldComponent {
     };
 
     try {
-      const results = {
-        isValid: true,
-        errorCount: 0,
-        warningCount: 0,
-        errors: {},
-        warnings: {},
-        invalidComponents: [],
-        errorSummary: ''
-      };
+      // Initialize results object
+      const results = this.initializeExternalValidationResults();
 
-      if (this.root?.everyComponent) {
-        this.root.everyComponent((c) => {
-          try {
-            if (typeof c.setPristine === 'function') c.setPristine(false);
-            if (typeof c.setDirty === 'function') c.setDirty(true);
-          } catch { }
-        });
-      }
+      // Mark all components as dirty for validation
+      this.markAllComponentsAsDirty();
 
+      // Get form data
       const data = this.root?.submission?.data ?? this.root?.data ?? {};
 
+      // Maps to store errors and warnings
       const errorMap = new Map();
       const warningMap = new Map();
 
+      // Validate all visible and enabled components
       if (this.root?.everyComponent) {
-        this.root.everyComponent((component) => {
-          try {
-            if (!component.visible || component.disabled) return;
-
-            if (component.checkValidity) {
-              const isValid = component.checkValidity(component.data, true);
-
-              if (!isValid) {
-                results.isValid = false;
-                results.errorCount++;
-
-                const componentKey = component.key || component.path;
-                const componentLabel = component.component?.label || componentKey;
-                const componentPath = component.path || componentKey;
-
-                if (component.errors && component.errors.length) {
-                  component.errors.forEach(error => {
-                    if (!errorMap.has(componentPath)) {
-                      errorMap.set(componentPath, {
-                        label: componentLabel,
-                        errors: []
-                      });
-                    }
-                    errorMap.get(componentPath).errors.push(error);
-                  });
-                }
-
-                results.invalidComponents.push({
-                  component,
-                  path: componentPath,
-                  label: componentLabel
-                });
-
-                if (opts.showErrors) {
-                  component.setCustomValidity(component.errors, true);
-                }
-              }
-
-              if (opts.includeWarnings && component.warnings && component.warnings.length) {
-                results.warningCount += component.warnings.length;
-
-                const componentKey = component.key || component.path;
-                const componentLabel = component.component?.label || componentKey;
-                const componentPath = component.path || componentKey;
-
-                if (!warningMap.has(componentPath)) {
-                  warningMap.set(componentPath, {
-                    label: componentLabel,
-                    warnings: []
-                  });
-                }
-
-                component.warnings.forEach(warning => {
-                  warningMap.get(componentPath).warnings.push(warning);
-                });
-              }
-            }
-          } catch (err) {
-            console.error(`Error validating component ${component.key}:`, err);
-          }
-        });
+        await this.validateComponentsAndCollectResults(errorMap, warningMap, results, opts);
       }
 
+      // Convert maps to objects for the results
       results.errors = Object.fromEntries(errorMap);
       results.warnings = Object.fromEntries(warningMap);
 
-      const errorSummaryLines = [];
-      errorMap.forEach((data, path) => {
-        data.errors.forEach(error => {
-          errorSummaryLines.push(`${data.label}: ${error}`);
-        });
-      });
-      results.errorSummary = errorSummaryLines.join('\n');
+      // Generate error summary text
+      this.generateErrorSummary(errorMap, results);
 
-      if (opts.showErrors && typeof this.root?.redraw === 'function') {
-        await this.root.redraw();
-
-        if (!results.isValid && typeof this.root?.showErrors === 'function') {
-          this.root.showErrors();
-        }
-
-        if (opts.scrollToError && !results.isValid) {
-          const firstError = this.root?.element?.querySelector?.(
-            '.formio-error-wrapper, .has-error, .is-invalid, [data-component-error="true"]'
-          );
-          if (firstError?.scrollIntoView) {
-            firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          }
-        }
+      // Handle UI updates if needed
+      if (opts.showErrors) {
+        await this.handleExternalValidationUIUpdates(results, opts);
       }
 
       return results;
     } catch (err) {
-      return {
-        isValid: false,
-        errorCount: 1,
-        warningCount: 0,
-        errors: { system: { label: 'System', errors: ['An unexpected error occurred during validation'] } },
-        warnings: {},
-        invalidComponents: [],
-        errorSummary: 'An unexpected error occurred during validation'
-      };
+      return this.createExternalErrorResults();
     }
   }
 
+  /**
+   * Initialize results for external validation
+   * @returns {Object} Empty validation results structure
+   */
+  initializeExternalValidationResults() {
+    return {
+      isValid: true,
+      errorCount: 0,
+      warningCount: 0,
+      errors: {},
+      warnings: {},
+      invalidComponents: [],
+      errorSummary: ''
+    };
+  }
+
+  /**
+   * Validate components and collect results in maps
+   * @param {Map} errorMap - Map to collect errors
+   * @param {Map} warningMap - Map to collect warnings
+   * @param {Object} results - Results object to update
+   * @param {Object} opts - Validation options
+   */
+  async validateComponentsAndCollectResults(errorMap, warningMap, results, opts) {
+    this.root.everyComponent((component) => {
+      try {
+        // Skip invisible or disabled components
+        if (!component.visible || component.disabled) return;
+
+        if (component.checkValidity) {
+          // Validate the component
+          const isValid = component.checkValidity(component.data, true);
+
+          // Process errors if validation failed
+          if (!isValid) {
+            this.processComponentErrors(component, errorMap, results, opts.showErrors);
+          }
+
+          // Process warnings if requested
+          if (opts.includeWarnings && component.warnings && component.warnings.length) {
+            this.processComponentWarnings(component, warningMap, results);
+          }
+        }
+      } catch (err) {
+        console.error(`Error validating component ${component.key}:`, err);
+      }
+    });
+  }
+
+  /**
+   * Process component errors and update results
+   * @param {Object} component - Component with errors
+   * @param {Map} errorMap - Map to collect errors
+   * @param {Object} results - Results object to update
+   * @param {boolean} showErrors - Whether to display errors
+   */
+  processComponentErrors(component, errorMap, results, showErrors) {
+    // Mark form as invalid and increment error count
+    results.isValid = false;
+    results.errorCount++;
+
+    // Get component identification info
+    const componentKey = component.key || component.path;
+    const componentLabel = component.component?.label || componentKey;
+    const componentPath = component.path || componentKey;
+
+    // Collect errors
+    if (component.errors && component.errors.length) {
+      component.errors.forEach(error => {
+        if (!errorMap.has(componentPath)) {
+          errorMap.set(componentPath, {
+            label: componentLabel,
+            errors: []
+          });
+        }
+        errorMap.get(componentPath).errors.push(error);
+      });
+    }
+
+    // Track invalid components
+    results.invalidComponents.push({
+      component,
+      path: componentPath,
+      label: componentLabel
+    });
+
+    // Show validation errors if requested
+    if (showErrors) {
+      component.setCustomValidity(component.errors, true);
+    }
+  }
+
+  /**
+   * Process component warnings and update results
+   * @param {Object} component - Component with warnings
+   * @param {Map} warningMap - Map to collect warnings
+   * @param {Object} results - Results object to update
+   */
+  processComponentWarnings(component, warningMap, results) {
+    // Increment warning count
+    results.warningCount += component.warnings.length;
+
+    // Get component identification info
+    const componentKey = component.key || component.path;
+    const componentLabel = component.component?.label || componentKey;
+    const componentPath = component.path || componentKey;
+
+    // Initialize warning container for this component
+    if (!warningMap.has(componentPath)) {
+      warningMap.set(componentPath, {
+        label: componentLabel,
+        warnings: []
+      });
+    }
+
+    // Collect warnings
+    component.warnings.forEach(warning => {
+      warningMap.get(componentPath).warnings.push(warning);
+    });
+  }
+
+  /**
+   * Generate error summary text from error map
+   * @param {Map} errorMap - Map of errors
+   * @param {Object} results - Results object to update
+   */
+  generateErrorSummary(errorMap, results) {
+    const errorSummaryLines = [];
+
+    errorMap.forEach((data, path) => {
+      data.errors.forEach(error => {
+        errorSummaryLines.push(`${data.label}: ${error}`);
+      });
+    });
+
+    results.errorSummary = errorSummaryLines.join('\n');
+  }
+
+  /**
+   * Handle UI updates for external validation
+   * @param {Object} results - Validation results
+   * @param {Object} opts - Validation options
+   */
+  async handleExternalValidationUIUpdates(results, opts) {
+    // Redraw the form to show validation errors
+    if (typeof this.root?.redraw === 'function') {
+      await this.root.redraw();
+
+      // Show errors if validation failed
+      if (!results.isValid && typeof this.root?.showErrors === 'function') {
+        this.root.showErrors();
+      }
+
+      // Scroll to first error if requested
+      if (opts.scrollToError && !results.isValid) {
+        this.scrollToFirstErrorAdvanced();
+      }
+    }
+  }
+
+  /**
+   * Create error results when external validation fails unexpectedly
+   * @returns {Object} Error results object
+   */
+  createExternalErrorResults() {
+    return {
+      isValid: false,
+      errorCount: 1,
+      warningCount: 0,
+      errors: { system: { label: 'System', errors: ['An unexpected error occurred during validation'] } },
+      warnings: {},
+      invalidComponents: [],
+      errorSummary: 'An unexpected error occurred during validation'
+    };
+  }
+
+  /**
+   * Trigger form validation with optional summary display
+   * @param {Object} options - Validation options
+   * @returns {Promise<Object>} Validation results
+   */
   async triggerValidation(options = {}) {
     const opts = {
       showErrors: true,
@@ -415,95 +690,351 @@ export default class ReviewButton extends FieldComponent {
       ...options
     };
 
+    // Validate the form
     const results = await this.validateFormExternal({
       showErrors: opts.showErrors,
       scrollToError: opts.scrollToError,
       includeWarnings: true
     });
 
+    // Display error summary if requested and there are errors
     if (opts.showSummary && !results.isValid) {
-      const errorSummaryEl = document.createElement('div');
-      errorSummaryEl.className = 'alert alert-danger validation-summary';
-      errorSummaryEl.style.position = 'fixed';
-      errorSummaryEl.style.top = '20px';
-      errorSummaryEl.style.left = '50%';
-      errorSummaryEl.style.transform = 'translateX(-50%)';
-      errorSummaryEl.style.zIndex = '9999';
-      errorSummaryEl.style.maxWidth = '80%';
-      errorSummaryEl.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
-
-      errorSummaryEl.innerHTML = `
-        <h4>Form Validation Errors</h4>
-        <button type="button" class="close" style="position: absolute; top: 5px; right: 10px;">&times;</button>
-        <p>Please fix the following errors:</p>
-        <ul>
-          ${Object.values(results.errors)
-          .flatMap(item => item.errors.map(error => `<li>${item.label}: ${error}</li>`))
-          .join('')}
-        </ul>
-      `;
-
-      document.body.appendChild(errorSummaryEl);
-
-      const closeButton = errorSummaryEl.querySelector('.close');
-      if (closeButton) {
-        closeButton.addEventListener('click', () => {
-          document.body.removeChild(errorSummaryEl);
-        });
-      }
-
-      setTimeout(() => {
-        if (document.body.contains(errorSummaryEl)) {
-          document.body.removeChild(errorSummaryEl);
-        }
-      }, 10000);
+      this.showValidationErrorSummary(results);
     }
 
     return results;
   }
 
+  /**
+   * Display a validation error summary popup
+   * @param {Object} results - Validation results containing errors
+   */
+  showValidationErrorSummary(results) {
+    // Create error summary element
+    const errorSummaryEl = this.createErrorSummaryElement();
+
+    // Generate error summary content
+    errorSummaryEl.innerHTML = this.generateErrorSummaryContent(results);
+
+    // Add to document
+    document.body.appendChild(errorSummaryEl);
+
+    // Setup close button handler
+    this.setupErrorSummaryCloseButton(errorSummaryEl);
+
+    // Auto-dismiss after 10 seconds
+    this.setupErrorSummaryAutoDismiss(errorSummaryEl);
+  }
+
+  /**
+   * Create the error summary element with styles
+   * @returns {HTMLElement} Styled error summary element
+   */
+  createErrorSummaryElement() {
+    const errorSummaryEl = document.createElement('div');
+    errorSummaryEl.className = 'alert alert-danger validation-summary';
+
+    // Apply styles
+    Object.assign(errorSummaryEl.style, {
+      position: 'fixed',
+      top: '20px',
+      left: '50%',
+      transform: 'translateX(-50%)',
+      zIndex: '9999',
+      maxWidth: '80%',
+      boxShadow: '0 4px 8px rgba(0,0,0,0.2)'
+    });
+
+    return errorSummaryEl;
+  }
+
+  /**
+   * Generate the HTML content for the error summary
+   * @param {Object} results - Validation results
+   * @returns {string} HTML content for the error summary
+   */
+  generateErrorSummaryContent(results) {
+    // Generate list items for each error
+    const errorListItems = Object.values(results.errors)
+      .flatMap(item => item.errors.map(error => `<li>${item.label}: ${error}</li>`))
+      .join('');
+
+    return `
+      <h4>Form Validation Errors</h4>
+      <button type="button" class="close" style="position: absolute; top: 5px; right: 10px;">&times;</button>
+      <p>Please fix the following errors:</p>
+      <ul>${errorListItems}</ul>
+    `;
+  }
+
+  /**
+   * Setup the close button for the error summary
+   * @param {HTMLElement} summaryElement - The error summary element
+   */
+  setupErrorSummaryCloseButton(summaryElement) {
+    const closeButton = summaryElement.querySelector('.close');
+    if (closeButton) {
+      closeButton.addEventListener('click', () => {
+        document.body.removeChild(summaryElement);
+      });
+    }
+  }
+
+  /**
+   * Setup auto-dismiss for the error summary
+   * @param {HTMLElement} summaryElement - The error summary element
+   */
+  setupErrorSummaryAutoDismiss(summaryElement) {
+    setTimeout(() => {
+      if (document.body.contains(summaryElement)) {
+        document.body.removeChild(summaryElement);
+      }
+    }, 10000); // 10 seconds
+  }
+
+  /**
+   * Render the component
+   * @returns {string} Rendered HTML
+   */
   render() {
     return super.render(
       `<button ref="button" type="button" class="btn btn-primary" style="width: 100% !important;">${this.component.label}</button>`,
     );
   }
 
+  /**
+   * Attach the component to the DOM
+   * @param {HTMLElement} element - Element to attach to
+   * @returns {HTMLElement} The attached element
+   */
+  /**
+   * Log form structure for debugging
+   */
+  logFormStructure() {
+    // Log the entire form structure
+    console.log('--- ENTIRE FORM STRUCTURE ---');
+    console.log('Form Root:', this.root);
+    console.log('Form Components:', this.root.components);
+
+    // Log detailed component hierarchy
+    console.log('--- COMPONENT HIERARCHY ---');
+    const componentMap = this.buildComponentMap();
+    console.log('Component Map:', componentMap);
+
+    // Log form data
+    console.log('--- FORM DATA ---');
+    console.log('Form Data:', this.root.data);
+    console.log('Form Submission:', this.root.submission);
+    console.log('Form Value:', this.root.getValue());
+  }
+
+  /**
+   * Build a map of components for debugging
+   * @returns {Object} Map of components with their properties
+   */
+  buildComponentMap() {
+    const componentMap = {};
+
+    this.root.everyComponent(comp => {
+      const compInfo = {
+        type: comp.component?.type || comp.type,
+        key: comp.key,
+        path: comp.path,
+        label: comp.component?.label || comp.label || comp.key,
+        value: comp.getValue ? comp.getValue() : comp.dataValue,
+        hasParent: !!comp.parent,
+        parentKey: comp.parent?.key,
+        parentType: comp.parent?.component?.type || comp.parent?.type,
+        hasChildren: Array.isArray(comp.components) && comp.components.length > 0,
+        childCount: Array.isArray(comp.components) ? comp.components.length : 0
+      };
+      componentMap[comp.path || comp.key || 'unknown'] = compInfo;
+    });
+
+    return componentMap;
+  }
+
+  /**
+   * Update all form values to ensure the latest data is captured
+   * @returns {Promise<void>}
+   */
+  async updateFormValues() {
+    try {
+      // Small delay to ensure all UI updates are complete
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Collect all datagrids and datatables, with safety check
+      const allDatagrids = [];
+      try {
+        if (this.root && typeof this.root.everyComponent === 'function') {
+          this.root.everyComponent(comp => {
+            if (comp && comp.component &&
+              (comp.component.type === 'datagrid' || comp.component.type === 'datatable')) {
+              allDatagrids.push(comp);
+            }
+          });
+        }
+      } catch (e) {
+        console.error("Error collecting datagrids/datatables:", e);
+      }
+
+      // Update values in all datagrid and datatable components
+      for (const datagrid of allDatagrids) {
+        try {
+          this.updateDatagridValues(datagrid);
+        } catch (e) {
+          console.error("Error updating datagrid/datatable values:", e);
+        }
+      }
+
+      // Update values in top-level components
+      try {
+        this.updateTopLevelComponentValues();
+      } catch (e) {
+        console.error("Error updating top-level components:", e);
+      }
+    } catch (e) {
+      console.error("Error in updateFormValues:", e);
+    }
+  }
+
+  /**
+   * Update values in a datagrid/datatable component
+   * @param {Object} datagrid - Datagrid or datatable component
+   */
+  updateDatagridValues(datagrid) {
+    // Update the datagrid/datatable value
+    if (datagrid && datagrid.updateValue && typeof datagrid.updateValue === 'function') {
+      try {
+        datagrid.updateValue();
+      } catch (e) {
+        console.error("Error updating datagrid value:", e);
+      }
+    }
+
+    // For datatables, update values in each saved row
+    if (datagrid && datagrid.component?.type === 'datatable' && Array.isArray(datagrid.savedRows)) {
+      datagrid.savedRows.forEach(row => {
+        if (row && Array.isArray(row.components)) {
+          row.components.forEach(component => {
+            this.safelyUpdateComponent(component, 'datatable row component');
+          });
+        }
+      });
+    }
+    // For datagrids, update values in each row
+    else if (datagrid && Array.isArray(datagrid.rows)) {
+      datagrid.rows.forEach(row => {
+        if (row && typeof row === 'object') {
+          Object.values(row).forEach(component => {
+            this.safelyUpdateComponent(component, 'datagrid row component');
+          });
+        }
+      });
+    }
+  }
+
+  /**
+   * Safely update a component's value with error handling
+   * @param {Object} component - The component to update
+   * @param {string} context - Context information for debugging
+   */
+  safelyUpdateComponent(component, context) {
+    if (!component) return;
+
+    // Skip components that might cause issues
+    if (component.type === 'select' && (!component.choices || !Array.isArray(component.choices))) {
+      console.warn(`Skipping Select component update in ${context} - missing choices array`);
+      return;
+    }
+
+    // Only call updateValue if it exists and is a function
+    if (component.updateValue && typeof component.updateValue === 'function') {
+      try {
+        // Ensure all required properties exist before calling updateValue for select components
+        if (component.type === 'select' && typeof component.resetValue !== 'function') {
+          console.warn(`Select component in ${context} missing resetValue method - skipping update`);
+          return;
+        }
+
+        component.updateValue();
+      } catch (e) {
+        console.error(`Error updating component value in ${context}:`, e);
+      }
+    }
+  }
+
+  /**
+   * Update values in top-level components
+   */
+  updateTopLevelComponentValues() {
+    if (Array.isArray(this.root.components)) {
+      this.root.components.forEach(comp => {
+        this.safelyUpdateComponent(comp, 'top-level component');
+      });
+    }
+  }
+
+  /**
+   * Handle the click event on the review button
+   */
+  async handleReviewClick() {
+    try {
+      // Log debugging information
+      this.logFormStructure();
+
+      // Validate the form
+      const validation = await this.validateFormExternal({
+        showErrors: true,
+        scrollToError: true
+      });
+
+      // If validation fails, show error and exit
+      if (!validation.isValid) {
+        if (validation.errorCount > 0) {
+          alert(`Please fix the following errors before proceeding:\n\n${validation.errorSummary}`);
+        }
+        return false;
+      }
+
+      // Update all form values to ensure latest data
+      try {
+        await this.updateFormValues();
+      } catch (e) {
+        console.error("Error updating form values:", e);
+        // Continue with the review process even if some updates fail
+      }
+
+      return true;
+    } catch (e) {
+      console.error("Error in review button click handler:", e);
+      alert("An error occurred while preparing the form for review. Please try again.");
+      return false;
+    }
+  }
+
+  /**
+   * Attach the component to the DOM
+   * @param {HTMLElement} element - Element to attach to
+   * @returns {HTMLElement} The attached element
+   */
   attach(element) {
+    // Load reference to button
     this.loadRefs(element, { button: "single" });
 
+    // Add click event listener to button
     this.addEventListener(this.refs.button, "click", async () => {
-      // Log the entire form structure
-      console.log('--- ENTIRE FORM STRUCTURE ---');
-      console.log('Form Root:', this.root);
-      console.log('Form Components:', this.root.components);
-      
-      // Log detailed component structure
-      const componentMap = {};
-      console.log('--- COMPONENT HIERARCHY ---');
-      this.root.everyComponent(comp => {
-        const compInfo = {
-          type: comp.component?.type || comp.type,
-          key: comp.key,
-          path: comp.path,
-          label: comp.component?.label || comp.label || comp.key,
-          value: comp.getValue ? comp.getValue() : comp.dataValue,
-          hasParent: !!comp.parent,
-          parentKey: comp.parent?.key,
-          parentType: comp.parent?.component?.type || comp.parent?.type,
-          hasChildren: Array.isArray(comp.components) && comp.components.length > 0,
-          childCount: Array.isArray(comp.components) ? comp.components.length : 0
-        };
-        componentMap[comp.path || comp.key || 'unknown'] = compInfo;
-      });
-      console.log('Component Map:', componentMap);
-      
-      // Log form data
-      console.log('--- FORM DATA ---');
-      console.log('Form Data:', this.root.data);
-      console.log('Form Submission:', this.root.submission);
-      console.log('Form Value:', this.root.getValue());
-      
-      const validation = await this.validateFormExternal({
+      try {
+        // Handle initial validation and data update
+        const isValid = await this.handleReviewClick();
+        if (!isValid) return;
+        
+        // Process continues with the original implementation to avoid variable conflicts
+        // The original code collects form components and renders the review modal
+      } catch (e) {
+        console.error("Unhandled error in button click handler:", e);
+        alert("An unexpected error occurred. Please try again or contact support if the issue persists.");
+      }      const validation = await this.validateFormExternal({
         showErrors: true,
         scrollToError: true
       });
@@ -569,10 +1100,17 @@ export default class ReviewButton extends FieldComponent {
           leafComponents: 0,
           containers: 0
         };
+
+        // Track paths we've already processed to avoid duplicates
         const pushedPaths = new Set();
-        // Canonicalize paths to avoid duplicates from e.g. form.data., submission., etc.
+
+        /**
+         * Canonicalize paths to avoid duplicates from form.data., submission., etc.
+         * @param {string} p - Path to canonicalize
+         * @returns {string} Normalized path
+         */
         const canon = (p = '') => {
-          // More aggressive canonicalization to ensure uniqueness
+          // Aggressive canonicalization to ensure uniqueness
           let normalized = p
             .replace(/^form\./, '')
             .replace(/^submission\./, '')
@@ -594,6 +1132,11 @@ export default class ReviewButton extends FieldComponent {
 
           return normalized;
         };
+
+        /**
+         * Add a leaf component to the collection
+         * @param {Object} leaf - Component to add
+         */
         const pushLeaf = (leaf) => {
           const norm = canon(leaf.path);
           if (!norm || pushedPaths.has(norm)) return;
@@ -618,7 +1161,8 @@ export default class ReviewButton extends FieldComponent {
         };
 
         if (root.ready) await root.ready;
-        const leaves = [];
+        // Create containers for storing component data
+        let leaves = [];  // Changed to 'let' to avoid redeclaration
         const labelByPathMap = new Map();
         const metaByPathMap = new Map();
         const indexByPathMap = new Map();
@@ -631,26 +1175,26 @@ export default class ReviewButton extends FieldComponent {
             return;
           }
           const prefix = f.__reviewPrefix || '';
-          
+
           // First pass: find panels and containers and mark them as reviewVisible
           f.everyComponent((c) => {
-            if (c.component?.type === 'panel' || 
-                c.component?.type === 'container' || 
-                c.component?.type === 'columns' ||
-                c.component?.type === 'fieldset') {
-              
+            if (c.component?.type === 'panel' ||
+              c.component?.type === 'container' ||
+              c.component?.type === 'columns' ||
+              c.component?.type === 'fieldset') {
+
               console.log('Found container component in enqueueAll:', {
                 type: c.component?.type,
                 key: c.key,
                 label: c.component?.label
               });
-              
+
               // Make container and all its children reviewVisible
               if (!c.component) {
                 c.component = {};
               }
               c.component.reviewVisible = true;
-              
+
               // Also make all children reviewVisible
               if (Array.isArray(c.components) && c.components.length > 0) {
                 c.components.forEach(child => {
@@ -662,7 +1206,7 @@ export default class ReviewButton extends FieldComponent {
               }
             }
           });
-          
+
           // Second pass: queue all components for processing
           f.everyComponent((c) => {
             const shouldSkip = c.parent && (
@@ -923,13 +1467,13 @@ export default class ReviewButton extends FieldComponent {
           if (Array.isArray(comp.components) && comp.components.length) {
             const containerPath = safePath(comp);
             const containerLabel = comp.component?.label || comp.key || '';
-            
+
             // Special handling for components with children - make sure they're marked for review
-            const isContainer = comp.component?.type === 'panel' || 
-                               comp.component?.type === 'container' || 
-                               comp.component?.type === 'columns' ||
-                               comp.component?.type === 'fieldset';
-            
+            const isContainer = comp.component?.type === 'panel' ||
+              comp.component?.type === 'container' ||
+              comp.component?.type === 'columns' ||
+              comp.component?.type === 'fieldset';
+
             if (isContainer) {
               console.log('Found container component with children:', {
                 type: comp.component?.type,
@@ -937,14 +1481,14 @@ export default class ReviewButton extends FieldComponent {
                 label: containerLabel,
                 childCount: comp.components.length
               });
-              
+
               // Force container components to be included in review
               if (!comp.component) {
                 comp.component = {};
               }
               comp.component.reviewVisible = true;
             }
-            
+
             labelByPathMap.set(containerPath, containerLabel);
             indexByPathMap.set(containerPath, topIndexFor(comp));
             comp.components.forEach((ch) => queue.push(ch));
@@ -983,7 +1527,7 @@ export default class ReviewButton extends FieldComponent {
           // Check if this is a form or panel component
           const isFormComponent = comp.type === 'form' || comp.component?.type === 'form';
           const isPanelComponent = comp.type === 'panel' || comp.component?.type === 'panel';
-          
+
           // Debug panel components
           if (isPanelComponent) {
             console.log('Found panel component:', {
@@ -1006,20 +1550,20 @@ export default class ReviewButton extends FieldComponent {
               value: comp.hasValue ? ('getValue' in comp ? 'Has getValue' : 'No getValue') : 'No value'
             });
           }
-          
+
           // Process panel components specifically
           if (isPanelComponent) {
             // Set the label for the panel in the label map
             const panelPath = safePath(comp);
             labelByPathMap.set(panelPath, comp.component?.label || comp.key || 'Panel');
             indexByPathMap.set(panelPath, topIndexFor(comp));
-            
+
             // Force panel components to be included in review, regardless of reviewVisible setting
             if (!comp.component) {
               comp.component = {};
             }
             comp.component.reviewVisible = true;
-            
+
             console.log('Found panel component in processing:', {
               key: comp.key,
               path: panelPath,
@@ -1027,7 +1571,7 @@ export default class ReviewButton extends FieldComponent {
               compType: comp.component?.type,
               children: Array.isArray(comp.components) ? comp.components.length : 0
             });
-            
+
             // Make sure all child components of the panel are also included
             if (Array.isArray(comp.components) && comp.components.length > 0) {
               // Force reviewVisible on ALL child components of panels
@@ -1047,10 +1591,10 @@ export default class ReviewButton extends FieldComponent {
 
           // Check if this is a container component that should be included
           const isContainerComponent = comp.component?.type === 'panel' ||
-                                      comp.component?.type === 'container' || 
-                                      comp.component?.type === 'columns' ||
-                                      comp.component?.type === 'fieldset';
-                                      
+            comp.component?.type === 'container' ||
+            comp.component?.type === 'columns' ||
+            comp.component?.type === 'fieldset';
+
           // Always process and include panel components regardless of reviewVisible setting
           if (isPanelComponent || isContainerComponent) {
             console.log('Processing container component for review:', {
@@ -1102,17 +1646,17 @@ export default class ReviewButton extends FieldComponent {
         // Make sure all panel components are included
         if (Array.isArray(root?.components)) {
           root.components.forEach(comp => {
-            if ((comp.component?.type === 'panel' || comp.type === 'panel') && 
-                Array.isArray(comp.components) && comp.components.length > 0) {
-              
+            if ((comp.component?.type === 'panel' || comp.type === 'panel') &&
+              Array.isArray(comp.components) && comp.components.length > 0) {
+
               // Check if this panel is already in leaves
               let panelPath = safePath(comp);
-              const panelInLeaves = leaves.some(leaf => 
+              const panelInLeaves = leaves.some(leaf =>
                 (leaf.path === panelPath || leaf.comp === comp)
               );
-              
+
               if (!panelInLeaves) {
-                if(panelPath == ""){
+                if (panelPath == "") {
                   panelPath = "panel";
                 }
 
@@ -1122,12 +1666,12 @@ export default class ReviewButton extends FieldComponent {
                   path: panelPath,
                   label: comp.component?.label || comp.key || 'Panel'
                 });
-                
+
                 // Add the panel component to leaves
                 const panelFormIndex = topIndexFor(comp);
                 labelByPathMap.set(panelPath, comp.component?.label || comp.key || 'Panel');
                 indexByPathMap.set(panelPath, panelFormIndex);
-                
+
                 // Add the panel to leaves
                 pushLeaf({
                   comp,
@@ -1136,14 +1680,14 @@ export default class ReviewButton extends FieldComponent {
                   value: '(Panel contents)',
                   formIndex: panelFormIndex
                 });
-                
+
                 // Also make sure child components are included
                 comp.components.forEach(childComp => {
                   const childKey = childComp.key || childComp.path || 'child';
                   const childPath = `${panelPath}.${childKey}`;
                   labelByPathMap.set(childPath, childComp.component?.label || childComp.key);
                   indexByPathMap.set(childPath, panelFormIndex);
-                  
+
                   pushLeaf({
                     comp: childComp,
                     path: childPath,
@@ -1156,7 +1700,7 @@ export default class ReviewButton extends FieldComponent {
             }
           });
         }
-        
+
         // Convert Maps to plain objects
         const labelByPath = {};
         labelByPathMap.forEach((value, key) => {
@@ -1226,7 +1770,7 @@ export default class ReviewButton extends FieldComponent {
           // Check if either is a panel component
           const isPanelA = a.comp?.component?.type === 'panel' || a.comp?.type === 'panel';
           const isPanelB = b.comp?.component?.type === 'panel' || b.comp?.type === 'panel';
-          
+
           // Panel components should appear before their children
           if (isPanelA && !isPanelB) {
             return -1; // Panel comes first
@@ -1234,7 +1778,7 @@ export default class ReviewButton extends FieldComponent {
           if (!isPanelA && isPanelB) {
             return 1; // Panel comes first
           }
-          
+
           // Special handling for tagpad components to ensure they're in the correct position
           const isTagpadA = a.comp?.component?.type === 'tagpad' || a.comp?.type === 'tagpad' ||
             a.path?.includes('tagpad') || a.label?.startsWith('Tag ');
@@ -1256,16 +1800,16 @@ export default class ReviewButton extends FieldComponent {
           // If only one has valid formIndex, prioritize it
           if (a.formIndex >= 0) return -1;
           if (b.formIndex >= 0) return 1;
-          
+
           // Sort by path length to ensure parent components come before children
           if (a.path && b.path) {
             const aDepth = (a.path.match(/\./g) || []).length;
             const bDepth = (b.path.match(/\./g) || []).length;
-            
+
             if (aDepth !== bDepth) {
               return aDepth - bDepth; // Shorter paths (parent components) come first
             }
-            
+
             return a.path.localeCompare(b.path);
           }
 
@@ -1290,13 +1834,13 @@ export default class ReviewButton extends FieldComponent {
               __formIndex: -1
             };
           }
-          
+
           // If k is not a string or number, log error and use a safe default
           if (typeof k !== 'string' && typeof k !== 'number') {
             console.error('Invalid key in ensureNode:', k);
             k = String(k || 'unknown');
           }
-          
+
           // Now safely ensure the node exists
           return (obj[k] ??= {
             __children: {}, __rows: {}, __label: null, __suppress: false,
@@ -1409,7 +1953,7 @@ export default class ReviewButton extends FieldComponent {
 
         // Track paths we've already processed in the tree to avoid duplicates
         const processedTreePaths = new Set();
-        
+
         // Log entire form structure to help debugging
         console.log('Building review from form structure:', {
           rootComponents: rootInstance?.components?.map(c => ({
@@ -1420,10 +1964,10 @@ export default class ReviewButton extends FieldComponent {
             childCount: Array.isArray(c.components) ? c.components.length : 0
           })) || []
         });
-        
+
         // Pre-process all panel components to ensure they're properly included
-        const panelComponents = sortedLeaves.filter(leaf => 
-          leaf.comp?.component?.type === 'panel' || 
+        const panelComponents = sortedLeaves.filter(leaf =>
+          leaf.comp?.component?.type === 'panel' ||
           leaf.comp?.type === 'panel' ||
           (leaf.comp?.components?.length > 0 && (
             leaf.comp?.component?.type === 'container' ||
@@ -1431,24 +1975,24 @@ export default class ReviewButton extends FieldComponent {
             leaf.comp?.component?.type === 'fieldset'
           ))
         );
-        
+
         console.log('Found panel/container components in sortedLeaves:', panelComponents.length);
-        
+
         // If no panels were found in sortedLeaves but they exist in the form, log this info
         if (panelComponents.length === 0) {
           console.log('No panel components found in sortedLeaves - check form structure');
         }
-        
+
         // First, organize components by parent-child relationships
         const componentsByParentPath = {};
         const isParentComponent = (comp) => {
-          return comp?.component?.type === 'panel' || 
-                 comp?.type === 'panel' ||
-                 comp?.component?.type === 'container' ||
-                 comp?.component?.type === 'columns' ||
-                 comp?.component?.type === 'fieldset';
+          return comp?.component?.type === 'panel' ||
+            comp?.type === 'panel' ||
+            comp?.component?.type === 'container' ||
+            comp?.component?.type === 'columns' ||
+            comp?.component?.type === 'fieldset';
         };
-        
+
         // First pass - identify all panel components
         const panelPaths = new Set();
         for (const { path, comp } of sortedLeaves) {
@@ -1461,7 +2005,7 @@ export default class ReviewButton extends FieldComponent {
             console.log('Found panel component:', normalizedPath);
           }
         }
-        
+
         // ---- build tree from leaf paths
         for (const { path, label, value, comp, formIndex } of sortedLeaves) {
           // Create a normalized version of the path for de-duplication
@@ -1475,27 +2019,27 @@ export default class ReviewButton extends FieldComponent {
             console.log('Skipping duplicate path in tree building:', normalizedPath);
             continue;
           }
-          
+
           // Special handling for panel components to ensure they're properly included
           const isPanelComponent = isParentComponent(comp);
           if (isPanelComponent) {
             console.log('Processing panel in tree building:', normalizedPath, label);
-            
+
             // Ensure we've properly identified this as a panel in our map
             panelPaths.add(normalizedPath);
           }
-          
+
           processedTreePaths.add(normalizedPath);
 
           // Check if this path is a child of any panel component
           let isChildOfPanel = false;
           let parentPanelPath = '';
-          
+
           if (!isPanelComponent) {
             // Check if this component is a child of a panel
             for (const panelPath of panelPaths) {
-              if (normalizedPath !== panelPath && 
-                  normalizedPath.startsWith(panelPath + '.')) {
+              if (normalizedPath !== panelPath &&
+                normalizedPath.startsWith(panelPath + '.')) {
                 isChildOfPanel = true;
                 parentPanelPath = panelPath;
                 console.log('Found child of panel:', {
@@ -1508,7 +2052,7 @@ export default class ReviewButton extends FieldComponent {
               }
             }
           }
-          
+
           const parts = normalizedPath
             .split('.')
             .filter(Boolean)
@@ -1516,7 +2060,7 @@ export default class ReviewButton extends FieldComponent {
             .filter(seg => !/^\d+\]$/.test(seg) && !/^\d+$/.test(seg));
           let ptr = root;
           let containerPath = '';
-          
+
           // Check if this is a panel component at the root level
           const isPanelAtRoot = parts.length === 1 && isParentComponent(comp);
 
@@ -1526,18 +2070,18 @@ export default class ReviewButton extends FieldComponent {
               console.warn('Empty segment found in path parts:', parts);
               continue; // Skip empty segments
             }
-            
+
             const idxMatch = seg.match(/\[(\d+)\]/);
             const key = seg.replace(/\[\d+\]/g, '');
-            
+
             // Skip if key is empty after processing
             if (!key) {
               console.warn('Empty key after processing segment:', seg);
               continue;
             }
-            
+
             containerPath = containerPath ? `${containerPath}.${key}` : key;
-            
+
             // Special debug for panel child components
             if (isChildOfPanel && i === parts.length - 1) {
               console.log('Adding panel child component to tree:', {
@@ -1547,16 +2091,16 @@ export default class ReviewButton extends FieldComponent {
                 label
               });
             }
-            
+
             try {
               // Ensure we have a valid node for this key
               const node = ensureNode(ptr, key);
-              
+
               if (!node) {
                 console.error('Failed to create node for key:', key);
                 continue;
               }
-              
+
               if (suppressLabelForKey.has(key)) node.__suppress = true;
               setNodeLabelForPath(node, containerPath);
               setNodeMetaForPath(node, containerPath);
@@ -1564,7 +2108,7 @@ export default class ReviewButton extends FieldComponent {
               if (formIndex >= 0 && (node.__formIndex === -1 || formIndex < node.__formIndex)) {
                 node.__formIndex = formIndex;
               }
-  
+
               if (idxMatch) {
                 const idx = Number(idxMatch[1]);
                 // Ensure __rows exists
@@ -1586,7 +2130,7 @@ export default class ReviewButton extends FieldComponent {
                     __rows: {},
                     __suppress: false,
                     __kind: null,
-                    __colKeys: null, 
+                    __colKeys: null,
                     __colLabels: null
                   };
                 } else {
@@ -1605,11 +2149,11 @@ export default class ReviewButton extends FieldComponent {
                 ptr = node.__children;
               }
             } catch (error) {
-              console.error('Error processing path segment:', { 
-                segment: seg, 
-                key, 
+              console.error('Error processing path segment:', {
+                segment: seg,
+                key,
                 path: normalizedPath,
-                error: error.message 
+                error: error.message
               });
               // Skip to the next part if there's an error
               continue;
@@ -1705,7 +2249,7 @@ export default class ReviewButton extends FieldComponent {
               const hasChildren = v.__children && Object.keys(v.__children).length;
               const hasRows = v.__rows && Object.keys(v.__rows).length;
               const isPanelComponent = v.__comp?.component?.type === 'panel' || v.__comp?.type === 'panel';
-              
+
               // Debug panel components during rendering
               if (isPanelComponent) {
                 console.log('Rendering panel component:', {
@@ -1715,14 +2259,14 @@ export default class ReviewButton extends FieldComponent {
                   hasRows
                 });
               }
-              
+
               const displayLabel = v.__suppress ? '' : (v.__label || (k === 'form' ? '' : k));
               const header = displayLabel ? `<div style="${pad}"><strong>${displayLabel}:</strong>` : `<div style="${pad}">`;
               // Special handling for panel components
               if (isPanelComponent) {
                 // Find all child components for this panel
                 const normalizedKey = k.replace(/\[\d+\]/g, '');
-                
+
                 console.log('Panel rendering:', {
                   key: k,
                   label: v.__label || normalizedKey,
@@ -1732,12 +2276,12 @@ export default class ReviewButton extends FieldComponent {
 
                 // Get all direct child components to display under this panel
                 let panelChildrenHtml = '';
-                
+
                 // If this panel has children in the tree
                 if (hasChildren) {
                   // Get all child components to render
                   panelChildrenHtml = renderNode(v.__children, depth + 1);
-                } 
+                }
                 // If no children were found in the tree but we have child components in the original component
                 else if (v.__comp && Array.isArray(v.__comp.components) && v.__comp.components.length > 0) {
                   console.log('Panel has components but no children in tree:', {
@@ -1745,7 +2289,7 @@ export default class ReviewButton extends FieldComponent {
                     componentCount: v.__comp.components.length
                   });
                 }
-                
+
                 // Create a fieldset-like container for better grouping
                 return `
                   <div style="margin-left:0px; padding-left:10px; border-left:1px dotted #ccc;">
