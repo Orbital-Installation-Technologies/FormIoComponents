@@ -682,23 +682,29 @@ export default class ReviewButton extends FieldComponent {
         };
         
         const enqueueAll = (f) => {
-          if (f.everyComponent) {
-            f.everyComponent((c) => {
-              // Skip components that are children of datatables/datagrids to avoid duplicate processing
-              const shouldSkip = c.parent && (
-                c.parent.component?.type === 'datatable' || 
-                c.parent.component?.type === 'datagrid'
-              );
-              
-              if (!shouldSkip) {
-                queue.push(c);
-                stats.totalComponents++;
-                stats.byType[c.component?.type || c.type || 'unknown'] = 
-                  (stats.byType[c.component?.type || c.type || 'unknown'] || 0) + 1;
-              }
-            });
+          if (!f || !f.everyComponent) {
+            console.log('No everyComponent on:', { type: f?.type, key: f?.key, path: f?.path });
+            return;
           }
+          const prefix = f.__reviewPrefix || ''; // << NEW: prefix for subform children
+          f.everyComponent((c) => {
+            const shouldSkip = c.parent && (
+              c.parent.component?.type === 'datatable' ||
+              c.parent.component?.type === 'datagrid'
+            );
+            if (shouldSkip) {
+              return;
+            }
+            if (prefix) c.__prefix = prefix;       // << NEW: propagate prefix onto children
+            queue.push(c);
+            stats.totalComponents++;
+            const t = c.component?.type || c.type || 'unknown';
+            stats.byType[t] = (stats.byType[t] || 0) + 1;
+          });
         };
+
+        // Small helper to honor the prefix everywhere we read a path.
+        const safePath = (c) => (c?.__reviewPath) || (c?.__prefix ? `${c.__prefix}${c.path}` : c?.path);
         
         console.log("Enqueuing root components");
         enqueueAll(root);
@@ -717,20 +723,31 @@ export default class ReviewButton extends FieldComponent {
           }
 
           // Avoid processing the same component twice
-          if (comp.path && processedPaths.has(comp.path)) {
+          const compPath = safePath(comp);
+          if (compPath && processedPaths.has(compPath)) {
             stats.skippedComponents++;
             continue;
           }
-          if (comp.path) processedPaths.add(comp.path);
+          if (compPath) processedPaths.add(compPath);
 
           if (comp.type === 'form') {
+            console.log('Found form component:', {
+              key: comp.key, path: comp.path, hasSubFormReady: !!comp.subFormReady, hasSubForm: !!comp.subForm
+            });
+
             if (comp.subFormReady) await comp.subFormReady;
+
+            const containerTitle = comp.formObj?.title || comp.component?.label || comp.key || 'Form';
+            const formContainerPath = safePath(comp); // respects any upstream prefix
+            labelByPathMap.set(formContainerPath, containerTitle);
+            indexByPathMap.set(formContainerPath, topIndexFor(comp));
+
             if (comp.subForm) {
+              // << NEW: prefix all subform descendants with the parent form key
+              comp.subForm.__reviewPrefix = comp.path ? `${formContainerPath}.` : '';
               enqueueAll(comp.subForm);
-              const title = comp.formObj?.title || comp.component?.label || comp.key || 'Form';
-              labelByPathMap.set(comp.path, title);
-              indexByPathMap.set(comp.path, topIndexFor(comp));
             } else {
+              console.log('No subForm found for form component:', comp.key);
               // If subForm is missing, fallback to datagrid, datatable or component label
               if (comp.component?.type === 'datagrid' || comp.component?.type === 'datatable') {
                 labelByPathMap.set(comp.path, comp.component?.label || comp.key || 'List');
@@ -744,99 +761,114 @@ export default class ReviewButton extends FieldComponent {
           }
 
           if (comp.component?.type === 'datagrid' || comp.component?.type === 'datatable') {
-            labelByPathMap.set(comp.path, comp.component?.label || comp.key || 'List');
-            indexByPathMap.set(comp.path, topIndexFor(comp));
+            const gridPath = safePath(comp); // << NEW
+            labelByPathMap.set(gridPath, comp.component?.label || comp.key || 'List');
+            indexByPathMap.set(gridPath, topIndexFor(comp));
 
-            // Column defs (schema order)
-            let colDefs = [];
-            if (Array.isArray(comp.columns)) {
-              colDefs = comp.columns;
-            } else if (Array.isArray(comp.components)) {
-              colDefs = comp.components.filter(c =>
-                c?.input !== false &&
-                !['panel', 'form', 'container', 'columns', 'datagrid', 'editgrid'].includes(c.type)
-              );
-            }
+            // Column defs in schema order; include containers (Panel/Container/Columns) too.
+            let colDefs = Array.isArray(comp.components) ? comp.components : [];
             const columnKeys   = colDefs.map(c => c.key || c.path || c.component?.key || '');
             const columnLabels = colDefs.map(c => c.label || c.component?.label || c.key || '');
 
-            metaByPathMap.set(comp.path, {
+            metaByPathMap.set(gridPath, {
               kind: comp.component?.type === 'datatable' ? 'datatable' : 'datagrid',
               columnKeys,
               columnLabels
             });
 
-            // --- DATATABLE: read from dataValue / root data; push leaves per column
+            // Helper: flatten a cell's component tree into leaf fields under the correct column path.
+            const isContainerType = (t) => ['panel','container','columns','well','fieldset','table','tabs'].includes(t);
+            const pushValueLeaf = (node, basePath) => {
+              pushLeaf({
+                comp: node,
+                path: basePath,
+                label: node.component?.label || node.label || node.key || 'Value',
+                value: ('getValue' in node) ? node.getValue() : node.dataValue,
+                formIndex: topIndexFor(node)
+              });
+            };
+            const flattenCell = (node, basePath) => {
+              if (!node) return;
+              const t = node.component?.type || node.type;
+
+              // Nested Form inside a cell
+              if (t === 'form' && node.subForm) {
+                node.subForm.__reviewPrefix = `${basePath}.`;
+                // Walk subform inputs
+                node.subForm.everyComponent?.((ch) => {
+                  const chPath = `${basePath}.${ch.path || ch.key || 'value'}`;
+                  if (isContainerType(ch.component?.type || ch.type)) {
+                    flattenCell(ch, chPath);
+                  } else {
+                    pushValueLeaf(ch, chPath);
+                  }
+                });
+                return;
+              }
+
+              // Columns layout
+              if (t === 'columns' && Array.isArray(node.columns)) {
+                node.columns.forEach((col, ci) => {
+                  (col.components || []).forEach((ch) => {
+                    const chPath = `${basePath}.${ch.key || ch.path || `col${ci}`}`;
+                    flattenCell(ch, chPath);
+                  });
+                });
+                return;
+              }
+
+              // Generic containers (Panel/Container/etc.)
+              if (isContainerType(t) && Array.isArray(node.components)) {
+                node.components.forEach((ch) => {
+                  const chPath = `${basePath}.${ch.key || ch.path || 'value'}`;
+                  flattenCell(ch, chPath);
+                });
+                return;
+              }
+
+              // Leaf input
+              pushValueLeaf(node, basePath);
+            };
+
+            // ---- DATATABLE: read from arrays (already worked); keep your existing datatable code if you like.
             if (comp.component?.type === 'datatable') {
               const dataRows =
                 Array.isArray(comp.dataValue) ? comp.dataValue :
                 Array.isArray(root?.data?.[comp.key]) ? root.data[comp.key] :
                 Array.isArray(comp._data?.[comp.key]) ? comp._data[comp.key] : [];
 
-              // Track which fields we've already processed for each row to prevent duplicates
-              const processedFields = new Map(); // Map of rowIdx -> Set of column keys
-              
+              const processedFields = new Map();
               dataRows.forEach((rowObj, rIdx) => {
-                // Create a tracking set for this row if it doesn't exist
-                if (!processedFields.has(rIdx)) {
-                  processedFields.set(rIdx, new Set());
-                }
-                const rowProcessed = processedFields.get(rIdx);
-                
+                if (!processedFields.has(rIdx)) processedFields.set(rIdx, new Set());
+                const rowDone = processedFields.get(rIdx);
                 colDefs.forEach((c, i) => {
-                  const cKey = c.key || c.component?.key;
-                  
-                  // Skip if we've already processed this column for this row
-                  if (rowProcessed.has(cKey)) {
-                    return;
-                  }
-                  
+                  const cKey   = c.key || c.component?.key;
                   const cLabel = columnLabels[i] || cKey;
+                  if (!cKey || rowDone.has(cKey)) return;
                   const val = rowObj?.[cKey];
-                  
                   pushLeaf({
                     comp,
-                    path: `${comp.path}[${rIdx}].${cKey}`,
+                    path: `${gridPath}[${rIdx}].${cKey}`,
                     label: cLabel,
                     value: val,
                     formIndex: topIndexFor(comp)
                   });
-                  
-                  // Mark this column as processed for this row
-                  rowProcessed.add(cKey);
+                  rowDone.add(cKey);
                 });
               });
-              
-              // Debug log to confirm what we've processed
-              console.log('Processed datatable fields:', 
-                Array.from(processedFields.entries()).map(([rowIdx, cols]) => ({
-                  row: rowIdx,
-                  columns: Array.from(cols)
-                }))
-              );
-              
-              continue; // done with datatable
+              continue;
             }
 
-            // --- DATAGRID: existing behavior
-            if (Array.isArray(comp.rows)) {
+            // ---- DATAGRID: recurse into container columns so inner fields show up
+            if (Array.isArray(comp.rows) && comp.rows.length) {
               comp.rows.forEach((row, rIdx) => {
-                Object.values(row).forEach(child => {
-                  if (!child) return;
-                  const childKey =
-                    child?.key || child?.component?.key || child?.path?.split('.').pop() || 'value';
-                  child.__reviewPath = `${comp.path}[${rIdx}].${childKey}`;
-                  pushLeaf({
-                    comp: child,
-                    path: child.__reviewPath,
-                    label: child.component?.label || child.key,
-                    value: ('getValue' in child) ? child.getValue() : child.dataValue,
-                    formIndex: topIndexFor(child)
-                  });
+                Object.entries(row).forEach(([colKey, cellComp]) => {
+                  const base = `${gridPath}[${rIdx}].${colKey}`;
+                  flattenCell(cellComp, base); // << NEW: digs through Panel/Container/Columns/Form
                 });
               });
             } else {
-              console.log(`${comp.component?.type} ${comp.path} has no rows`);
+              console.log(`${comp.component?.type} ${gridPath} has no rows`);
             }
             continue;
           }
@@ -844,17 +876,18 @@ export default class ReviewButton extends FieldComponent {
           if ((comp.component?.type === 'datagrid' && !comp.rows) || 
               (comp.component?.type === 'datatable' && !comp.savedRows)) {
             // Ensure datagrid/datatable labels are set even if rows are absent
-            labelByPathMap.set(comp.path, comp.component?.label || comp.key || 'List');
+            labelByPathMap.set(safePath(comp), comp.component?.label || comp.key || 'List');
             continue;
           }
 
           // Handle EditGrid
           if (comp.component?.type === 'editgrid' && Array.isArray(comp.editRows) && comp.editRows.length) {
-            labelByPathMap.set(comp.path, comp.component?.label || comp.key || 'Items');
-            indexByPathMap.set(comp.path, topIndexFor(comp));
+            const gridPath = safePath(comp);
+            labelByPathMap.set(gridPath, comp.component?.label || comp.key || 'Items');
+            indexByPathMap.set(gridPath, topIndexFor(comp));
 
             comp.editRows.forEach((r, rIdx) => (r.components || []).forEach((ch) => {
-              ch.__reviewPath = `${comp.path}[${rIdx}].${ch.key || 'value'}`;
+              ch.__reviewPath = `${gridPath}[${rIdx}].${ch.key || 'value'}`;
               queue.push(ch);
             }));
             continue;
@@ -863,13 +896,14 @@ export default class ReviewButton extends FieldComponent {
           // ---- Tagpad (fix: expand editForms -> fields)
           if (comp.component?.type === 'tagpad') {
             // Tagpad container label
-            labelByPathMap.set(comp.path, comp.component?.label || comp.key || 'Tagpad');
+            const tagpadPath = safePath(comp);
+            labelByPathMap.set(tagpadPath, comp.component?.label || comp.key || 'Tagpad');
 
             const forms = Array.isArray(comp.editForms) ? comp.editForms : [];
             const tagpadArray = Array.isArray(comp._data?.tagpad) ? comp._data.tagpad : [];
 
             forms.forEach((form, idx) => {
-              const basePath = `${comp.path}[${idx}]`;
+              const basePath = `${tagpadPath}[${idx}]`;
               const formLabel = `Tag ${idx + 1}`;
               labelByPathMap.set(basePath, formLabel);
 
@@ -903,8 +937,9 @@ export default class ReviewButton extends FieldComponent {
           }
 
           if (Array.isArray(comp.components) && comp.components.length) {
-            labelByPathMap.set(comp.path, comp.component?.label || comp.key || '');
-            indexByPathMap.set(comp.path, topIndexFor(comp));
+            const containerPath = safePath(comp);
+            labelByPathMap.set(containerPath, comp.component?.label || comp.key || '');
+            indexByPathMap.set(containerPath, topIndexFor(comp));
             comp.components.forEach((ch) => queue.push(ch));
             continue;
           }
@@ -933,9 +968,25 @@ export default class ReviewButton extends FieldComponent {
             comp?.type === 'htmlelement';
 
           // Extra check to ensure we don't get duplicate fields from datatables/datagrids
-          const pathParts = (comp.path || '').split('.');
-          const hasArrayNotation = comp.path && comp.path.includes('[') && comp.path.includes(']');
+          const componentPath = safePath(comp);
+          const pathParts = (componentPath || '').split('.');
+          const hasArrayNotation = componentPath && componentPath.includes('[') && componentPath.includes(']');
           const isGridChild = hasArrayNotation || pathParts.some(part => /^\d+$/.test(part));
+          
+          // Check if this is a form component
+          const isFormComponent = comp.type === 'form' || comp.component?.type === 'form';
+          
+          // Log form component info
+          if (isFormComponent) {
+            console.log('Form component in final processing:', {
+              key: comp.key,
+              path: comp.path,
+              isVisible: comp.visible !== false,
+              reviewVisible: comp.component?.reviewVisible === true,
+              hasValue: comp.hasValue ? true : false,
+              value: comp.hasValue ? ('getValue' in comp ? 'Has getValue' : 'No getValue') : 'No value'
+            });
+          }
           
           // Only push generic leaves if parent is NOT a handled container and not part of grid data
           if (
@@ -943,15 +994,29 @@ export default class ReviewButton extends FieldComponent {
             !isContentComponent &&
             !isGridChild &&
             comp.visible !== false &&
-            (comp.component?.reviewVisible === true || isTagpadComponent)
+            (comp.component?.reviewVisible === true || isTagpadComponent || isFormComponent)
           ) {
+            // For form components, we need to ensure we include them and their data
+            const componentValue = isFormComponent 
+              ? (comp.data || comp.submission?.data || comp.dataValue || {}) 
+              : (('getValue' in comp) ? comp.getValue() : comp.dataValue);
+              
             pushLeaf({
               comp,
-              path: comp.__reviewPath || comp.path || comp.key,
+              path: comp.__reviewPath || safePath(comp) || comp.key,
               label: comp.component?.label || comp.key,
-              value: ('getValue' in comp) ? comp.getValue() : comp.dataValue,
+              value: componentValue,
               formIndex: topIndexFor(comp)
             });
+            
+            // Log what we're pushing for form components
+            if (isFormComponent) {
+              console.log('Pushing form component leaf:', {
+                path: comp.__reviewPath || safePath(comp) || comp.key,
+                label: comp.component?.label || comp.key,
+                hasValue: componentValue !== undefined
+              });
+            }
           }
         }
         // Convert Maps to plain objects
@@ -1068,6 +1133,17 @@ export default class ReviewButton extends FieldComponent {
 
         // pretty-print values (files, arrays, booleans, etc.)
         function formatValue(value, comp) {
+          // Handle form component values differently
+          if (comp?.type === 'form' || comp?.component?.type === 'form') {
+            console.log('Formatting form value:', {
+              value: typeof value === 'object' ? 'Object' : value,
+              hasData: value && typeof value === 'object' && Object.keys(value).length > 0
+            });
+            
+            // For form components, just indicate it's a form (actual fields rendered separately)
+            return '(Form data)';
+          }
+          
           const isFileish =
             comp?.component?.type === 'file' ||
             comp?.component?.type === 'image' ||
@@ -1223,14 +1299,50 @@ export default class ReviewButton extends FieldComponent {
             }
 
             if (v && v.__leaf) {
+              // Check if this is a form component leaf
+              const isFormComponent = v.__comp?.type === 'form' || v.__comp?.component?.type === 'form';
+              
+              // Log form components we're rendering
+              if (isFormComponent) {
+                console.log('Rendering form component leaf:', {
+                  key: k,
+                  label: v.__label,
+                  path: v.__path,
+                  value: typeof v.__value === 'object' ? 'Object value' : v.__value
+                });
+              }
+              
               const val = firstLeafVal(v);
+              
               // Check if this is a tagpad form entry from path - simplified check to avoid potential recursion
               const isTagpadDot = v.__label?.startsWith('Tag ') || 
                                  (v.__comp?.type === 'tagpad') ||
                                  (v.__comp?.parent?.type === 'tagpad');
               
-            
-              if (isTagpadDot) {
+              // Special handling for form components
+              if (isFormComponent) {
+                // For form components, render as a section header
+                const formValue = v.__value || {};
+                let formContentHtml = '';
+                
+                // Attempt to extract and render the form fields
+                if (typeof formValue === 'object' && !Array.isArray(formValue)) {
+                  formContentHtml = Object.entries(formValue)
+                    .filter(([fieldKey, fieldVal]) => fieldVal !== null && fieldVal !== undefined)
+                    .map(([fieldKey, fieldVal]) => {
+                      const displayVal = typeof fieldVal === 'object' 
+                        ? JSON.stringify(fieldVal)
+                        : String(fieldVal);
+                      return `<div style="${pad}; margin-left:${(depth+1) * 15}px;"><strong>${fieldKey}:</strong> ${displayVal}</div>`;
+                    })
+                    .join('');
+                }
+                
+                return `
+                  <div style="${pad}"><strong>${v.__label || k}:</strong></div>
+                  ${formContentHtml || `<div style="${pad}; margin-left:${(depth+1) * 15}px;">(No data)</div>`}
+                `;
+              } else if (isTagpadDot) {
                 // For tagpad forms, simplify to just show label: value (without nested divs)
                 // If the value is a simple number, show it directly
                 return `<div style="${pad}"><strong>${v.__label || k}:</strong> ${val}</div>`;
