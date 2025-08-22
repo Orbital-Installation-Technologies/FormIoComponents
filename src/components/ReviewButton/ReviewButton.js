@@ -707,84 +707,64 @@ export default class ReviewButton extends FieldComponent {
             labelByPathMap.set(comp.path, comp.component?.label || comp.key || 'List');
             indexByPathMap.set(comp.path, topIndexFor(comp));
 
-            // Capture leaf columns for this datagrid (used for the review view)
-            // First check if we have comp.columns (from the console.log)
+            // Column defs (schema order)
             let colDefs = [];
-            
-            if (comp.columns && Array.isArray(comp.columns)) {
-              // Use columns property if available
+            if (Array.isArray(comp.columns)) {
               colDefs = comp.columns;
-              console.log("Using DataGrid columns property:", colDefs);
-            } else if (comp.components && Array.isArray(comp.components)) {
-              // Fall back to components
+            } else if (Array.isArray(comp.components)) {
               colDefs = comp.components.filter(c =>
                 c?.input !== false &&
-                !['panel','form','container','columns','datagrid','editgrid'].includes(c.type)
+                !['panel', 'form', 'container', 'columns', 'datagrid', 'editgrid'].includes(c.type)
               );
-              console.log("Using DataGrid components property:", colDefs);
             }
-            
-            const columnKeys = colDefs.map(c => c.key || c.path || c.component?.key || '');
+            const columnKeys   = colDefs.map(c => c.key || c.path || c.component?.key || '');
             const columnLabels = colDefs.map(c => c.label || c.component?.label || c.key || '');
-            
-            console.log(`DataGrid metadata for ${comp.path}:`, {
-              colDefs,
-              columnKeys,
-              columnLabels,
-              componentObj: comp
-            });
-            
+
             metaByPathMap.set(comp.path, {
               kind: comp.component?.type === 'datatable' ? 'datatable' : 'datagrid',
               columnKeys,
               columnLabels
             });
 
-            // For DataTable, always use savedRows and collect all child values
-            if (comp.component?.type === 'datatable' && Array.isArray(comp.savedRows)) {
-              comp.savedRows.forEach((row, rIdx) => {
-                if (Array.isArray(row.components)) {
-                  row.components.forEach(child => {
-                    if (child) {
-                      const childKey = child?.key || child?.component?.key || child?.path?.split('.').pop() || 'value';
-                      child.__reviewPath = `${comp.path}[${rIdx}].${childKey}`;
-                      // If this is a nested form within a row, set its label in the map
-                      if (child.type === 'form') {
-                        const formPath = child.__reviewPath;
-                        const formTitle = child.formObj?.title || child.component?.label || child.key || 'Form';
-                        labelByPathMap.set(formPath, formTitle);
-                      }
-                      // Collect value for review
-                      leaves.push({
-                        comp: child,
-                        path: child.__reviewPath,
-                        label: child.component?.label || child.key,
-                        value: 'getValue' in child ? child.getValue() : child.dataValue,
-                        formIndex: topIndexFor(child)
-                      });
-                    }
+            // --- DATATABLE: read from dataValue / root data; push leaves per column
+            if (comp.component?.type === 'datatable') {
+              const dataRows =
+                Array.isArray(comp.dataValue) ? comp.dataValue :
+                Array.isArray(this.root?.data?.[comp.key]) ? this.root.data[comp.key] :
+                Array.isArray(comp._data?.[comp.key]) ? comp._data[comp.key] : [];
+
+              dataRows.forEach((rowObj, rIdx) => {
+                colDefs.forEach((c, i) => {
+                  const cKey   = c.key || c.component?.key;
+                  const cLabel = columnLabels[i] || cKey;
+                  const val    = rowObj?.[cKey];
+                  leaves.push({
+                    comp,
+                    path: `${comp.path}[${rIdx}].${cKey}`,
+                    label: cLabel,
+                    value: val,
+                    formIndex: topIndexFor(comp)
                   });
-                }
+                });
               });
-            } else if (Array.isArray(comp.rows)) {
+              continue; // done with datatable
+            }
+
+            // --- DATAGRID: existing behavior
+            if (Array.isArray(comp.rows)) {
               comp.rows.forEach((row, rIdx) => {
                 Object.values(row).forEach(child => {
-                  if (child) {
-                    const childKey = child?.key || child?.component?.key || child?.path?.split('.').pop() || 'value';
-                    child.__reviewPath = `${comp.path}[${rIdx}].${childKey}`;
-                    if (child.type === 'form') {
-                      const formPath = child.__reviewPath;
-                      const formTitle = child.formObj?.title || child.component?.label || child.key || 'Form';
-                      labelByPathMap.set(formPath, formTitle);
-                    }
-                    leaves.push({
-                      comp: child,
-                      path: child.__reviewPath,
-                      label: child.component?.label || child.key,
-                      value: 'getValue' in child ? child.getValue() : child.dataValue,
-                      formIndex: topIndexFor(child)
-                    });
-                  }
+                  if (!child) return;
+                  const childKey =
+                    child?.key || child?.component?.key || child?.path?.split('.').pop() || 'value';
+                  child.__reviewPath = `${comp.path}[${rIdx}].${childKey}`;
+                  leaves.push({
+                    comp: child,
+                    path: child.__reviewPath,
+                    label: child.component?.label || child.key,
+                    value: 'getValue' in child ? child.getValue() : child.dataValue,
+                    formIndex: topIndexFor(child)
+                  });
                 });
               });
             } else {
@@ -1233,7 +1213,7 @@ export default class ReviewButton extends FieldComponent {
                         const inner = renderNode(cell.__children || {}, depth + 2);
                         cellContent = inner || `<div style="${padCol}">(empty)</div>`;
                       }
-                      return `<div style="${padCol}"><em>Column ${colIdx+1}</em>${innerSpacer()}</div>${cellContent}`;
+                      return `${cellContent}`;
                     }).join('');
 
                     return `<li style="margin-left:0 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;','')}">Row ${rowIdx+1}:${colsHtml}</li>`;
