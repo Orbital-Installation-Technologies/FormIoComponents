@@ -902,35 +902,63 @@ export default class ReviewButton extends FieldComponent {
             const forms = Array.isArray(comp.editForms) ? comp.editForms : [];
             const tagpadArray = Array.isArray(comp._data?.tagpad) ? comp._data.tagpad : [];
 
-            forms.forEach((form, idx) => {
-              const basePath = `${tagpadPath}[${idx}]`;
-              const formLabel = `Tag ${idx + 1}`;
-              labelByPathMap.set(basePath, formLabel);
-
-              // Prefer the edit form's data; fall back to the tagpad array slot
-              const formData = (form && form.data) ? form.data : (tagpadArray[idx] || {});
-              const formComps = Array.isArray(form?.components) ? form.components : [];
-
-              formComps.forEach((ch) => {
-                const key =
-                  ch?.key ||
-                  ch?.path ||
-                  ch?.component?.key;
-                if (!key) return;
-
-                // Value: use editForm.data first, then component value
-                let val = (formData && Object.prototype.hasOwnProperty.call(formData, key))
-                  ? formData[key]
-                  : ('getValue' in ch ? ch.getValue() : (ch.dataValue ?? ''));
-
-                leaves.push({
-                  comp: ch,
-                  path: `${basePath}.${key}`,
-                  label: ch.component?.label || ch.label || key,
-                  value: val
-                });
+            // Store the form index for the tagpad component
+            const formIndex = topIndexFor(comp);
+            
+            // Create at least one empty form entry if there are no forms
+            if (forms.length === 0) {
+              // Even if no forms exist, still create an entry to make sure the tag pad shows up
+              leaves.push({
+                comp: comp,
+                path: `${tagpadPath}[0]`,
+                label: 'Tag 1',
+                value: {},
+                formIndex: formIndex
               });
-            });
+            } else {
+              forms.forEach((form, idx) => {
+                const basePath = `${tagpadPath}[${idx}]`;
+                const formLabel = `Tag ${idx + 1}`;
+                labelByPathMap.set(basePath, formLabel);
+                indexByPathMap.set(basePath, formIndex);  // Ensure form index is set for the tagpad path
+
+                // Prefer the edit form's data; fall back to the tagpad array slot
+                const formData = (form && form.data) ? form.data : (tagpadArray[idx] || {});
+                const formComps = Array.isArray(form?.components) ? form.components : [];
+
+                // If no components in this form, still add an empty entry to make the tag visible
+                if (formComps.length === 0) {
+                  leaves.push({
+                    comp: form || comp,
+                    path: basePath,
+                    label: formLabel,
+                    value: formData || {},
+                    formIndex: formIndex
+                  });
+                } else {
+                  formComps.forEach((ch) => {
+                    const key =
+                      ch?.key ||
+                      ch?.path ||
+                      ch?.component?.key;
+                    if (!key) return;
+
+                    // Value: use editForm.data first, then component value
+                    let val = (formData && Object.prototype.hasOwnProperty.call(formData, key))
+                      ? formData[key]
+                      : ('getValue' in ch ? ch.getValue() : (ch.dataValue ?? ''));
+
+                    leaves.push({
+                      comp: ch,
+                      path: `${basePath}.${key}`,
+                      label: ch.component?.label || ch.label || key,
+                      value: val,
+                      formIndex: formIndex  // Pass the tagpad's form index to all child components
+                    });
+                  });
+                }
+              });
+            }
 
             // Don't traverse comp.components for tagpad to avoid duplicates
             continue;
@@ -1085,6 +1113,20 @@ export default class ReviewButton extends FieldComponent {
         
         // Sort leaves based on their original position in form.components
         const sortedLeaves = [...leaves].sort((a, b) => {
+          // Special handling for tagpad components to ensure they're in the correct position
+          const isTagpadA = a.comp?.component?.type === 'tagpad' || a.comp?.type === 'tagpad' || 
+                           a.path?.includes('tagpad') || a.label?.startsWith('Tag ');
+          const isTagpadB = b.comp?.component?.type === 'tagpad' || b.comp?.type === 'tagpad' || 
+                           b.path?.includes('tagpad') || b.label?.startsWith('Tag ');
+          
+          // If one is a tagpad and the other isn't, use their formIndex
+          if (isTagpadA && !isTagpadB) {
+            return a.formIndex >= 0 ? -1 : 0;
+          }
+          if (!isTagpadA && isTagpadB) {
+            return b.formIndex >= 0 ? 1 : 0;
+          }
+          
           // If both have valid formIndex, sort by that
           if (a.formIndex >= 0 && b.formIndex >= 0) {
             return a.formIndex - b.formIndex;
@@ -1277,19 +1319,20 @@ export default class ReviewButton extends FieldComponent {
           
           // Sort entries based on formIndex
           const sortedEntries = Object.entries(node).sort((a, b) => {
-            const aIndex = a[1]?.__formIndex ?? -1;
-            const bIndex = b[1]?.__formIndex ?? -1;
-            
-            // If both have valid formIndex, sort by that
-            if (aIndex >= 0 && bIndex >= 0) {
-              return aIndex - bIndex;
+            const aIsTagpad = a[1]?.__label === 'Tagpad' || a[1]?.__comp?.component?.type === 'tagpad';
+            const bIsTagpad = b[1]?.__label === 'Tagpad' || b[1]?.__comp?.component?.type === 'tagpad';
+
+            // If both are tagpads, sort by formIndex
+            if (aIsTagpad && bIsTagpad) {
+              return (a[1]?.__formIndex ?? -1) - (b[1]?.__formIndex ?? -1);
             }
-            // If only one has valid formIndex, prioritize it
-            if (aIndex >= 0) return -1;
-            if (bIndex >= 0) return 1;
-            
-            // Otherwise, alphabetical by key (original behavior)
-            return a[0].localeCompare(b[0]);
+
+            // If one is a tagpad, prioritize based on formIndex
+            if (aIsTagpad) return (a[1]?.__formIndex ?? -1) - (b[1]?.__formIndex ?? 0);
+            if (bIsTagpad) return (a[1]?.__formIndex ?? 0) - (b[1]?.__formIndex ?? -1);
+
+            // Default sorting by formIndex
+            return (a[1]?.__formIndex ?? -1) - (b[1]?.__formIndex ?? -1);
           });
           
           return sortedEntries.map(([k, v]) => {
@@ -1344,7 +1387,9 @@ export default class ReviewButton extends FieldComponent {
                 `;
               } else if (isTagpadDot) {
                 // For tagpad forms, simplify to just show label: value (without nested divs)
-                // If the value is a simple number, show it directly
+                // If the value is empty object or undefined, still show the label with empty indicator
+         
+                // Otherwise, show the value
                 return `<div style="${pad}"><strong>${v.__label || k}:</strong> ${val}</div>`;
               } else {
                 // Normal rendering for other leaf nodes
@@ -1404,16 +1449,10 @@ export default class ReviewButton extends FieldComponent {
                       const cell = row.__children[colKey];
                       let cellContent = '';
                       
-                      if (!cell) {
-                        cellContent = '<div style="'+padCol+'">(empty)</div>';
-                      } else if (cell.__leaf) {
+                      if (cell.__leaf) {
                         const val = firstLeafVal(cell);
                         cellContent = `<div style="${padCol}"><strong>${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${val}</div>`;
-                      } else {
-                        // list any leaves under this column (labels + values)
-                        const inner = renderNode(cell.__children || {}, depth + 2);
-                        cellContent = inner || `<div style="${padCol}">(empty)</div>`;
-                      }
+                      } 
                       return `${cellContent}`;
                     }).filter(html => html.length > 0).join('');
 
@@ -1438,9 +1477,22 @@ export default class ReviewButton extends FieldComponent {
                   ? `<ul style="list-style-type:circle; padding-left:30px; margin:0;">${
                       Object.entries(v.__rows).map(([i, r]) => {
                         // For tagpad components, show "Tag X" instead of "Row X"
-                        const isTagpad = k === 'tagpad' || v.__label === 'Tagpad';
+                        const isTagpad = k === 'tagpad' || 
+                                       v.__label === 'Tagpad' ||
+                                       v.__comp?.component?.type === 'tagpad' ||
+                                       v.__comp?.type === 'tagpad';
                         const rowLabel = isTagpad ? `Tag ${Number(i)+1}` : `Row ${Number(i)+1}`;
-                        return `<li style="margin-left:0 !important; padding-left: 0 !important;">${rowLabel}:${renderNode(r.__children, depth + 1)}</li>`;
+                        
+                        // Handle empty tag pad case
+                        const hasChildren = r.__children && Object.keys(r.__children).length > 0;
+                        const content = hasChildren 
+                          ? renderNode(r.__children, depth + 1) 
+                          : ``;
+                        
+                        // Apply special class for tagpad rows to help with styling/debugging
+                        const rowClass = isTagpad ? 'tagpad-row' : 'data-row';
+                        
+                        return `<li class="${rowClass}" style="margin-left:0 !important; padding-left: 0 !important;">${rowLabel}:${content}</li>`;
                       }).join('')
                     }</ul>` : '',
                 hasChildren ? renderNode(v.__children, depth + 1) : ''
