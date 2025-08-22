@@ -1657,7 +1657,7 @@ export default class ReviewButton extends FieldComponent {
 
               if (!panelInLeaves) {
                 if (panelPath == "") {
-                  panelPath = "panel";
+                  panelPath = comp.key;
                 }
 
                 console.log('Adding missing panel to leaves:', {
