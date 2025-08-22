@@ -614,6 +614,38 @@ export default class ReviewButton extends FieldComponent {
 
       // Collect reviewVisible leaves and container labels
       async function collectReviewLeavesAndLabels(root) {
+        const pushedPaths = new Set();
+        // Canonicalize paths to avoid duplicates from e.g. form.data., submission., etc.
+        const canon = (p = '') => {
+          // More aggressive canonicalization to ensure uniqueness
+          let normalized = p
+            .replace(/^form\./, '')
+            .replace(/^submission\./, '')
+            .replace(/(^|\.)data(\.|$)/g, '$1')
+            .replace(/\.data\./g, '.')
+            .replace(/^\d+\./, '')     // Remove leading array indices
+            .replace(/\.\d+\./g, '.'); // Remove intermediate array indices
+          
+          // Handle array notation consistently
+          if (normalized.includes('[')) {
+            // Extract the base path and the array indices
+            const matches = normalized.match(/^(.+?)(\[\d+\].*)$/);
+            if (matches) {
+              const basePath = matches[1];
+              const arrayPart = matches[2];
+              normalized = `${basePath}${arrayPart}`;
+            }
+          }
+          
+          return normalized;
+        };
+        const pushLeaf = (leaf) => {
+          const norm = canon(leaf.path);
+          if (!norm || pushedPaths.has(norm)) return;
+          pushedPaths.add(norm);
+          leaves.push(leaf);
+        };
+
         // ----- map top-level component key -> index (true render order)
         const topIndexMap = new Map();
         if (Array.isArray(root?.components)) {
@@ -652,10 +684,18 @@ export default class ReviewButton extends FieldComponent {
         const enqueueAll = (f) => {
           if (f.everyComponent) {
             f.everyComponent((c) => {
-              queue.push(c);
-              stats.totalComponents++;
-              stats.byType[c.component?.type || c.type || 'unknown'] = 
-                (stats.byType[c.component?.type || c.type || 'unknown'] || 0) + 1;
+              // Skip components that are children of datatables/datagrids to avoid duplicate processing
+              const shouldSkip = c.parent && (
+                c.parent.component?.type === 'datatable' || 
+                c.parent.component?.type === 'datagrid'
+              );
+              
+              if (!shouldSkip) {
+                queue.push(c);
+                stats.totalComponents++;
+                stats.byType[c.component?.type || c.type || 'unknown'] = 
+                  (stats.byType[c.component?.type || c.type || 'unknown'] || 0) + 1;
+              }
             });
           }
         };
@@ -670,12 +710,12 @@ export default class ReviewButton extends FieldComponent {
         while (queue.length) {
           const comp = queue.shift();
           if (!comp) continue;
-          
+
           processedCount++;
           if (processedCount % logInterval === 0 || processedCount === stats.totalComponents) {
             console.log(`Processed ${processedCount}/${stats.totalComponents} components (${Math.round(processedCount/stats.totalComponents*100)}%)`);
           }
-          
+
           // Avoid processing the same component twice
           if (comp.path && processedPaths.has(comp.path)) {
             stats.skippedComponents++;
@@ -730,23 +770,51 @@ export default class ReviewButton extends FieldComponent {
             if (comp.component?.type === 'datatable') {
               const dataRows =
                 Array.isArray(comp.dataValue) ? comp.dataValue :
-                Array.isArray(this.root?.data?.[comp.key]) ? this.root.data[comp.key] :
+                Array.isArray(root?.data?.[comp.key]) ? root.data[comp.key] :
                 Array.isArray(comp._data?.[comp.key]) ? comp._data[comp.key] : [];
 
+              // Track which fields we've already processed for each row to prevent duplicates
+              const processedFields = new Map(); // Map of rowIdx -> Set of column keys
+              
               dataRows.forEach((rowObj, rIdx) => {
+                // Create a tracking set for this row if it doesn't exist
+                if (!processedFields.has(rIdx)) {
+                  processedFields.set(rIdx, new Set());
+                }
+                const rowProcessed = processedFields.get(rIdx);
+                
                 colDefs.forEach((c, i) => {
-                  const cKey   = c.key || c.component?.key;
+                  const cKey = c.key || c.component?.key;
+                  
+                  // Skip if we've already processed this column for this row
+                  if (rowProcessed.has(cKey)) {
+                    return;
+                  }
+                  
                   const cLabel = columnLabels[i] || cKey;
-                  const val    = rowObj?.[cKey];
-                  leaves.push({
+                  const val = rowObj?.[cKey];
+                  
+                  pushLeaf({
                     comp,
                     path: `${comp.path}[${rIdx}].${cKey}`,
                     label: cLabel,
                     value: val,
                     formIndex: topIndexFor(comp)
                   });
+                  
+                  // Mark this column as processed for this row
+                  rowProcessed.add(cKey);
                 });
               });
+              
+              // Debug log to confirm what we've processed
+              console.log('Processed datatable fields:', 
+                Array.from(processedFields.entries()).map(([rowIdx, cols]) => ({
+                  row: rowIdx,
+                  columns: Array.from(cols)
+                }))
+              );
+              
               continue; // done with datatable
             }
 
@@ -758,11 +826,11 @@ export default class ReviewButton extends FieldComponent {
                   const childKey =
                     child?.key || child?.component?.key || child?.path?.split('.').pop() || 'value';
                   child.__reviewPath = `${comp.path}[${rIdx}].${childKey}`;
-                  leaves.push({
+                  pushLeaf({
                     comp: child,
                     path: child.__reviewPath,
                     label: child.component?.label || child.key,
-                    value: 'getValue' in child ? child.getValue() : child.dataValue,
+                    value: ('getValue' in child) ? child.getValue() : child.dataValue,
                     formIndex: topIndexFor(child)
                   });
                 });
@@ -841,33 +909,19 @@ export default class ReviewButton extends FieldComponent {
             continue;
           }
 
-          const isContainer = Array.isArray(comp.components) && comp.components.length > 0;
-          const isInputish =
-            comp?.component?.input !== false &&
-            !isContainer &&
-            comp?.type !== 'button' &&
-            comp?.type !== 'panel';
-
           const parent = comp?.parent;
           const parentType = parent?.component?.type;
-          
+          const parentIsHandled =
+            parentType === 'datatable' ||
+            parentType === 'datagrid'  ||
+            parentType === 'editgrid'  ||
+            parentType === 'tagpad';
+
           // Check if component is inside a TagPad form
           const isInTagpadForm = 
             parent && parentType === 'tagpad' && 
             comp.__reviewPath && comp.__reviewPath.includes('[') && comp.__reviewPath.includes(']');
 
-          // inside a repeating container?
-          const inRepeater =
-            parentType === 'editgrid' ||
-            parentType === 'datagrid' ||
-            parentType === 'datatable' ||
-            parentType === 'tagpad' ||            
-            isInTagpadForm ||                     // Component is in a TagPad form
-            Array.isArray(parent?.rows) ||        // datagrid-like
-            Array.isArray(parent?.savedRows) ||   // datatable specific
-            Array.isArray(parent?.editForms) ||   // TagPad edit forms array
-            Array.isArray(parent?.editRows);      // editgrid-like
-            
           // Always include Tagpad components regardless of visibility
           const isTagpadComponent = comp.type === 'tagpad' || comp.component?.type === 'tagpad' || isInTagpadForm;
 
@@ -877,23 +931,26 @@ export default class ReviewButton extends FieldComponent {
             comp?.component?.type === 'htmlelement' || 
             comp?.type === 'content' ||
             comp?.type === 'htmlelement';
-            
-          // include if explicitly reviewVisible OR it's a normal input inside a grid OR it's a tagpad component
-          // BUT exclude content and HTML components
+
+          // Extra check to ensure we don't get duplicate fields from datatables/datagrids
+          const pathParts = (comp.path || '').split('.');
+          const hasArrayNotation = comp.path && comp.path.includes('[') && comp.path.includes(']');
+          const isGridChild = hasArrayNotation || pathParts.some(part => /^\d+$/.test(part));
+          
+          // Only push generic leaves if parent is NOT a handled container and not part of grid data
           if (
+            !parentIsHandled &&
             !isContentComponent &&
-            (comp.visible !== false || isTagpadComponent) &&
-            (comp.component?.reviewVisible === true || (isInputish && inRepeater) || isTagpadComponent)
+            !isGridChild &&
+            comp.visible !== false &&
+            (comp.component?.reviewVisible === true || isTagpadComponent)
           ) {
-            // Get formIndex from top-level ancestor
-            const formIndex = topIndexFor(comp);
-            
-            leaves.push({
+            pushLeaf({
               comp,
               path: comp.__reviewPath || comp.path || comp.key,
               label: comp.component?.label || comp.key,
-              value: 'getValue' in comp ? comp.getValue() : comp.dataValue,
-              formIndex: formIndex // Store original index from form.components
+              value: ('getValue' in comp) ? comp.getValue() : comp.dataValue,
+              formIndex: topIndexFor(comp)
             });
           }
         }
@@ -1079,10 +1136,25 @@ export default class ReviewButton extends FieldComponent {
           return '';
         }
 
+        // Track paths we've already processed in the tree to avoid duplicates
+        const processedTreePaths = new Set();
+        
         // ---- build tree from leaf paths
         for (const { path, label, value, comp, formIndex } of sortedLeaves) {
-          const parts = path
-            .replace(/\.data\./g, '.')
+          // Create a normalized version of the path for de-duplication
+          const normalizedPath = path.replace(/\.data\./g, '.')
+                                     .replace(/^data\./, '')
+                                     .replace(/^form\./, '')
+                                     .replace(/^submission\./, '');
+          
+          // Skip if we've already processed this path in the tree
+          if (processedTreePaths.has(normalizedPath)) {
+            console.log('Skipping duplicate path in tree building:', normalizedPath);
+            continue;
+          }
+          processedTreePaths.add(normalizedPath);
+          
+          const parts = normalizedPath
             .split('.')
             .filter(Boolean)
             // ignore tokens like "0]" (already handled by [idx]) AND bare "0"
@@ -1157,6 +1229,7 @@ export default class ReviewButton extends FieldComponent {
                                  (v.__comp?.type === 'tagpad') ||
                                  (v.__comp?.parent?.type === 'tagpad');
               
+            
               if (isTagpadDot) {
                 // For tagpad forms, simplify to just show label: value (without nested divs)
                 // If the value is a simple number, show it directly
@@ -1173,7 +1246,7 @@ export default class ReviewButton extends FieldComponent {
               const displayLabel = v.__suppress ? '' : (v.__label || (k === 'form' ? '' : k));
               const header = displayLabel ? `<div style="${pad}"><strong>${displayLabel}:</strong>` : `<div style="${pad}">`;
 
-              // ---- DataGrid/DataTable: render as Rows -> Columns -> fields
+                // ---- DataGrid/DataTable: render as Rows -> Columns -> fields
               if ((v.__kind === 'datagrid' || v.__kind === 'datatable') && hasRows) {
                 // which columns are present across rows?
                 const presentKeys = new Set();
@@ -1181,16 +1254,19 @@ export default class ReviewButton extends FieldComponent {
                   Object.keys(r.__children || {}).forEach(cKey => presentKeys.add(cKey));
                 });
 
+                // Debug check for duplicate rendering
+                console.log('Row structure for rendering:', v.__rows);
+                
                 // keep schema order if we have it
                 const orderedKeys = Array.isArray(v.__colKeys) && v.__colKeys.length
                   ? v.__colKeys.filter(cKey => presentKeys.has(cKey))
                   : Array.from(presentKeys);
+                
+                console.log('Ordered keys for rendering:', orderedKeys);
 
                 const labelByKey = new Map(
                   (v.__colKeys || []).map((cKey, i) => [cKey, (v.__colLabels || [])[i] || cKey])
-                );
-
-                const rowIdxs = Object.keys(v.__rows).map(n => Number(n)).sort((a,b)=>a-b);
+                );                const rowIdxs = Object.keys(v.__rows).map(n => Number(n)).sort((a,b)=>a-b);
                 const rowsHtml = rowIdxs.map((rowIdx) => {
                   const row = v.__rows[rowIdx];
                   const haveMultiCols = orderedKeys.length > 1;
@@ -1200,9 +1276,22 @@ export default class ReviewButton extends FieldComponent {
                   const padCol = `margin-left:${(depth + 2) * 15}px; padding-left:10px; border-left:1px dotted #ccc;`;
 
                   if (haveMultiCols) {
+                    // Log the row children for debug
+                    console.log('Row children:', Object.keys(row.__children || {}));
+                    
+                    // Ensure we're not duplicating fields
+                    const processedInThisRow = new Set();
+                    
                     const colsHtml = orderedKeys.map((colKey, colIdx) => {
+                      // Skip if we've already processed this column for this row
+                      if (processedInThisRow.has(colKey)) {
+                        return '';
+                      }
+                      
+                      processedInThisRow.add(colKey);
                       const cell = row.__children[colKey];
                       let cellContent = '';
+                      
                       if (!cell) {
                         cellContent = '<div style="'+padCol+'">(empty)</div>';
                       } else if (cell.__leaf) {
@@ -1214,7 +1303,7 @@ export default class ReviewButton extends FieldComponent {
                         cellContent = inner || `<div style="${padCol}">(empty)</div>`;
                       }
                       return `${cellContent}`;
-                    }).join('');
+                    }).filter(html => html.length > 0).join('');
 
                     return `<li style="margin-left:0 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;','')}">Row ${rowIdx+1}:${colsHtml}</li>`;
                   } else {
