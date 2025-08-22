@@ -740,38 +740,50 @@ export default class ReviewButton extends FieldComponent {
               columnLabels
             });
 
-            // For DataTable, use savedRows instead of rows
-            const rowsToProcess = comp.component?.type === 'datatable' && Array.isArray(comp.savedRows) ? 
-              comp.savedRows.map(row => ({ ...row, components: row.components || [] })) : 
-              comp.rows;
-              
-            if (rowsToProcess && rowsToProcess.length) {
-              console.log(`Processing ${comp.component?.type} rows for ${comp.path}:`, rowsToProcess);
-              
-              rowsToProcess.forEach((row, rIdx) => {
-                console.log(`Row ${rIdx} contents:`, row);
-                
-                // For DataTable, process row.components; for DataGrid, process the row object directly
-                const rowComponents = comp.component?.type === 'datatable' ? row.components : Object.values(row);
-                
-                rowComponents.forEach((child) => {
+            // For DataTable, always use savedRows and collect all child values
+            if (comp.component?.type === 'datatable' && Array.isArray(comp.savedRows)) {
+              comp.savedRows.forEach((row, rIdx) => {
+                if (Array.isArray(row.components)) {
+                  row.components.forEach(child => {
+                    if (child) {
+                      const childKey = child?.key || child?.component?.key || child?.path?.split('.').pop() || 'value';
+                      child.__reviewPath = `${comp.path}[${rIdx}].${childKey}`;
+                      // If this is a nested form within a row, set its label in the map
+                      if (child.type === 'form') {
+                        const formPath = child.__reviewPath;
+                        const formTitle = child.formObj?.title || child.component?.label || child.key || 'Form';
+                        labelByPathMap.set(formPath, formTitle);
+                      }
+                      // Collect value for review
+                      leaves.push({
+                        comp: child,
+                        path: child.__reviewPath,
+                        label: child.component?.label || child.key,
+                        value: 'getValue' in child ? child.getValue() : child.dataValue,
+                        formIndex: topIndexFor(child)
+                      });
+                    }
+                  });
+                }
+              });
+            } else if (Array.isArray(comp.rows)) {
+              comp.rows.forEach((row, rIdx) => {
+                Object.values(row).forEach(child => {
                   if (child) {
                     const childKey = child?.key || child?.component?.key || child?.path?.split('.').pop() || 'value';
                     child.__reviewPath = `${comp.path}[${rIdx}].${childKey}`;
-                    console.log(`Child in row ${rIdx}:`, {
-                      key: child.key,
-                      type: child.type,
-                      path: child.path,
-                      reviewPath: child.__reviewPath
-                    });
-                    
-                    // If this is a nested form within a row, set its label in the map
                     if (child.type === 'form') {
                       const formPath = child.__reviewPath;
                       const formTitle = child.formObj?.title || child.component?.label || child.key || 'Form';
                       labelByPathMap.set(formPath, formTitle);
                     }
-                    queue.push(child);
+                    leaves.push({
+                      comp: child,
+                      path: child.__reviewPath,
+                      label: child.component?.label || child.key,
+                      value: 'getValue' in child ? child.getValue() : child.dataValue,
+                      formIndex: topIndexFor(child)
+                    });
                   }
                 });
               });
