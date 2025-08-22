@@ -534,6 +534,10 @@ export default class ReviewButton extends FieldComponent {
 
       // Collect reviewVisible leaves and container labels
       async function collectReviewLeavesAndLabels(root) {
+        const stats = {
+          leafComponents: 0,
+          containers: 0
+        };
         const pushedPaths = new Set();
         // Canonicalize paths to avoid duplicates from e.g. form.data., submission., etc.
         const canon = (p = '') => {
