@@ -472,6 +472,37 @@ export default class ReviewButton extends FieldComponent {
     this.loadRefs(element, { button: "single" });
 
     this.addEventListener(this.refs.button, "click", async () => {
+      // Log the entire form structure
+      console.log('--- ENTIRE FORM STRUCTURE ---');
+      console.log('Form Root:', this.root);
+      console.log('Form Components:', this.root.components);
+      
+      // Log detailed component structure
+      const componentMap = {};
+      console.log('--- COMPONENT HIERARCHY ---');
+      this.root.everyComponent(comp => {
+        const compInfo = {
+          type: comp.component?.type || comp.type,
+          key: comp.key,
+          path: comp.path,
+          label: comp.component?.label || comp.label || comp.key,
+          value: comp.getValue ? comp.getValue() : comp.dataValue,
+          hasParent: !!comp.parent,
+          parentKey: comp.parent?.key,
+          parentType: comp.parent?.component?.type || comp.parent?.type,
+          hasChildren: Array.isArray(comp.components) && comp.components.length > 0,
+          childCount: Array.isArray(comp.components) ? comp.components.length : 0
+        };
+        componentMap[comp.path || comp.key || 'unknown'] = compInfo;
+      });
+      console.log('Component Map:', componentMap);
+      
+      // Log form data
+      console.log('--- FORM DATA ---');
+      console.log('Form Data:', this.root.data);
+      console.log('Form Submission:', this.root.submission);
+      console.log('Form Value:', this.root.getValue());
+      
       const validation = await this.validateFormExternal({
         showErrors: true,
         scrollToError: true
@@ -600,6 +631,39 @@ export default class ReviewButton extends FieldComponent {
             return;
           }
           const prefix = f.__reviewPrefix || '';
+          
+          // First pass: find panels and containers and mark them as reviewVisible
+          f.everyComponent((c) => {
+            if (c.component?.type === 'panel' || 
+                c.component?.type === 'container' || 
+                c.component?.type === 'columns' ||
+                c.component?.type === 'fieldset') {
+              
+              console.log('Found container component in enqueueAll:', {
+                type: c.component?.type,
+                key: c.key,
+                label: c.component?.label
+              });
+              
+              // Make container and all its children reviewVisible
+              if (!c.component) {
+                c.component = {};
+              }
+              c.component.reviewVisible = true;
+              
+              // Also make all children reviewVisible
+              if (Array.isArray(c.components) && c.components.length > 0) {
+                c.components.forEach(child => {
+                  if (!child.component) {
+                    child.component = {};
+                  }
+                  child.component.reviewVisible = true;
+                });
+              }
+            }
+          });
+          
+          // Second pass: queue all components for processing
           f.everyComponent((c) => {
             const shouldSkip = c.parent && (
               c.parent.component?.type === 'datatable' ||
@@ -858,7 +922,30 @@ export default class ReviewButton extends FieldComponent {
 
           if (Array.isArray(comp.components) && comp.components.length) {
             const containerPath = safePath(comp);
-            labelByPathMap.set(containerPath, comp.component?.label || comp.key || '');
+            const containerLabel = comp.component?.label || comp.key || '';
+            
+            // Special handling for components with children - make sure they're marked for review
+            const isContainer = comp.component?.type === 'panel' || 
+                               comp.component?.type === 'container' || 
+                               comp.component?.type === 'columns' ||
+                               comp.component?.type === 'fieldset';
+            
+            if (isContainer) {
+              console.log('Found container component with children:', {
+                type: comp.component?.type,
+                key: comp.key,
+                label: containerLabel,
+                childCount: comp.components.length
+              });
+              
+              // Force container components to be included in review
+              if (!comp.component) {
+                comp.component = {};
+              }
+              comp.component.reviewVisible = true;
+            }
+            
+            labelByPathMap.set(containerPath, containerLabel);
             indexByPathMap.set(containerPath, topIndexFor(comp));
             comp.components.forEach((ch) => queue.push(ch));
             continue;
@@ -893,8 +980,20 @@ export default class ReviewButton extends FieldComponent {
           const hasArrayNotation = componentPath && componentPath.includes('[') && componentPath.includes(']');
           const isGridChild = hasArrayNotation || pathParts.some(part => /^\d+$/.test(part));
 
-          // Check if this is a form component
+          // Check if this is a form or panel component
           const isFormComponent = comp.type === 'form' || comp.component?.type === 'form';
+          const isPanelComponent = comp.type === 'panel' || comp.component?.type === 'panel';
+          
+          // Debug panel components
+          if (isPanelComponent) {
+            console.log('Found panel component:', {
+              key: comp.key,
+              path: comp.path,
+              isVisible: comp.visible !== false,
+              reviewVisible: comp.component?.reviewVisible === true,
+              components: Array.isArray(comp.components) ? comp.components.length : 0
+            });
+          }
 
           // Log form component info
           if (isFormComponent) {
@@ -907,6 +1006,61 @@ export default class ReviewButton extends FieldComponent {
               value: comp.hasValue ? ('getValue' in comp ? 'Has getValue' : 'No getValue') : 'No value'
             });
           }
+          
+          // Process panel components specifically
+          if (isPanelComponent) {
+            // Set the label for the panel in the label map
+            const panelPath = safePath(comp);
+            labelByPathMap.set(panelPath, comp.component?.label || comp.key || 'Panel');
+            indexByPathMap.set(panelPath, topIndexFor(comp));
+            
+            // Force panel components to be included in review, regardless of reviewVisible setting
+            if (!comp.component) {
+              comp.component = {};
+            }
+            comp.component.reviewVisible = true;
+            
+            console.log('Found panel component in processing:', {
+              key: comp.key,
+              path: panelPath,
+              hasLabel: !!comp.component?.label,
+              compType: comp.component?.type,
+              children: Array.isArray(comp.components) ? comp.components.length : 0
+            });
+            
+            // Make sure all child components of the panel are also included
+            if (Array.isArray(comp.components) && comp.components.length > 0) {
+              // Force reviewVisible on ALL child components of panels
+              comp.components.forEach(child => {
+                if (!child.component) {
+                  child.component = {};
+                }
+                child.component.reviewVisible = true;
+                console.log('  Child component in panel:', {
+                  key: child.key,
+                  type: child.component?.type,
+                  label: child.component?.label
+                });
+              });
+            }
+          }
+
+          // Check if this is a container component that should be included
+          const isContainerComponent = comp.component?.type === 'panel' ||
+                                      comp.component?.type === 'container' || 
+                                      comp.component?.type === 'columns' ||
+                                      comp.component?.type === 'fieldset';
+                                      
+          // Always process and include panel components regardless of reviewVisible setting
+          if (isPanelComponent || isContainerComponent) {
+            console.log('Processing container component for review:', {
+              type: comp.component?.type || comp.type,
+              key: comp.key,
+              label: comp.component?.label,
+              path: safePath(comp),
+              hasChildren: Array.isArray(comp.components) && comp.components.length > 0
+            });
+          }
 
           // Only push generic leaves if parent is NOT a handled container and not part of grid data
           if (
@@ -914,12 +1068,18 @@ export default class ReviewButton extends FieldComponent {
             !isContentComponent &&
             !isGridChild &&
             comp.visible !== false &&
-            (comp.component?.reviewVisible === true || isTagpadComponent || isFormComponent)
+            (comp.component?.reviewVisible === true || isTagpadComponent || isFormComponent || isPanelComponent || isContainerComponent)
           ) {
-            // For form components, we need to ensure we include them and their data
-            const componentValue = isFormComponent
-              ? (comp.data || comp.submission?.data || comp.dataValue || {})
-              : (('getValue' in comp) ? comp.getValue() : comp.dataValue);
+            // For form or panel components, ensure we include them and their data
+            let componentValue;
+            if (isFormComponent) {
+              componentValue = comp.data || comp.submission?.data || comp.dataValue || {};
+            } else if (isPanelComponent || isContainerComponent) {
+              // For panels, collect the child components values as an object
+              componentValue = {}; // Empty object, we'll render the children separately
+            } else {
+              componentValue = ('getValue' in comp) ? comp.getValue() : comp.dataValue;
+            }
 
             pushLeaf({
               comp,
@@ -939,6 +1099,64 @@ export default class ReviewButton extends FieldComponent {
             }
           }
         }
+        // Make sure all panel components are included
+        if (Array.isArray(root?.components)) {
+          root.components.forEach(comp => {
+            if ((comp.component?.type === 'panel' || comp.type === 'panel') && 
+                Array.isArray(comp.components) && comp.components.length > 0) {
+              
+              // Check if this panel is already in leaves
+              let panelPath = safePath(comp);
+              const panelInLeaves = leaves.some(leaf => 
+                (leaf.path === panelPath || leaf.comp === comp)
+              );
+              
+              if (!panelInLeaves) {
+                if(panelPath == ""){
+                  panelPath = "panel";
+                }
+
+                console.log('Adding missing panel to leaves:', {
+                  comp: comp,
+                  key: comp.key,
+                  path: panelPath,
+                  label: comp.component?.label || comp.key || 'Panel'
+                });
+                
+                // Add the panel component to leaves
+                const panelFormIndex = topIndexFor(comp);
+                labelByPathMap.set(panelPath, comp.component?.label || comp.key || 'Panel');
+                indexByPathMap.set(panelPath, panelFormIndex);
+                
+                // Add the panel to leaves
+                pushLeaf({
+                  comp,
+                  path: panelPath,
+                  label: comp.component?.label || comp.key || 'Panel',
+                  value: '(Panel contents)',
+                  formIndex: panelFormIndex
+                });
+                
+                // Also make sure child components are included
+                comp.components.forEach(childComp => {
+                  const childKey = childComp.key || childComp.path || 'child';
+                  const childPath = `${panelPath}.${childKey}`;
+                  labelByPathMap.set(childPath, childComp.component?.label || childComp.key);
+                  indexByPathMap.set(childPath, panelFormIndex);
+                  
+                  pushLeaf({
+                    comp: childComp,
+                    path: childPath,
+                    label: childComp.component?.label || childKey,
+                    value: ('getValue' in childComp) ? childComp.getValue() : childComp.dataValue,
+                    formIndex: panelFormIndex
+                  });
+                });
+              }
+            }
+          });
+        }
+        
         // Convert Maps to plain objects
         const labelByPath = {};
         labelByPathMap.forEach((value, key) => {
@@ -996,7 +1214,7 @@ export default class ReviewButton extends FieldComponent {
       }
 
       // Build readable HTML tree using labels
-      function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath) {
+      function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, rootInstance) {
         console.log("Original leaves order:", leaves.map(l => ({
           path: l.path,
           label: l.label,
@@ -1005,6 +1223,18 @@ export default class ReviewButton extends FieldComponent {
 
         // Sort leaves based on their original position in form.components
         const sortedLeaves = [...leaves].sort((a, b) => {
+          // Check if either is a panel component
+          const isPanelA = a.comp?.component?.type === 'panel' || a.comp?.type === 'panel';
+          const isPanelB = b.comp?.component?.type === 'panel' || b.comp?.type === 'panel';
+          
+          // Panel components should appear before their children
+          if (isPanelA && !isPanelB) {
+            return -1; // Panel comes first
+          }
+          if (!isPanelA && isPanelB) {
+            return 1; // Panel comes first
+          }
+          
           // Special handling for tagpad components to ensure they're in the correct position
           const isTagpadA = a.comp?.component?.type === 'tagpad' || a.comp?.type === 'tagpad' ||
             a.path?.includes('tagpad') || a.label?.startsWith('Tag ');
@@ -1026,6 +1256,18 @@ export default class ReviewButton extends FieldComponent {
           // If only one has valid formIndex, prioritize it
           if (a.formIndex >= 0) return -1;
           if (b.formIndex >= 0) return 1;
+          
+          // Sort by path length to ensure parent components come before children
+          if (a.path && b.path) {
+            const aDepth = (a.path.match(/\./g) || []).length;
+            const bDepth = (b.path.match(/\./g) || []).length;
+            
+            if (aDepth !== bDepth) {
+              return aDepth - bDepth; // Shorter paths (parent components) come first
+            }
+            
+            return a.path.localeCompare(b.path);
+          }
 
           // Otherwise, keep original order
           return 0;
@@ -1038,11 +1280,30 @@ export default class ReviewButton extends FieldComponent {
         })));
 
         const root = {};
-        const ensureNode = (obj, k) => (obj[k] ??= {
-          __children: {}, __rows: {}, __label: null, __suppress: false,
-          __kind: null, __colKeys: null, __colLabels: null,
-          __formIndex: -1 // Add form index to track original order
-        });
+        const ensureNode = (obj, k) => {
+          // Safety check: if obj is null or undefined, return an empty object
+          if (obj == null) {
+            console.error('ensureNode received null or undefined object for key:', k);
+            return {
+              __children: {}, __rows: {}, __label: null, __suppress: false,
+              __kind: null, __colKeys: null, __colLabels: null,
+              __formIndex: -1
+            };
+          }
+          
+          // If k is not a string or number, log error and use a safe default
+          if (typeof k !== 'string' && typeof k !== 'number') {
+            console.error('Invalid key in ensureNode:', k);
+            k = String(k || 'unknown');
+          }
+          
+          // Now safely ensure the node exists
+          return (obj[k] ??= {
+            __children: {}, __rows: {}, __label: null, __suppress: false,
+            __kind: null, __colKeys: null, __colLabels: null,
+            __formIndex: -1 // Add form index to track original order
+          });
+        };
 
         function setNodeLabelForPath(node, containerPath) {
           if (!node.__label && labelByPath && typeof labelByPath === 'object' && containerPath in labelByPath) {
@@ -1148,7 +1409,59 @@ export default class ReviewButton extends FieldComponent {
 
         // Track paths we've already processed in the tree to avoid duplicates
         const processedTreePaths = new Set();
-
+        
+        // Log entire form structure to help debugging
+        console.log('Building review from form structure:', {
+          rootComponents: rootInstance?.components?.map(c => ({
+            type: c.component?.type || c.type,
+            key: c.key,
+            label: c.component?.label,
+            hasChildren: Array.isArray(c.components) && c.components.length > 0,
+            childCount: Array.isArray(c.components) ? c.components.length : 0
+          })) || []
+        });
+        
+        // Pre-process all panel components to ensure they're properly included
+        const panelComponents = sortedLeaves.filter(leaf => 
+          leaf.comp?.component?.type === 'panel' || 
+          leaf.comp?.type === 'panel' ||
+          (leaf.comp?.components?.length > 0 && (
+            leaf.comp?.component?.type === 'container' ||
+            leaf.comp?.component?.type === 'columns' ||
+            leaf.comp?.component?.type === 'fieldset'
+          ))
+        );
+        
+        console.log('Found panel/container components in sortedLeaves:', panelComponents.length);
+        
+        // If no panels were found in sortedLeaves but they exist in the form, log this info
+        if (panelComponents.length === 0) {
+          console.log('No panel components found in sortedLeaves - check form structure');
+        }
+        
+        // First, organize components by parent-child relationships
+        const componentsByParentPath = {};
+        const isParentComponent = (comp) => {
+          return comp?.component?.type === 'panel' || 
+                 comp?.type === 'panel' ||
+                 comp?.component?.type === 'container' ||
+                 comp?.component?.type === 'columns' ||
+                 comp?.component?.type === 'fieldset';
+        };
+        
+        // First pass - identify all panel components
+        const panelPaths = new Set();
+        for (const { path, comp } of sortedLeaves) {
+          if (isParentComponent(comp)) {
+            const normalizedPath = path.replace(/\.data\./g, '.')
+              .replace(/^data\./, '')
+              .replace(/^form\./, '')
+              .replace(/^submission\./, '');
+            panelPaths.add(normalizedPath);
+            console.log('Found panel component:', normalizedPath);
+          }
+        }
+        
         // ---- build tree from leaf paths
         for (const { path, label, value, comp, formIndex } of sortedLeaves) {
           // Create a normalized version of the path for de-duplication
@@ -1162,8 +1475,40 @@ export default class ReviewButton extends FieldComponent {
             console.log('Skipping duplicate path in tree building:', normalizedPath);
             continue;
           }
+          
+          // Special handling for panel components to ensure they're properly included
+          const isPanelComponent = isParentComponent(comp);
+          if (isPanelComponent) {
+            console.log('Processing panel in tree building:', normalizedPath, label);
+            
+            // Ensure we've properly identified this as a panel in our map
+            panelPaths.add(normalizedPath);
+          }
+          
           processedTreePaths.add(normalizedPath);
 
+          // Check if this path is a child of any panel component
+          let isChildOfPanel = false;
+          let parentPanelPath = '';
+          
+          if (!isPanelComponent) {
+            // Check if this component is a child of a panel
+            for (const panelPath of panelPaths) {
+              if (normalizedPath !== panelPath && 
+                  normalizedPath.startsWith(panelPath + '.')) {
+                isChildOfPanel = true;
+                parentPanelPath = panelPath;
+                console.log('Found child of panel:', {
+                  child: normalizedPath,
+                  panel: panelPath,
+                  component: comp.component?.type || comp.type,
+                  label: label
+                });
+                break;
+              }
+            }
+          }
+          
           const parts = normalizedPath
             .split('.')
             .filter(Boolean)
@@ -1171,36 +1516,103 @@ export default class ReviewButton extends FieldComponent {
             .filter(seg => !/^\d+\]$/.test(seg) && !/^\d+$/.test(seg));
           let ptr = root;
           let containerPath = '';
+          
+          // Check if this is a panel component at the root level
+          const isPanelAtRoot = parts.length === 1 && isParentComponent(comp);
 
           for (let i = 0; i < parts.length; i++) {
             const seg = parts[i];
+            if (!seg) {
+              console.warn('Empty segment found in path parts:', parts);
+              continue; // Skip empty segments
+            }
+            
             const idxMatch = seg.match(/\[(\d+)\]/);
             const key = seg.replace(/\[\d+\]/g, '');
-            containerPath = containerPath ? `${containerPath}.${key}` : key;
-
-            const node = ensureNode(ptr, key);
-            if (suppressLabelForKey.has(key)) node.__suppress = true;
-            setNodeLabelForPath(node, containerPath);
-            setNodeMetaForPath(node, containerPath);
-            setNodeIndexForPath(node, containerPath);            // Store formIndex for sorting
-            if (formIndex >= 0 && (node.__formIndex === -1 || formIndex < node.__formIndex)) {
-              node.__formIndex = formIndex;
+            
+            // Skip if key is empty after processing
+            if (!key) {
+              console.warn('Empty key after processing segment:', seg);
+              continue;
             }
-
-            if (idxMatch) {
-              const idx = Number(idxMatch[1]);
-              node.__rows[idx] ??= { __children: {} };
-              ptr = node.__rows[idx].__children;
-            } else if (i === parts.length - 1) {
-              ptr[key] = {
-                __leaf: true,
-                __label: label,
-                __value: value,
-                __comp: comp,
-                __formIndex: formIndex
-              };
-            } else {
-              ptr = node.__children;
+            
+            containerPath = containerPath ? `${containerPath}.${key}` : key;
+            
+            // Special debug for panel child components
+            if (isChildOfPanel && i === parts.length - 1) {
+              console.log('Adding panel child component to tree:', {
+                key,
+                panel: parentPanelPath,
+                path: normalizedPath,
+                label
+              });
+            }
+            
+            try {
+              // Ensure we have a valid node for this key
+              const node = ensureNode(ptr, key);
+              
+              if (!node) {
+                console.error('Failed to create node for key:', key);
+                continue;
+              }
+              
+              if (suppressLabelForKey.has(key)) node.__suppress = true;
+              setNodeLabelForPath(node, containerPath);
+              setNodeMetaForPath(node, containerPath);
+              setNodeIndexForPath(node, containerPath);            // Store formIndex for sorting
+              if (formIndex >= 0 && (node.__formIndex === -1 || formIndex < node.__formIndex)) {
+                node.__formIndex = formIndex;
+              }
+  
+              if (idxMatch) {
+                const idx = Number(idxMatch[1]);
+                // Ensure __rows exists
+                if (!node.__rows) node.__rows = {};
+                node.__rows[idx] ??= { __children: {} };
+                ptr = node.__rows[idx].__children;
+              } else if (i === parts.length - 1) {
+                // Special handling for panel components to ensure they can have children
+                if (isPanelComponent) {
+                  console.log('Creating panel node with children capability:', key);
+                  // If this is a panel, make sure it has the __children property
+                  ptr[key] = {
+                    __leaf: false, // Not a leaf since it's a container
+                    __label: label || key,
+                    __value: value,
+                    __comp: comp,
+                    __formIndex: formIndex,
+                    __children: {}, // Container for child components
+                    __rows: {},
+                    __suppress: false,
+                    __kind: null,
+                    __colKeys: null, 
+                    __colLabels: null
+                  };
+                } else {
+                  // Normal leaf component
+                  ptr[key] = {
+                    __leaf: true,
+                    __label: label || key,
+                    __value: value,
+                    __comp: comp,
+                    __formIndex: formIndex
+                  };
+                }
+              } else {
+                // Ensure __children exists
+                if (!node.__children) node.__children = {};
+                ptr = node.__children;
+              }
+            } catch (error) {
+              console.error('Error processing path segment:', { 
+                segment: seg, 
+                key, 
+                path: normalizedPath,
+                error: error.message 
+              });
+              // Skip to the next part if there's an error
+              continue;
             }
           }
         }
@@ -1292,8 +1704,58 @@ export default class ReviewButton extends FieldComponent {
             if (v && typeof v === 'object') {
               const hasChildren = v.__children && Object.keys(v.__children).length;
               const hasRows = v.__rows && Object.keys(v.__rows).length;
+              const isPanelComponent = v.__comp?.component?.type === 'panel' || v.__comp?.type === 'panel';
+              
+              // Debug panel components during rendering
+              if (isPanelComponent) {
+                console.log('Rendering panel component:', {
+                  key: k,
+                  label: v.__label,
+                  hasChildren,
+                  hasRows
+                });
+              }
+              
               const displayLabel = v.__suppress ? '' : (v.__label || (k === 'form' ? '' : k));
               const header = displayLabel ? `<div style="${pad}"><strong>${displayLabel}:</strong>` : `<div style="${pad}">`;
+              // Special handling for panel components
+              if (isPanelComponent) {
+                // Find all child components for this panel
+                const normalizedKey = k.replace(/\[\d+\]/g, '');
+                
+                console.log('Panel rendering:', {
+                  key: k,
+                  label: v.__label || normalizedKey,
+                  displayLabel,
+                  hasChildren
+                });
+
+                // Get all direct child components to display under this panel
+                let panelChildrenHtml = '';
+                
+                // If this panel has children in the tree
+                if (hasChildren) {
+                  // Get all child components to render
+                  panelChildrenHtml = renderNode(v.__children, depth + 1);
+                } 
+                // If no children were found in the tree but we have child components in the original component
+                else if (v.__comp && Array.isArray(v.__comp.components) && v.__comp.components.length > 0) {
+                  console.log('Panel has components but no children in tree:', {
+                    key: k,
+                    componentCount: v.__comp.components.length
+                  });
+                }
+                
+                // Create a fieldset-like container for better grouping
+                return `
+                  <div style="margin-left:0px; padding-left:10px; border-left:1px dotted #ccc;">
+                    <strong>${displayLabel || 'Panel'}</strong>
+                    <div style="padding-left: 10px;">
+                      ${panelChildrenHtml}
+                    </div>
+                  </div>
+                `;
+              }
 
               // ---- DataGrid/DataTable: render as Rows -> Columns -> fields
               if ((v.__kind === 'datagrid' || v.__kind === 'datatable') && hasRows) {
@@ -1412,7 +1874,8 @@ export default class ReviewButton extends FieldComponent {
       const { leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath } =
         await collectReviewLeavesAndLabels(this.root);
 
-      const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath);
+      // Pass this.root as a parameter to renderLeaves
+      const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, this.root);
 
       // Get the latest data after refresh
       const allData = this.root.getValue();
