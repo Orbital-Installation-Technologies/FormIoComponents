@@ -1111,8 +1111,19 @@ export default class ReviewButton extends FieldComponent {
           // Get data rows
           let dataRows = [];
           const componentPath = component.path || component.key || '';
-          
-          if (componentType === 'datatable' || componentType === 'table') {
+          // Prefer comp.table if present and is an array of arrays
+          if (Array.isArray(component.table) && component.table.length > 0 && Array.isArray(component.table[0])) {
+            // Convert array of arrays to array of objects using column keys
+            const colDefs = Array.isArray(component.components) ? component.components : [];
+            const columnKeys = colDefs.map(c => c.key || c.path || c.component?.key || '');
+            dataRows = component.table.map(rowArr => {
+              const rowObj = {};
+              columnKeys.forEach((colKey, idx) => {
+                rowObj[colKey] = rowArr[idx];
+              });
+              return rowObj;
+            });
+          } else {
             // For both table and datatable, try to get rows from multiple sources
             dataRows = Array.isArray(component.dataValue) ? component.dataValue :
               Array.isArray(component.rows) ? component.rows :
@@ -2047,13 +2058,38 @@ export default class ReviewButton extends FieldComponent {
 
         // pretty-print values (files, arrays, booleans, etc.)
         function formatValue(value, comp) {
-          // Check for our custom structure
+          //console.log("formatValue value", value)
+          //console.log("formatValue comp", comp)
+          // Render table data as HTML table if detected
+          if (value && value._type === 'table' && Array.isArray(comp.table)) {
+            const columns = comp.table.length > 0 ? Object.keys(comp.table[0]) : [];
+            let tableHtml = `<table style="width:100%;border-collapse:collapse;margin-bottom:8px;">`;
+            // Header
+            // console.log
+            // tableHtml += `<tr>`;
+            // for (const col of columns) {
+            //   tableHtml += `<th style="border:1px solid #ccc;padding:4px;">${col}</th>`;
+            // }
+            // tableHtml += `</tr>`;
+            // Rows
+            for (const row of comp.table) {
+              console.log("row", row)
+              tableHtml += `<tr>`;
+              for (const col of columns) {
+                tableHtml += `<td style="border:1px solid #ccc;padding:4px;">${row[col] ?? ''}</td>`;
+              }
+              tableHtml += `</tr>`;
+            }
+            tableHtml += `</table>`;
+            console.log("Generated HTML table:", tableHtml);
+            return tableHtml;
+          }
+          // Other containers
           if (value && value._type && (value._type === 'panel' || value._type === 'well' || 
               value._type === 'container' || value._type === 'fieldset' || value._type === 'columns')) {
             return `(${value._type} data)`;
           }
-          
-          // Check if this is a custom component structure
+          // Other custom structures
           if (value && value._label && typeof value._row === 'object') {
             return `(${value._type || 'Container'} data)`;
           }
