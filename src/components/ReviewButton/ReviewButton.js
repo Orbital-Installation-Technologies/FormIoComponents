@@ -1084,6 +1084,123 @@ export default class ReviewButton extends FieldComponent {
         });
       } catch (e) { }
 
+      /**
+       * Processes container-type components (tables, panels, wells, etc.) into a structured format for review
+       * @param {Object} component - The Form.io component to process
+       * @returns {Object} A structured representation of the component for review display
+       */
+      const customComponentForReview = (component) => {
+        // Extract basic component info
+        const label = component.component?.label || component.label || component.key || 'Unnamed';
+        const key = component.component?.key || component.key;
+        const componentType = component.component?.type || component.type;
+        const data = component.data || component._data || component.dataValue || {};
+        const rootInstance = component.root || component.parent?.root || null;
+        
+        // Different handling based on component type
+        if (componentType === 'table' || componentType === 'datatable') {
+          // Process table and datatable components the same way
+          
+          // Get column definitions
+          const colDefs = Array.isArray(component.components) ? component.components : [];
+          const columnKeys = colDefs.map(c => c.key || c.path || c.component?.key || '');
+          const columnLabels = colDefs.map(c => c.label || c.component?.label || c.key || '');
+          
+          // Get data rows
+          let dataRows = [];
+          const componentPath = component.path || component.key || '';
+          
+          if (componentType === 'datatable' || componentType === 'table') {
+            // For both table and datatable, try to get rows from multiple sources
+            dataRows = Array.isArray(component.dataValue) ? component.dataValue :
+              Array.isArray(component.rows) ? component.rows :
+              Array.isArray(component.savedRows) ? component.savedRows.map(row => row.data || {}) :
+              Array.isArray(rootInstance?.data?.[key]) ? rootInstance.data[key] :
+              Array.isArray(component._data?.[key]) ? component._data[key] : [];
+          }
+          
+          // Process rows
+          const tableRows = [];
+          const processedFields = new Map();
+          
+          dataRows.forEach((rowObj, rIdx) => {
+            if (!processedFields.has(rIdx)) processedFields.set(rIdx, new Set());
+            const rowDone = processedFields.get(rIdx);
+            const rowData = [];
+            
+            colDefs.forEach((col, i) => {
+              const colKey = col.key || col.component?.key;
+              const colLabel = columnLabels[i] || colKey;
+              
+              if (!colKey || rowDone.has(colKey)) return;
+              
+              // Get value from row data
+              const val = typeof rowObj === 'object' ? rowObj[colKey] : '';
+              
+              rowData.push({
+                _children: {
+                  _label: colLabel,
+                  _key: colKey,
+                  _type: col.type || col.component?.type,
+                  _leaf: true,
+                  _value: val
+                }
+              });
+              
+              rowDone.add(colKey);
+            });
+            
+            tableRows.push({ _row: rowData });
+          });
+          
+          console.log(`Processed ${componentType} with ${dataRows.length} rows and ${colDefs.length} columns:`, {
+            key: key,
+            rows: dataRows.length,
+            columns: colDefs.length,
+            processedRows: tableRows.length
+          });
+          
+          return { 
+            _label: label,
+            _key: key,
+            _type: componentType,
+            _row: tableRows
+          };
+        } else if (['panel', 'container', 'well', 'fieldset', 'columns', 'table'].includes(componentType)) {
+          // Handle panel, container, well and similar container components
+          const children = component.components || [];
+          const containerItems = children.map(child => {
+            const childKey = child.key || child.path || '';
+            const childValue = child.dataValue || (data[childKey] || '');
+            return {
+              _children: {
+                _label: child.label || child.key || 'Unnamed',
+                _key: childKey,
+                _type: child.type || child.component?.type,
+                _leaf: true,
+                _value: childValue
+              }
+            };
+          });
+          
+          return {
+            _label: label,
+            _key: key,
+            _type: componentType,
+            _row: containerItems
+          };
+        }
+        
+        // Default case for other component types
+        return {
+          _label: label,
+          _key: key,
+          _type: componentType,
+          _leaf: true,
+          _value: component.dataValue || ''
+        };
+      };
+
 
 
       // Collect reviewVisible leaves and container labels
@@ -1174,7 +1291,8 @@ export default class ReviewButton extends FieldComponent {
               c.component?.type === 'container' ||
               c.component?.type === 'columns' ||
               c.component?.type === 'fieldset' ||
-              c.component?.type === 'well') {
+              c.component?.type === 'well' ||
+              c.component?.type === 'table') {
 
               // Make container and all its children reviewVisible
               if (!c.component) {
@@ -1460,7 +1578,8 @@ export default class ReviewButton extends FieldComponent {
               comp.component?.type === 'container' ||
               comp.component?.type === 'columns' ||
               comp.component?.type === 'fieldset' ||
-              comp.component?.type === 'well';
+              comp.component?.type === 'well' ||
+              comp.component?.type === 'table';
 
             if (isContainer) {
 
@@ -1484,7 +1603,10 @@ export default class ReviewButton extends FieldComponent {
             parentType === 'datatable' ||
             parentType === 'datagrid' ||
             parentType === 'editgrid' ||
-            parentType === 'tagpad';
+            parentType === 'tagpad' ||
+            parentType === 'panel' ||
+            parentType === 'well'; //||
+            //parentType === 'table';
 
           // Check if component is inside a TagPad form
           const isInTagpadForm =
@@ -1554,7 +1676,8 @@ export default class ReviewButton extends FieldComponent {
             comp.component?.type === 'container' ||
             comp.component?.type === 'columns' ||
             comp.component?.type === 'fieldset' ||
-            comp.component?.type === 'well' ;
+            comp.component?.type === 'well' || 
+            comp.component?.type === 'table';
             
           // Debug well components specifically
           if (comp.component?.type === 'well' || comp.type === 'well') {
@@ -1565,6 +1688,10 @@ export default class ReviewButton extends FieldComponent {
               visible: comp.visible,
               reviewVisible: comp.component?.reviewVisible
             });
+            
+            // Process the well component using our new helper function
+            const processedWell = customComponentForReview(comp);
+            console.log("Processed well component:", processedWell);
           }
 
           // Always process and include panel components regardless of reviewVisible setting
@@ -1572,6 +1699,17 @@ export default class ReviewButton extends FieldComponent {
             // Force container components to be included in review
             if (!comp.component) comp.component = {};
             comp.component.reviewVisible = true;
+            
+            // Process any container component using our helper function
+            if (comp.components && comp.components.length > 0) {
+              const processedContainer = customComponentForReview(comp);
+              console.log(`Processed ${comp.component?.type || comp.type} component:`, {
+                key: comp.key,
+                label: comp.component?.label || comp.label,
+                childrenCount: comp.components.length,
+                processed: processedContainer
+              });
+            }
           }
 
           // Only push generic leaves if parent is NOT a handled container and not part of grid data
@@ -1587,8 +1725,13 @@ export default class ReviewButton extends FieldComponent {
             if (isFormComponent) {
               componentValue = comp.data || comp.submission?.data || comp.dataValue || {};
             } else if (isPanelComponent || isContainerComponent) {
-              // For panels, collect the child components values as an object
-              componentValue = {}; // Empty object, we'll render the children separately
+              // For container components, use our custom processing function
+              const customStructure = customComponentForReview(comp);
+              componentValue = customStructure; // Use the custom structured format
+              console.log(`Using custom structure for ${comp.component?.type || comp.type}:`, {
+                key: comp.key,
+                structure: customStructure
+              });
             } else {
               componentValue = ('getValue' in comp) ? comp.getValue() : comp.dataValue;
             }
@@ -1598,7 +1741,8 @@ export default class ReviewButton extends FieldComponent {
               path: comp.__reviewPath || safePath(comp) || comp.key,
               label: comp.component?.label || comp.key,
               value: componentValue,
-              formIndex: topIndexFor(comp)
+              formIndex: topIndexFor(comp),
+              customStructure: isPanelComponent || isContainerComponent ? true : false
             });
 
             // Log what we're pushing for form components
@@ -1860,10 +2004,19 @@ export default class ReviewButton extends FieldComponent {
 
         // pretty-print values (files, arrays, booleans, etc.)
         function formatValue(value, comp) {
+          // Check for our custom structure
+          if (value && value._type && (value._type === 'panel' || value._type === 'well' || 
+              value._type === 'container' || value._type === 'fieldset' || value._type === 'columns')) {
+            return `(${value._type} data)`;
+          }
+          
+          // Check if this is a custom component structure
+          if (value && value._label && typeof value._row === 'object') {
+            return `(${value._type || 'Container'} data)`;
+          }
+
           // Handle form component values differently
           if (comp?.type === 'form' || comp?.component?.type === 'form') {
-
-
             // For form components, just indicate it's a form (actual fields rendered separately)
             return '(Form data)';
           }
@@ -2263,15 +2416,33 @@ export default class ReviewButton extends FieldComponent {
               // Check explicitly for well components
               const isWellComponent = v.__comp?.component?.type === 'well' || v.__comp?.type === 'well';
               
+              // Check if this node has a custom component structure
+              const hasCustomStructure = v.__value && 
+                                        (v.__value._type === 'panel' || 
+                                         v.__value._type === 'well' || 
+                                         v.__value._type === 'container' || 
+                                         v.__value._type === 'fieldset' || 
+                                         v.__value._type === 'columns' ||
+                                         (v.__value._row && Array.isArray(v.__value._row)));
+              
+              if (hasCustomStructure) {
+                console.log("Found custom structured component:", {
+                  key: k,
+                  type: v.__value._type,
+                  label: v.__value._label
+                });
+              }
+              
               // Special handling for panel and well components
-              if (isPanelComponent || isWellComponent) {
+              if (isPanelComponent || isWellComponent || hasCustomStructure) {
                 // Find all child components for this panel/well
                 const normalizedKey = k.replace(/\[\d+\]/g, '');
                 console.log("Special handling for component:", {
                   type: v.__comp?.component?.type || v.__comp?.type,
                   key: normalizedKey,
                   label: displayLabel,
-                  isWell: isWellComponent
+                  isWell: isWellComponent,
+                  hasCustomStructure: hasCustomStructure
                 });
 
 
@@ -2289,19 +2460,60 @@ export default class ReviewButton extends FieldComponent {
 
                 }
 
-                // Determine the appropriate container title
-                const isWell = v.__comp?.component?.type === 'well' || v.__comp?.type === 'well';
-                const containerType = isWell ? 'Well' : 'Panel';
-                
-                // Create a fieldset-like container for better grouping
-                return `
-                  <div style="margin-left:0px; padding-left:10px; border-left:1px dotted #ccc;">
-                    <strong>${displayLabel || containerType}</strong>
-                    <div style="padding-left: 10px;">
-                      ${panelChildrenHtml}
+                // Check for custom structure
+                const customStructure = v.__value && v.__value._type && v.__value._row;
+                if (customStructure) {
+                  // Render custom structure
+                  const containerType = v.__value._type;
+                  const containerLabel = v.__value._label || displayLabel || containerType;
+                  let customChildrenHtml = '';
+                  
+                  // Process the rows from the custom structure
+                  if (Array.isArray(v.__value._row)) {
+                    customChildrenHtml = v.__value._row.map(item => {
+                      if (item._children) {
+                        // Direct child item
+                        const childLabel = item._children._label || '';
+                        const childValue = item._children._value || '';
+                        return `<div style="${pad}margin-left:${(depth + 1) * 15}px;"><strong>${childLabel}:</strong> ${childValue}</div>`;
+                      } else if (item._row && Array.isArray(item._row)) {
+                        // Row of items
+                        return item._row.map(cell => {
+                          if (cell._children) {
+                            const cellLabel = cell._children._label || '';
+                            const cellValue = cell._children._value || '';
+                            return `<div style="${pad}margin-left:${(depth + 1) * 15}px;"><strong>${cellLabel}:</strong> ${cellValue}</div>`;
+                          }
+                          return '';
+                        }).join('');
+                      }
+                      return '';
+                    }).join('');
+                  }
+                  
+                  return `
+                    <div style="margin-left:0px; padding-left:10px; border-left:1px dotted #ccc;">
+                      <strong>${containerLabel}</strong>
+                      <div style="padding-left: 10px;">
+                        ${customChildrenHtml || panelChildrenHtml}
+                      </div>
                     </div>
-                  </div>
-                `;
+                  `;
+                } else {
+                  // Determine the appropriate container title
+                  const isWell = v.__comp?.component?.type === 'well' || v.__comp?.type === 'well';
+                  const containerType = isWell ? 'Well' : 'Panel';
+                  
+                  // Create a fieldset-like container for better grouping
+                  return `
+                    <div style="margin-left:0px; padding-left:10px; border-left:1px dotted #ccc;">
+                      <strong>${displayLabel || containerType}</strong>
+                      <div style="padding-left: 10px;">
+                        ${panelChildrenHtml}
+                      </div>
+                    </div>
+                  `;
+                }
               }
 
               // ---- DataGrid/DataTable: render as Rows -> Columns -> fields
