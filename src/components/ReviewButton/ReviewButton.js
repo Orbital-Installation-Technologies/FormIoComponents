@@ -445,6 +445,7 @@ export default class ReviewButton extends FieldComponent {
 
       return isValid;
     } catch (e) {
+      console.error('isFormValid check error:', e);
       return false;
     }
   }
@@ -544,7 +545,7 @@ export default class ReviewButton extends FieldComponent {
           }
         }
       } catch (err) {
-        
+        console.error(`Error validating component ${component.key}:`, err);
       }
     });
   }
@@ -866,7 +867,7 @@ export default class ReviewButton extends FieldComponent {
           });
         }
       } catch (e) {
-        
+        console.error("Error collecting datagrids/datatables:", e);
       }
 
       // Update values in all datagrid and datatable components
@@ -882,10 +883,10 @@ export default class ReviewButton extends FieldComponent {
       try {
         this.updateTopLevelComponentValues();
       } catch (e) {
-        
+        console.error("Error updating top-level components:", e);
       }
     } catch (e) {
-      
+      console.error("Error in updateFormValues:", e);
     }
   }
 
@@ -899,7 +900,7 @@ export default class ReviewButton extends FieldComponent {
       try {
         datagrid.updateValue();
       } catch (e) {
-        
+        console.error("Error updating datagrid value:", e);
       }
     }
 
@@ -935,6 +936,7 @@ export default class ReviewButton extends FieldComponent {
 
     // Skip components that might cause issues
     if (component.type === 'select' && (!component.choices || !Array.isArray(component.choices))) {
+      console.warn(`Skipping Select component update in ${context} - missing choices array`);
       return;
     }
 
@@ -943,12 +945,13 @@ export default class ReviewButton extends FieldComponent {
       try {
         // Ensure all required properties exist before calling updateValue for select components
         if (component.type === 'select' && typeof component.resetValue !== 'function') {
+          console.warn(`Select component in ${context} missing resetValue method - skipping update`);
           return;
         }
 
         component.updateValue();
       } catch (e) {
-        
+        console.error(`Error updating component value in ${context}:`, e);
       }
     }
   }
@@ -990,11 +993,13 @@ export default class ReviewButton extends FieldComponent {
       try {
         await this.updateFormValues();
       } catch (e) {
+        console.error("Error updating form values:", e);
         // Continue with the review process even if some updates fail
       }
 
       return true;
     } catch (e) {
+      console.error("Error in review button click handler:", e);
       alert("An error occurred while preparing the form for review. Please try again.");
       return false;
     }
@@ -1019,6 +1024,7 @@ export default class ReviewButton extends FieldComponent {
         // Process continues with the original implementation to avoid variable conflicts
         // The original code collects form components and renders the review modal
       } catch (e) {
+        console.error("Unhandled error in button click handler:", e);
         alert("An unexpected error occurred. Please try again or contact support if the issue persists.");
       } const validation = await this.validateFormExternal({
         showErrors: true,
@@ -1066,7 +1072,7 @@ export default class ReviewButton extends FieldComponent {
               });
             }
           } catch (e) {
-            
+            console.error("Error updating datagrid/datatable values:", e);
           }
         }
         this.root.components.forEach(comp => {
@@ -1167,9 +1173,8 @@ export default class ReviewButton extends FieldComponent {
             if (c.component?.type === 'panel' ||
               c.component?.type === 'container' ||
               c.component?.type === 'columns' ||
-              c.component?.type === 'fieldset') {
-
-
+              c.component?.type === 'fieldset' ||
+              c.component?.type === 'well') {
 
               // Make container and all its children reviewVisible
               if (!c.component) {
@@ -1454,7 +1459,8 @@ export default class ReviewButton extends FieldComponent {
             const isContainer = comp.component?.type === 'panel' ||
               comp.component?.type === 'container' ||
               comp.component?.type === 'columns' ||
-              comp.component?.type === 'fieldset';
+              comp.component?.type === 'fieldset' ||
+              comp.component?.type === 'well';
 
             if (isContainer) {
 
@@ -1549,10 +1555,23 @@ export default class ReviewButton extends FieldComponent {
             comp.component?.type === 'columns' ||
             comp.component?.type === 'fieldset' ||
             comp.component?.type === 'well' ;
+            
+          // Debug well components specifically
+          if (comp.component?.type === 'well' || comp.type === 'well') {
+            console.log("Found well component during collection:", {
+              key: comp.key,
+              path: safePath(comp),
+              type: comp.component?.type || comp.type,
+              visible: comp.visible,
+              reviewVisible: comp.component?.reviewVisible
+            });
+          }
 
           // Always process and include panel components regardless of reviewVisible setting
           if (isPanelComponent || isContainerComponent) {
-
+            // Force container components to be included in review
+            if (!comp.component) comp.component = {};
+            comp.component.reviewVisible = true;
           }
 
           // Only push generic leaves if parent is NOT a handled container and not part of grid data
@@ -1588,14 +1607,27 @@ export default class ReviewButton extends FieldComponent {
             }
           }
         }
-        // Make sure all panel components are included
+        // Make sure all panel and well components are included
         if (Array.isArray(root?.components)) {
           root.components.forEach(comp => {
-            if ((comp.component?.type === 'panel' || comp.type === 'panel') &&
-              Array.isArray(comp.components) && comp.components.length > 0) {
+            const isPanelOrWell = 
+              (comp.component?.type === 'panel' || comp.type === 'panel' ||
+               comp.component?.type === 'well' || comp.type === 'well') &&
+              Array.isArray(comp.components) && comp.components.length > 0;
+              
+            if (isPanelOrWell) {
 
-              // Check if this panel is already in leaves
+              // Check if this panel/well is already in leaves
               let panelPath = safePath(comp);
+              const containerType = comp.component?.type || comp.type;
+              const isWell = containerType === 'well';
+              
+              console.log(`Checking if ${isWell ? 'well' : 'panel'} is in leaves:`, {
+                path: panelPath,
+                type: containerType,
+                key: comp.key
+              });
+              
               const panelInLeaves = leaves.some(leaf =>
                 (leaf.path === panelPath || leaf.comp === comp)
               );
@@ -1612,12 +1644,17 @@ export default class ReviewButton extends FieldComponent {
                 labelByPathMap.set(panelPath, comp.component?.label || comp.key || 'Panel');
                 indexByPathMap.set(panelPath, panelFormIndex);
 
-                // Add the panel to leaves
+                // Determine container type (panel or well)
+                const containerType = comp.component?.type || comp.type;
+                const isWell = containerType === 'well';
+                const containerLabel = comp.component?.label || comp.key || (isWell ? 'Well' : 'Panel');
+                
+                // Add the panel/well to leaves
                 pushLeaf({
                   comp,
                   path: panelPath,
-                  label: comp.component?.label || comp.key || 'Panel',
-                  value: '(Panel contents)',
+                  label: containerLabel,
+                  value: isWell ? '(Well contents)' : '(Panel contents)',
                   formIndex: panelFormIndex
                 });
 
@@ -1688,20 +1725,44 @@ export default class ReviewButton extends FieldComponent {
 
       // Build readable HTML tree using labels
       function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, rootInstance) {
-
+        // Specifically check for well components in leaves
+        const wellComponents = leaves.filter(l => 
+          l.comp?.component?.type === 'well' || 
+          l.comp?.type === 'well'
+        );
+        
+        console.log("Well components found in leaves:", wellComponents.map(l => ({
+          path: l.path,
+          label: l.label,
+          formIndex: l.formIndex,
+          type: l.comp?.component?.type || l.comp?.type
+        })));
+        
+        console.log("Before sort - leaves:", leaves.map(l => ({
+          path: l.path,
+          label: l.label,
+          formIndex: l.formIndex,
+          type: l.comp?.component?.type || l.comp?.type
+        })));
 
         // Sort leaves based on their original position in form.components
         const sortedLeaves = [...leaves].sort((a, b) => {
-          // Check if either is a panel component
+          // Check if either is a panel or well component
           const isPanelA = a.comp?.component?.type === 'panel' || a.comp?.type === 'panel';
           const isPanelB = b.comp?.component?.type === 'panel' || b.comp?.type === 'panel';
+          const isWellA = a.comp?.component?.type === 'well' || a.comp?.type === 'well';
+          const isWellB = b.comp?.component?.type === 'well' || b.comp?.type === 'well';
+          
+          // Treat both panel and well as container components
+          const isContainerA = isPanelA || isWellA;
+          const isContainerB = isPanelB || isWellB;
 
-          // Panel components should appear before their children
-          if (isPanelA && !isPanelB) {
-            return -1; // Panel comes first
+          // Container components should appear before their children
+          if (isContainerA && !isContainerB) {
+            return -1; // Container comes first
           }
-          if (!isPanelA && isPanelB) {
-            return 1; // Panel comes first
+          if (!isContainerA && isContainerB) {
+            return 1; // Container comes first
           }
 
           // Special handling for tagpad components to ensure they're in the correct position
@@ -1742,6 +1803,12 @@ export default class ReviewButton extends FieldComponent {
           return 0;
         });
 
+        console.log("After sort - sortedLeaves:", sortedLeaves.map(l => ({
+          path: l.path,
+          label: l.label,
+          formIndex: l.formIndex,
+          type: l.comp?.component?.type || l.comp?.type
+        })));
 
 
         const root = {};
@@ -1758,7 +1825,7 @@ export default class ReviewButton extends FieldComponent {
 
           // If k is not a string or number, log error and use a safe default
           if (typeof k !== 'string' && typeof k !== 'number') {
-
+            console.error('Invalid key in ensureNode:', k);
             k = String(k || 'unknown');
           }
 
@@ -1828,7 +1895,7 @@ export default class ReviewButton extends FieldComponent {
                   Object.values(value)[0] || JSON.stringify(value));
               }
             } catch (e) {
-
+              console.warn('Error formatting tagpad value:', e);
             }
             // Default fallback
             return String(value);
@@ -1879,10 +1946,13 @@ export default class ReviewButton extends FieldComponent {
         const panelComponents = sortedLeaves.filter(leaf =>
           leaf.comp?.component?.type === 'panel' ||
           leaf.comp?.type === 'panel' ||
+          leaf.comp?.component?.type === 'well' ||
+          leaf.comp?.type === 'well' ||
           (leaf.comp?.components?.length > 0 && (
             leaf.comp?.component?.type === 'container' ||
             leaf.comp?.component?.type === 'columns' ||
-            leaf.comp?.component?.type === 'fieldset'
+            leaf.comp?.component?.type === 'fieldset' ||
+            leaf.comp?.component?.type === 'well'
           ))
         );
 
@@ -1900,7 +1970,9 @@ export default class ReviewButton extends FieldComponent {
             comp?.type === 'panel' ||
             comp?.component?.type === 'container' ||
             comp?.component?.type === 'columns' ||
-            comp?.component?.type === 'fieldset';
+            comp?.component?.type === 'fieldset' ||
+            comp?.component?.type === 'well' ||
+            comp?.type === 'well';
         };
 
         // First pass - identify all panel components
@@ -1977,7 +2049,7 @@ export default class ReviewButton extends FieldComponent {
           for (let i = 0; i < parts.length; i++) {
             const seg = parts[i];
             if (!seg) {
-
+              console.warn('Empty segment found in path parts:', parts);
               continue; // Skip empty segments
             }
 
@@ -1986,7 +2058,7 @@ export default class ReviewButton extends FieldComponent {
 
             // Skip if key is empty after processing
             if (!key) {
-
+              console.warn('Empty key after processing segment:', seg);
               continue;
             }
 
@@ -2002,7 +2074,7 @@ export default class ReviewButton extends FieldComponent {
               const node = ensureNode(ptr, key);
 
               if (!node) {
-
+                console.error('Failed to create node for key:', key);
                 continue;
               }
 
@@ -2021,10 +2093,18 @@ export default class ReviewButton extends FieldComponent {
                 node.__rows[idx] ??= { __children: {} };
                 ptr = node.__rows[idx].__children;
               } else if (i === parts.length - 1) {
-                // Special handling for panel components to ensure they can have children
-                if (isPanelComponent) {
-
-                  // If this is a panel, make sure it has the __children property
+                // Special handling for panel and well components to ensure they can have children
+                const isWellComponent = comp?.component?.type === 'well' || comp?.type === 'well';
+                
+                // Now check if it's either a panel or well component
+                if (isPanelComponent || isWellComponent) {
+                  console.log("Creating container node for:", {
+                    type: comp?.component?.type || comp?.type,
+                    key: key,
+                    path: containerPath
+                  });
+                
+                  // If this is a panel or well, make sure it has the __children property
                   ptr[key] = {
                     __leaf: false, // Not a leaf since it's a container
                     __label: label || key,
@@ -2054,7 +2134,12 @@ export default class ReviewButton extends FieldComponent {
                 ptr = node.__children;
               }
             } catch (error) {
-
+              console.error('Error processing path segment:', {
+                segment: seg,
+                key,
+                path: normalizedPath,
+                error: error.message
+              });
               // Skip to the next part if there's an error
               continue;
             }
@@ -2064,6 +2149,14 @@ export default class ReviewButton extends FieldComponent {
         // ---- render tree
         const renderNode = (node, depth = 0) => {
           const pad = `margin-left:${depth * 15}px; padding-left:10px; border-left:1px dotted #ccc;`;
+
+          console.log("Before entries sort - depth:", depth, "entries:", Object.entries(node).map(([k, v]) => ({
+            key: k,
+            label: v.__label,
+            formIndex: v.__formIndex,
+            type: v.__comp?.component?.type || v.__comp?.type,
+            componentType: v.__comp?.component?.type // Log the specific component type to identify well components
+          })));
 
           // Sort entries based on formIndex
           const sortedEntries = Object.entries(node).sort((a, b) => {
@@ -2082,6 +2175,13 @@ export default class ReviewButton extends FieldComponent {
             // Default sorting by formIndex
             return (a[1]?.__formIndex ?? -1) - (b[1]?.__formIndex ?? -1);
           });
+
+          console.log("After entries sort - depth:", depth, "sortedEntries:", sortedEntries.map(([k, v]) => ({
+            key: k,
+            label: v.__label,
+            formIndex: v.__formIndex,
+            type: v.__comp?.component?.type || v.__comp?.type
+          })));
 
           return sortedEntries.map(([k, v]) => {
             // ignore stray tokens
@@ -2143,19 +2243,36 @@ export default class ReviewButton extends FieldComponent {
             if (v && typeof v === 'object') {
               const hasChildren = v.__children && Object.keys(v.__children).length;
               const hasRows = v.__rows && Object.keys(v.__rows).length;
-              const isPanelComponent = v.__comp?.component?.type === 'panel' || v.__comp?.type === 'panel';
+              const isPanelComponent = v.__comp?.component?.type === 'panel' || 
+                                       v.__comp?.type === 'panel' ||
+                                       v.__comp?.component?.type === 'well' || 
+                                       v.__comp?.type === 'well';
 
               // Debug panel components during rendering
               if (isPanelComponent) {
-
+                console.log("Found panel/well component:", {
+                  type: v.__comp?.component?.type || v.__comp?.type,
+                  label: v.__label,
+                  hasChildren: hasChildren
+                });
               }
 
               const displayLabel = v.__suppress ? '' : (v.__label || (k === 'form' ? '' : k));
               const header = displayLabel ? `<div style="${pad}"><strong>${displayLabel}:</strong>` : `<div style="${pad}">`;
-              // Special handling for panel components
-              if (isPanelComponent) {
-                // Find all child components for this panel
+              
+              // Check explicitly for well components
+              const isWellComponent = v.__comp?.component?.type === 'well' || v.__comp?.type === 'well';
+              
+              // Special handling for panel and well components
+              if (isPanelComponent || isWellComponent) {
+                // Find all child components for this panel/well
                 const normalizedKey = k.replace(/\[\d+\]/g, '');
+                console.log("Special handling for component:", {
+                  type: v.__comp?.component?.type || v.__comp?.type,
+                  key: normalizedKey,
+                  label: displayLabel,
+                  isWell: isWellComponent
+                });
 
 
 
@@ -2172,10 +2289,14 @@ export default class ReviewButton extends FieldComponent {
 
                 }
 
+                // Determine the appropriate container title
+                const isWell = v.__comp?.component?.type === 'well' || v.__comp?.type === 'well';
+                const containerType = isWell ? 'Well' : 'Panel';
+                
                 // Create a fieldset-like container for better grouping
                 return `
                   <div style="margin-left:0px; padding-left:10px; border-left:1px dotted #ccc;">
-                    <strong>${displayLabel || 'Panel'}</strong>
+                    <strong>${displayLabel || containerType}</strong>
                     <div style="padding-left: 10px;">
                       ${panelChildrenHtml}
                     </div>
