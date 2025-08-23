@@ -1043,7 +1043,8 @@ export default class ReviewButton extends FieldComponent {
 
         const allDatagrids = [];
         this.root.everyComponent(comp => {
-          if (comp.component?.type === 'datagrid' || comp.component?.type === 'datatable') {
+          if (comp.component?.type === 'well' || comp.type === 'well' ||
+              comp.component?.type === 'table' || comp.type === 'table') {
             allDatagrids.push(comp);
           }
         });
@@ -1090,6 +1091,7 @@ export default class ReviewButton extends FieldComponent {
        * @returns {Object} A structured representation of the component for review display
        */
       const customComponentForReview = (component) => {
+        
         // Extract basic component info
         const label = component.component?.label || component.label || component.key || 'Unnamed';
         const key = component.component?.key || component.key;
@@ -1210,6 +1212,8 @@ export default class ReviewButton extends FieldComponent {
           containers: 0
         };
 
+
+
         // Track paths we've already processed to avoid duplicates
         const pushedPaths = new Set();
 
@@ -1247,8 +1251,10 @@ export default class ReviewButton extends FieldComponent {
          * @param {Object} leaf - Component to add
          */
         const pushLeaf = (leaf) => {
+          console.log("pushleaf", leaf)
           const norm = canon(leaf.path);
           if (!norm || pushedPaths.has(norm)) return;
+          console.log("pushleaf SUCCESS", leaf)
           pushedPaths.add(norm);
           leaves.push(leaf);
         };
@@ -1327,8 +1333,10 @@ export default class ReviewButton extends FieldComponent {
         };
 
         const safePath = (c) => (c?.__reviewPath) || (c?.__prefix ? `${c.__prefix}${c.path}` : c?.path);
-
+        
         enqueueAll(root);
+
+        console.log("queue", queue)
 
         let processedCount = 0;
         const logInterval = Math.max(10, Math.floor(queue.length / 10)); // Log every 10% of components
@@ -1337,10 +1345,12 @@ export default class ReviewButton extends FieldComponent {
           const comp = queue.shift();
           if (!comp) continue;
 
+
           const compPath = safePath(comp);
           if (compPath && processedPaths.has(compPath)) {
             continue;
           }
+
           if (compPath) processedPaths.add(compPath);
 
           if (comp.type === 'form') {
@@ -1498,6 +1508,43 @@ export default class ReviewButton extends FieldComponent {
             continue;
           }
 
+          // Handle Table
+            if (comp.component?.type === 'table') {
+              console.log("Found Table3", comp);
+              const tablePath = safePath(comp) || comp.key;
+              labelByPathMap.set(tablePath, comp.component?.label || comp.label || comp.key || 'Table');
+              indexByPathMap.set(tablePath, topIndexFor(comp));
+
+              // Only push if not already present
+              if (!pushedPaths.has(canon(tablePath))) {
+                pushLeaf({
+                  comp,
+                  path: tablePath,
+                  label: comp.component?.label || comp.label || comp.key || 'Table',
+                  value: customComponentForReview(comp),
+                  formIndex: topIndexFor(comp)
+                });
+              }
+              // Also push leaves for each inner field, with path table.fieldname
+              if (Array.isArray(comp.components)) {
+                comp.components.forEach(child => {
+                  const childKey = child.key || child.path || '';
+                  const childPath = `${tablePath}.${childKey}`;
+                  labelByPathMap.set(childPath, child.component?.label || child.label || childKey);
+                  indexByPathMap.set(childPath, topIndexFor(comp));
+                  if (!pushedPaths.has(canon(childPath))) {
+                    pushLeaf({
+                      comp: child,
+                      path: childPath,
+                      label: child.component?.label || child.label || childKey,
+                      value: ('getValue' in child) ? child.getValue() : child.dataValue,
+                      formIndex: topIndexFor(comp)
+                    });
+                  }
+                });
+              }
+            }
+
           // ---- Tagpad (fix: expand editForms -> fields)
           if (comp.component?.type === 'tagpad') {
             // Tagpad container label
@@ -1605,8 +1652,8 @@ export default class ReviewButton extends FieldComponent {
             parentType === 'editgrid' ||
             parentType === 'tagpad' ||
             parentType === 'panel' ||
-            parentType === 'well'; //||
-            //parentType === 'table';
+            parentType === 'well'||
+            parentType === 'table';
 
           // Check if component is inside a TagPad form
           const isInTagpadForm =
@@ -1680,7 +1727,8 @@ export default class ReviewButton extends FieldComponent {
             comp.component?.type === 'table';
             
           // Debug well components specifically
-          if (comp.component?.type === 'well' || comp.type === 'well') {
+          if (comp.component?.type === 'well' || comp.type === 'well' ||
+              comp.component?.type === 'table' || comp.type === 'table') {
             console.log("Found well component during collection:", {
               key: comp.key,
               path: safePath(comp),
@@ -1870,24 +1918,19 @@ export default class ReviewButton extends FieldComponent {
       // Build readable HTML tree using labels
       function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, rootInstance) {
         // Specifically check for well components in leaves
-        const wellComponents = leaves.filter(l => 
-          l.comp?.component?.type === 'well' || 
-          l.comp?.type === 'well'
-        );
+        const wellTableComponents = leaves.filter(l => 
+  l.comp?.component?.type === 'well' || 
+  l.comp?.type === 'well' ||
+  l.comp?.component?.type === 'table' ||
+  l.comp?.type === 'table'
+);
         
-        console.log("Well components found in leaves:", wellComponents.map(l => ({
-          path: l.path,
-          label: l.label,
-          formIndex: l.formIndex,
-          type: l.comp?.component?.type || l.comp?.type
-        })));
-        
-        console.log("Before sort - leaves:", leaves.map(l => ({
-          path: l.path,
-          label: l.label,
-          formIndex: l.formIndex,
-          type: l.comp?.component?.type || l.comp?.type
-        })));
+        console.log("Well/Table components found in leaves:", wellTableComponents.map(l => ({
+  path: l.path,
+  label: l.label,
+  formIndex: l.formIndex,
+  type: l.comp?.component?.type || l.comp?.type
+})));
 
         // Sort leaves based on their original position in form.components
         const sortedLeaves = [...leaves].sort((a, b) => {
@@ -2096,16 +2139,19 @@ export default class ReviewButton extends FieldComponent {
 
 
         // Pre-process all panel components to ensure they're properly included
-        const panelComponents = sortedLeaves.filter(leaf =>
+       const panelComponents = sortedLeaves.filter(leaf =>
           leaf.comp?.component?.type === 'panel' ||
           leaf.comp?.type === 'panel' ||
           leaf.comp?.component?.type === 'well' ||
           leaf.comp?.type === 'well' ||
+          leaf.comp?.component?.type === 'table' ||
+          leaf.comp?.type === 'table' ||
           (leaf.comp?.components?.length > 0 && (
             leaf.comp?.component?.type === 'container' ||
             leaf.comp?.component?.type === 'columns' ||
             leaf.comp?.component?.type === 'fieldset' ||
-            leaf.comp?.component?.type === 'well'
+            leaf.comp?.component?.type === 'well' ||
+            leaf.comp?.component?.type === 'table'
           ))
         );
 
