@@ -2144,6 +2144,29 @@ export default class ReviewButton extends FieldComponent {
             tableHtml += `</table>`;
             return tableHtml;
           }
+
+
+
+          if (comp?.type === 'survey' || comp?.component?.type === 'survey') {
+            let surveyHTML = '<div style="padding-left: 10px;">';
+            // Use pad and depth for consistent styling
+            const padStyle = typeof pad !== 'undefined' ? pad : '';
+            const depthLevel = typeof depth !== 'undefined' ? depth : 0;
+            comp.component.questions.forEach((question, index) => {
+              if (value[question.value]) {
+                surveyHTML += `<div style="${padStyle}margin-left:${(depthLevel + 1) * 15}px; padding-left: 10px; border-left:1px dotted #ccc;">
+                                <strong>${question.label}:</strong> ${String(comp.component?.values[index].label)}
+                              </div>`;
+              } else {
+                surveyHTML += `<div style="${padStyle}margin-left:${(depthLevel + 1) * 15}px; padding-left: 10px; border-left:1px dotted #ccc;">
+                                <strong>${question.label}:</strong>
+                              </div>`;
+              }
+            });
+            surveyHTML += `</div>`;
+            return surveyHTML;
+          }
+
           // Other containers
           if (value && value._type && (value._type === 'panel' || value._type === 'well' ||
             value._type === 'container' || value._type === 'fieldset' || value._type === 'columns')) {
