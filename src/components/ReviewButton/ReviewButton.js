@@ -1303,31 +1303,31 @@ export default class ReviewButton extends FieldComponent {
           const prefix = f.__reviewPrefix || '';
 
           // First pass: find panels and containers and mark them as reviewVisible
-          f.everyComponent((c) => {
-            if (c.component?.type === 'panel' ||
-              c.component?.type === 'container' ||
-              c.component?.type === 'columns' ||
-              c.component?.type === 'fieldset' ||
-              c.component?.type === 'well' ||
-              c.component?.type === 'table') {
+          // f.everyComponent((c) => {
+          //   if (c.component?.type === 'panel' ||
+          //     c.component?.type === 'container' ||
+          //     c.component?.type === 'columns' ||
+          //     c.component?.type === 'fieldset' ||
+          //     c.component?.type === 'well' ||
+          //     c.component?.type === 'table') {
 
-              // Make container and all its children reviewVisible
-              if (!c.component) {
-                c.component = {};
-              }
-              c.component.reviewVisible = true;
+          //     // Make container and all its children reviewVisible
+          //     if (!c.component) {
+          //       c.component = {};
+          //     }
+          //     c.component.reviewVisible = true;
 
-              // Also make all children reviewVisible
-              if (Array.isArray(c.components) && c.components.length > 0) {
-                c.components.forEach(child => {
-                  if (!child.component) {
-                    child.component = {};
-                  }
-                  child.component.reviewVisible = true;
-                });
-              }
-            }
-          });
+          //     // Also make all children reviewVisible
+          //     if (Array.isArray(c.components) && c.components.length > 0) {
+          //       c.components.forEach(child => {
+          //         if (!child.component) {
+          //           child.component = {};
+          //         }
+          //         child.component.reviewVisible = true;
+          //       });
+          //     }
+          //   }
+          // });
 
           // Second pass: queue all components for processing
           f.everyComponent((c) => {
@@ -1356,6 +1356,32 @@ export default class ReviewButton extends FieldComponent {
           const comp = queue.shift();
           if (!comp) continue;
 
+          // --- DataMap and Well component handling ---
+          if ((comp.component?.type === 'datamap' || comp.component?.type === 'well') && Array.isArray(comp.rows) && comp.rows.length) {
+            const dataMapPath = safePath(comp);
+            labelByPathMap.set(dataMapPath, comp.component?.label || comp.key || (comp.component?.type === 'well' ? 'Well' : 'Data Map'));
+            indexByPathMap.set(dataMapPath, topIndexFor(comp));
+
+            comp.rows.forEach((row, rIdx) => {
+              // For DataMap, each row is an object with __key and value components
+              const keyComp = row.__key;
+              const valueComp = row.value;
+
+              // Get key and value
+              const key = keyComp ? (keyComp.getValue ? keyComp.getValue() : keyComp.dataValue) : '';
+              const value = valueComp ? (valueComp.getValue ? valueComp.getValue() : valueComp.dataValue) : '';
+
+              // Push key leaf
+              pushLeaf({
+                comp: keyComp,
+                path: `${dataMapPath}[${rIdx}].key`,
+                label: key,
+                value: value,
+                formIndex: topIndexFor(comp)
+              });
+            });
+            continue;
+          }
 
           const compPath = safePath(comp);
           if (compPath && processedPaths.has(compPath)) {
@@ -2502,6 +2528,7 @@ export default class ReviewButton extends FieldComponent {
           })));
 
           return sortedEntries.map(([k, v]) => {
+            console.log("Rendering entry:", { key: k, value: v });
             // ignore stray tokens
             if (/^\d+\]$/.test(k)) {
               return v && typeof v === 'object' ? renderNode(v.__children || {}, depth) : '';
