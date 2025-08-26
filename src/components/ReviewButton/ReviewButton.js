@@ -1166,13 +1166,6 @@ export default class ReviewButton extends FieldComponent {
             tableRows.push({ _row: rowData });
           });
 
-          console.log(`Processed ${componentType} with ${dataRows.length} rows and ${colDefs.length} columns:`, {
-            key: key,
-            rows: dataRows.length,
-            columns: colDefs.length,
-            processedRows: tableRows.length
-          });
-
           return {
             _label: label,
             _key: key,
@@ -1262,10 +1255,8 @@ export default class ReviewButton extends FieldComponent {
          * @param {Object} leaf - Component to add
          */
         const pushLeaf = (leaf) => {
-          console.log("pushleaf", leaf)
           const norm = canon(leaf.path);
           if (!norm || pushedPaths.has(norm)) return;
-          console.log("pushleaf SUCCESS", leaf)
           pushedPaths.add(norm);
           leaves.push(leaf);
         };
@@ -1347,7 +1338,6 @@ export default class ReviewButton extends FieldComponent {
 
         enqueueAll(root);
 
-        console.log("queue", queue)
 
         let processedCount = 0;
         const logInterval = Math.max(10, Math.floor(queue.length / 10)); // Log every 10% of components
@@ -1358,6 +1348,7 @@ export default class ReviewButton extends FieldComponent {
 
           // --- DataMap and Well component handling ---
           if ((comp.component?.type === 'datamap' || comp.component?.type === 'well') && Array.isArray(comp.rows) && comp.rows.length) {
+
             const dataMapPath = safePath(comp);
             labelByPathMap.set(dataMapPath, comp.component?.label || comp.key || (comp.component?.type === 'well' ? 'Well' : 'Data Map'));
             indexByPathMap.set(dataMapPath, topIndexFor(comp));
@@ -1431,7 +1422,7 @@ export default class ReviewButton extends FieldComponent {
             });
 
             // Helper: flatten a cell's component tree into leaf fields under the correct column path.
-            const isContainerType = (t) => ['panel', 'container', 'columns', 'well', 'fieldset', 'table', 'tabs'].includes(t);
+            const isContainerType = (t) => ['panel', 'container', 'columns', 'well', 'dataMap', 'fieldset', 'table', 'tabs'].includes(t);
             const pushValueLeaf = (node, basePath) => {
               pushLeaf({
                 comp: node,
@@ -1501,7 +1492,7 @@ export default class ReviewButton extends FieldComponent {
                   if (!cKey || rowDone.has(cKey)) return;
                   const val = rowObj?.[cKey];
                   pushLeaf({
-                    comp,
+                    comp: comp,
                     path: `${gridPath}[${rIdx}].${cKey}`,
                     label: cLabel,
                     value: val,
@@ -1547,7 +1538,6 @@ export default class ReviewButton extends FieldComponent {
 
           // Handle Table
           if (comp.component?.type === 'table') {
-            console.log("Found Table3", comp);
             const tablePath = safePath(comp) || comp.key;
             labelByPathMap.set(tablePath, comp.component?.label || comp.label || comp.key || 'Table');
             indexByPathMap.set(tablePath, topIndexFor(comp));
@@ -1555,7 +1545,7 @@ export default class ReviewButton extends FieldComponent {
             // Only push if not already present
             if (!pushedPaths.has(canon(tablePath))) {
               pushLeaf({
-                comp,
+                comp: comp,
                 path: tablePath,
                 label: comp.component?.label || comp.label || comp.key || 'Table',
                 value: customComponentForReview(comp),
@@ -1663,6 +1653,7 @@ export default class ReviewButton extends FieldComponent {
               comp.component?.type === 'columns' ||
               comp.component?.type === 'fieldset' ||
               comp.component?.type === 'well' ||
+              comp.component?.type === 'dataMap' ||
               comp.component?.type === 'table';
 
             if (isContainer) {
@@ -1688,6 +1679,7 @@ export default class ReviewButton extends FieldComponent {
             parentType === 'datagrid' ||
             parentType === 'editgrid' ||
             parentType === 'tagpad' ||
+            parentType === 'dataMap' ||
             parentType === 'panel' ||
             parentType === 'well' ||
             parentType === 'table';
@@ -1704,7 +1696,9 @@ export default class ReviewButton extends FieldComponent {
           const isContentComponent =
             comp?.component?.type === 'content' ||
             comp?.component?.type === 'htmlelement' ||
+            comp?.component?.type === 'dataMap' ||
             comp?.type === 'content' ||
+            comp?.type === 'dataMap' ||
             comp?.type === 'htmlelement';
 
           // Extra check to ensure we don't get duplicate fields from datatables/datagrids
@@ -1760,23 +1754,16 @@ export default class ReviewButton extends FieldComponent {
             comp.component?.type === 'container' ||
             comp.component?.type === 'columns' ||
             comp.component?.type === 'fieldset' ||
+            comp.component?.type === 'dataMap' ||
             comp.component?.type === 'well' ||
             comp.component?.type === 'table';
 
           // Debug well components specifically
           if (comp.component?.type === 'well' || comp.type === 'well' ||
             comp.component?.type === 'table' || comp.type === 'table') {
-            console.log("Found well component during collection:", {
-              key: comp.key,
-              path: safePath(comp),
-              type: comp.component?.type || comp.type,
-              visible: comp.visible,
-              reviewVisible: comp.component?.reviewVisible
-            });
-
+              
             // Process the well component using our new helper function
             const processedWell = customComponentForReview(comp);
-            console.log("Processed well component:", processedWell);
           }
 
           // Always process and include panel components regardless of reviewVisible setting
@@ -1788,12 +1775,7 @@ export default class ReviewButton extends FieldComponent {
             // Process any container component using our helper function
             if (comp.components && comp.components.length > 0) {
               const processedContainer = customComponentForReview(comp);
-              console.log(`Processed ${comp.component?.type || comp.type} component:`, {
-                key: comp.key,
-                label: comp.component?.label || comp.label,
-                childrenCount: comp.components.length,
-                processed: processedContainer
-              });
+
             }
           }
 
@@ -1813,16 +1795,12 @@ export default class ReviewButton extends FieldComponent {
               // For container components, use our custom processing function
               const customStructure = customComponentForReview(comp);
               componentValue = customStructure; // Use the custom structured format
-              console.log(`Using custom structure for ${comp.component?.type || comp.type}:`, {
-                key: comp.key,
-                structure: customStructure
-              });
             } else {
               componentValue = ('getValue' in comp) ? comp.getValue() : comp.dataValue;
             }
 
             pushLeaf({
-              comp,
+              comp: comp,
               path: comp.__reviewPath || safePath(comp) || comp.key,
               label: comp.component?.label || comp.key,
               value: componentValue,
@@ -1851,11 +1829,6 @@ export default class ReviewButton extends FieldComponent {
               const containerType = comp.component?.type || comp.type;
               const isWell = containerType === 'well';
 
-              console.log(`Checking if ${isWell ? 'well' : 'panel'} is in leaves:`, {
-                path: panelPath,
-                type: containerType,
-                key: comp.key
-              });
 
               const panelInLeaves = leaves.some(leaf =>
                 (leaf.path === panelPath || leaf.comp === comp)
@@ -1880,7 +1853,7 @@ export default class ReviewButton extends FieldComponent {
 
                 // Add the panel/well to leaves
                 pushLeaf({
-                  comp,
+                  comp: comp,
                   path: panelPath,
                   label: containerLabel,
                   value: isWell ? '(Well contents)' : '(Panel contents)',
@@ -1962,13 +1935,6 @@ export default class ReviewButton extends FieldComponent {
           l.comp?.type === 'table'
         );
 
-        console.log("Well/Table components found in leaves:", wellTableComponents.map(l => ({
-          path: l.path,
-          label: l.label,
-          formIndex: l.formIndex,
-          type: l.comp?.component?.type || l.comp?.type
-        })));
-
         // Sort leaves based on their original position in form.components
         const sortedLeaves = [...leaves].sort((a, b) => {
           // Check if either is a panel or well component
@@ -2027,38 +1993,35 @@ export default class ReviewButton extends FieldComponent {
           return 0;
         });
 
-        console.log("After sort - sortedLeaves:", sortedLeaves.map(l => ({
-          path: l.path,
-          label: l.label,
-          formIndex: l.formIndex,
-          type: l.comp?.component?.type || l.comp?.type
-        })));
 
 
         const root = {};
-        const ensureNode = (obj, k) => {
+        const ensureNode = (obj, k, compRef) => {
           // Safety check: if obj is null or undefined, return an empty object
           if (obj == null) {
-
             return {
               __children: {}, __rows: {}, __label: null, __suppress: false,
               __kind: null, __colKeys: null, __colLabels: null,
-              __formIndex: -1
+              __formIndex: -1,
+              __comp: compRef || undefined
             };
           }
-
           // If k is not a string or number, log error and use a safe default
           if (typeof k !== 'string' && typeof k !== 'number') {
-            console.error('Invalid key in ensureNode:', k);
             k = String(k || 'unknown');
           }
-
           // Now safely ensure the node exists
-          return (obj[k] ??= {
-            __children: {}, __rows: {}, __label: null, __suppress: false,
-            __kind: null, __colKeys: null, __colLabels: null,
-            __formIndex: -1 // Add form index to track original order
-          });
+          if (!obj[k]) {
+            obj[k] = {
+              __children: {}, __rows: {}, __label: null, __suppress: false,
+              __kind: null, __colKeys: null, __colLabels: null,
+              __formIndex: -1,
+              __comp: compRef || undefined
+            };
+          } else if (compRef && !obj[k].__comp) {
+            obj[k].__comp = compRef;
+          }
+          return obj[k];
         };
 
         function setNodeLabelForPath(node, containerPath) {
@@ -2088,7 +2051,6 @@ export default class ReviewButton extends FieldComponent {
           if (value && value._type === 'table' && Array.isArray(comp.table)) {
             // Use customTableForReview to process the table structure
             const customTableForReview = (component, data = {}) => {
-              console.log("comp123", comp)
               var label = component.label;
               var key = component.key;
               var rows = component.table || component.components || component.columns;
@@ -2099,7 +2061,6 @@ export default class ReviewButton extends FieldComponent {
               var value = {};
               var column = [];
               var finalTable = [];
-              console.log("Rendering custom table Rows before:", rows);
               rows.map((row) => {
                 if (Array.isArray(row)) {
                   rowData = [];
@@ -2144,7 +2105,6 @@ export default class ReviewButton extends FieldComponent {
             // Render as HTML table
             let tableHtml = `<table style="width:100%;border-collapse:collapse;margin-bottom:8px;">`;
             // Render rows
-            console.log("Rendering custom table:", customTable);
             customTable._row.forEach(rowObj => {
               tableHtml += `<tr>`;
               if (Array.isArray(rowObj._row)) {
@@ -2368,12 +2328,6 @@ export default class ReviewButton extends FieldComponent {
                 normalizedPath.startsWith(panelPath + '.')) {
                 isChildOfPanel = true;
                 parentPanelPath = panelPath;
-                console.log('Found child of panel:', {
-                  child: normalizedPath,
-                  panel: panelPath,
-                  component: comp.component?.type || comp.type,
-                  label: label
-                });
                 break;
               }
             }
@@ -2415,7 +2369,8 @@ export default class ReviewButton extends FieldComponent {
 
             try {
               // Ensure we have a valid node for this key
-              const node = ensureNode(ptr, key);
+              // Pass comp as compRef so root-level nodes get __comp
+              const node = ensureNode(ptr, key, comp);
 
               if (!node) {
                 console.error('Failed to create node for key:', key);
@@ -2434,7 +2389,7 @@ export default class ReviewButton extends FieldComponent {
                 const idx = Number(idxMatch[1]);
                 // Ensure __rows exists
                 if (!node.__rows) node.__rows = {};
-                node.__rows[idx] ??= { __children: {} };
+                node.__rows[idx] ??= { __children: {}, __comp: comp };
                 ptr = node.__rows[idx].__children;
               } else if (i === parts.length - 1) {
                 // Special handling for panel and well components to ensure they can have children
@@ -2442,13 +2397,9 @@ export default class ReviewButton extends FieldComponent {
 
                 // Now check if it's either a panel or well component
                 if (isPanelComponent || isWellComponent) {
-                  console.log("Creating container node for:", {
-                    type: comp?.component?.type || comp?.type,
-                    key: key,
-                    path: containerPath
-                  });
 
-                  // If this is a panel or well, make sure it has the __children property
+
+                  // If this is a panel, well, or datamap, make sure it has the __children property
                   ptr[key] = {
                     __leaf: false, // Not a leaf since it's a container
                     __label: label || key,
@@ -2475,7 +2426,25 @@ export default class ReviewButton extends FieldComponent {
               } else {
                 // Ensure __children exists
                 if (!node.__children) node.__children = {};
+                // Patch: ensure every child node has __comp
+                Object.keys(node.__children).forEach(childKey => {
+                  if (node.__children[childKey] && !node.__children[childKey].__comp) {
+                    node.__children[childKey].__comp = comp;
+                  }
+                });
                 ptr = node.__children;
+              }
+              if (comp?.component?.type === 'dataMap' || comp?.type === 'dataMap') {
+                // Always set __comp for the DataMap container node
+                ptr[key].__comp = comp;
+                // Also set __comp for all children of the DataMap node
+                if (ptr[key].__children && typeof ptr[key].__children === 'object') {
+                  Object.keys(ptr[key].__children).forEach(childKey => {
+                    if (ptr[key].__children[childKey] && !ptr[key].__children[childKey].__comp) {
+                      ptr[key].__children[childKey].__comp = comp;
+                    }
+                  });
+                }
               }
             } catch (error) {
               console.error('Error processing path segment:', {
@@ -2493,14 +2462,6 @@ export default class ReviewButton extends FieldComponent {
         // ---- render tree
         const renderNode = (node, depth = 0) => {
           const pad = `margin-left:${depth * 15}px; padding-left:10px; border-left:1px dotted #ccc;`;
-
-          console.log("Before entries sort - depth:", depth, "entries:", Object.entries(node).map(([k, v]) => ({
-            key: k,
-            label: v.__label,
-            formIndex: v.__formIndex,
-            type: v.__comp?.component?.type || v.__comp?.type,
-            componentType: v.__comp?.component?.type // Log the specific component type to identify well components
-          })));
 
           // Sort entries based on formIndex
           const sortedEntries = Object.entries(node).sort((a, b) => {
@@ -2520,15 +2481,24 @@ export default class ReviewButton extends FieldComponent {
             return (a[1]?.__formIndex ?? -1) - (b[1]?.__formIndex ?? -1);
           });
 
-          console.log("After entries sort - depth:", depth, "sortedEntries:", sortedEntries.map(([k, v]) => ({
-            key: k,
-            label: v.__label,
-            formIndex: v.__formIndex,
-            type: v.__comp?.component?.type || v.__comp?.type
-          })));
-
           return sortedEntries.map(([k, v]) => {
-            console.log("Rendering entry:", { key: k, value: v });
+            // For DataMap containers, flatten all __children from __rows into v.__children
+            
+            if (v.__comp?.parent?.type === 'datamap') {
+              // Merge all __children from each row into v.__children
+              if (v?.__rows) {
+                v.__children = {};
+                Object.values(v.__rows).forEach(row => {
+                  if (row?.__children) {
+                    Object.entries(row.__children).forEach(([childKey, childVal]) => {
+                      v.__children[childVal.__label] = childVal;
+                    });
+                  }
+                });
+                v.__rows = {}; // Clear rows after flattening
+              }
+            }
+
             // ignore stray tokens
             if (/^\d+\]$/.test(k)) {
               return v && typeof v === 'object' ? renderNode(v.__children || {}, depth) : '';
@@ -2593,14 +2563,6 @@ export default class ReviewButton extends FieldComponent {
                 v.__comp?.component?.type === 'well' ||
                 v.__comp?.type === 'well';
 
-              // Debug panel components during rendering
-              if (isPanelComponent) {
-                console.log("Found panel/well component:", {
-                  type: v.__comp?.component?.type || v.__comp?.type,
-                  label: v.__label,
-                  hasChildren: hasChildren
-                });
-              }
 
               const displayLabel = v.__suppress ? '' : (v.__label || (k === 'form' ? '' : k));
               const header = displayLabel ? `<div style="${pad}"><strong>${displayLabel}:</strong>` : `<div style="${pad}">`;
@@ -2617,28 +2579,8 @@ export default class ReviewButton extends FieldComponent {
                   v.__value._type === 'columns' ||
                   (v.__value._row && Array.isArray(v.__value._row)));
 
-              if (hasCustomStructure) {
-                console.log("Found custom structured component:", {
-                  key: k,
-                  type: v.__value._type,
-                  label: v.__value._label
-                });
-              }
-
               // Special handling for panel and well components
               if (isPanelComponent || isWellComponent || hasCustomStructure) {
-                // Find all child components for this panel/well
-                const normalizedKey = k.replace(/\[\d+\]/g, '');
-                console.log("Special handling for component:", {
-                  type: v.__comp?.component?.type || v.__comp?.type,
-                  key: normalizedKey,
-                  label: displayLabel,
-                  isWell: isWellComponent,
-                  hasCustomStructure: hasCustomStructure
-                });
-
-
-
                 // Get all direct child components to display under this panel
                 let panelChildrenHtml = '';
 
@@ -2959,7 +2901,6 @@ export default class ReviewButton extends FieldComponent {
           supportNumberElement.style.border = "2px solid red";
           supportNumberElement.classList.add("invalid-field");
           hasErrors = true;
-          console.log("Invalid field: supportNumber, Value:", supportNumberElement.value);
         } else if (supportNumberElement) {
           supportNumberElement.style.border = "";
           supportNumberElement.classList.remove("invalid-field");
@@ -2974,7 +2915,6 @@ export default class ReviewButton extends FieldComponent {
             const screenshotContainer = modal.querySelector("#screenshotContainer");
             if (screenshotContainer) {
               screenshotContainer.style.border = "2px solid red";
-              console.log("Invalid field: screenshot, No files uploaded");
               hasErrors = true;
             }
           } else if (modal.querySelector("#screenshotContainer")) {
@@ -2989,7 +2929,6 @@ export default class ReviewButton extends FieldComponent {
             notesRequiredElement.style.border = "2px solid red";
             notesRequiredElement.classList.add("invalid-field");
             hasErrors = true;
-            console.log("Invalid field: notesRequired, Value:", notesRequiredElement.value);
           } else if (notesRequiredElement) {
             notesRequiredElement.style.border = "";
             notesRequiredElement.classList.remove("invalid-field");
