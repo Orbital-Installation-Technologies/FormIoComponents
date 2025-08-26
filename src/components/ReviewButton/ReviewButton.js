@@ -1172,7 +1172,7 @@ export default class ReviewButton extends FieldComponent {
             _type: componentType,
             _row: tableRows
           };
-        } else if (['panel', 'container', 'well', 'fieldset', 'columns', 'table'].includes(componentType)) {
+        } else if (['panel', 'container', 'well', 'fieldset', 'columns', 'tabs', 'table'].includes(componentType)) {
           // Handle panel, container, well and similar container components
           const children = component.components || [];
           const containerItems = children.map(child => {
@@ -1653,6 +1653,8 @@ export default class ReviewButton extends FieldComponent {
               comp.component?.type === 'columns' ||
               comp.component?.type === 'fieldset' ||
               comp.component?.type === 'well' ||
+              comp.component?.type === 'tabs' ||
+              comp.component?.type === 'fieldset' ||
               comp.component?.type === 'dataMap' ||
               comp.component?.type === 'table';
 
@@ -1683,6 +1685,9 @@ export default class ReviewButton extends FieldComponent {
             parentType === 'panel' ||
             parentType === 'well' ||
             parentType === 'table';
+            parentType === 'tabs';
+            parentType === 'fieldset';
+            parentType === 'columns';
 
           // Check if component is inside a TagPad form
           const isInTagpadForm =
@@ -1700,6 +1705,12 @@ export default class ReviewButton extends FieldComponent {
             comp?.type === 'content' ||
             comp?.type === 'dataMap' ||
             comp?.type === 'htmlelement';
+            comp?.component?.type === 'tabs' ||
+            comp?.component?.type === 'columns' ||
+            comp?.component?.type === 'fieldset' ||
+            comp?.type === 'tabs' ||
+            comp?.type === 'columns' ||
+            comp?.type === 'fieldset';
 
           // Extra check to ensure we don't get duplicate fields from datatables/datagrids
           const componentPath = safePath(comp);
@@ -1754,6 +1765,7 @@ export default class ReviewButton extends FieldComponent {
             comp.component?.type === 'container' ||
             comp.component?.type === 'columns' ||
             comp.component?.type === 'fieldset' ||
+            comp.component?.type === 'tabs' ||
             comp.component?.type === 'dataMap' ||
             comp.component?.type === 'well' ||
             comp.component?.type === 'table';
@@ -1818,9 +1830,14 @@ export default class ReviewButton extends FieldComponent {
         if (Array.isArray(root?.components)) {
           root.components.forEach(comp => {
             const isPanelOrWell =
-              (comp.component?.type === 'panel' || comp.type === 'panel' ||
-                comp.component?.type === 'well' || comp.type === 'well') &&
-              Array.isArray(comp.components) && comp.components.length > 0;
+                          (
+                            comp.component?.type === 'panel' || comp.type === 'panel' ||
+                            comp.component?.type === 'well' || comp.type === 'well' ||
+                            comp.component?.type === 'fieldset' || comp.type === 'fieldset' ||
+                            comp.component?.type === 'columns' || comp.type === 'columns' ||
+                            comp.component?.type === 'tabs' || comp.type === 'tabs'
+                          ) &&
+                          Array.isArray(comp.components) && comp.components.length > 0;
 
             if (isPanelOrWell) {
 
@@ -2272,8 +2289,12 @@ export default class ReviewButton extends FieldComponent {
         const isParentComponent = (comp) => {
           return comp?.component?.type === 'panel' ||
             comp?.type === 'panel' ||
+            comp?.type === 'container' ||
+            comp?.type === 'columns' ||
+            comp?.type === 'tabs' ||
             comp?.component?.type === 'container' ||
             comp?.component?.type === 'columns' ||
+            comp?.component?.type === 'tabs' ||
             comp?.component?.type === 'fieldset' ||
             comp?.component?.type === 'well' ||
             comp?.type === 'well';
