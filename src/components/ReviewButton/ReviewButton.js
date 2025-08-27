@@ -4,6 +4,13 @@ import editForm from "./ReviewButton.form";
 const FieldComponent = Components.components.field;
 
 /**
+ * Helper function to check if a component type is a container type
+ * @param {string} t - The component type to check
+ * @returns {boolean} True if the component is a container type
+ */
+const isContainerType = (t) => ['panel', 'container', 'columns', 'well', 'dataMap', 'fieldset', 'table', 'tabs'].includes(t);
+
+/**
  * ReviewButton Component for Form.io
  * Handles form validation and submission review functionality
  */
@@ -928,9 +935,6 @@ export default class ReviewButton extends FieldComponent {
    */
   async handleReviewClick() {
     try {
-      // Log debugging information
-      this.logFormStructure();
-
       // Validate the form
       const validation = await this.validateFormExternal({
         showErrors: true,
@@ -1249,39 +1253,9 @@ export default class ReviewButton extends FieldComponent {
           }
           const prefix = f.__reviewPrefix || '';
 
-          // First pass: find panels and containers and mark them as reviewVisible
-          // f.everyComponent((c) => {
-          //   if (c.component?.type === 'panel' ||
-          //     c.component?.type === 'container' ||
-          //     c.component?.type === 'columns' ||
-          //     c.component?.type === 'fieldset' ||
-          //     c.component?.type === 'well' ||
-          //     c.component?.type === 'table') {
-
-          //     // Make container and all its children reviewVisible
-          //     if (!c.component) {
-          //       c.component = {};
-          //     }
-          //     c.component.reviewVisible = true;
-
-          //     // Also make all children reviewVisible
-          //     if (Array.isArray(c.components) && c.components.length > 0) {
-          //       c.components.forEach(child => {
-          //         if (!child.component) {
-          //           child.component = {};
-          //         }
-          //         child.component.reviewVisible = true;
-          //       });
-          //     }
-          //   }
-          // });
-
-          // Second pass: queue all components for processing
+          // queue all components for processing
           f.everyComponent((c) => {
-            const shouldSkip = c.parent && (
-              c.parent.component?.type === 'datatable' ||
-              c.parent.component?.type === 'datagrid'
-            );
+            const shouldSkip = c.parent && (isContainerType(c.parent.component?.type));
             if (shouldSkip) {
               return;
             }
@@ -1294,19 +1268,14 @@ export default class ReviewButton extends FieldComponent {
 
         enqueueAll(root);
 
-
-        let processedCount = 0;
-        const logInterval = Math.max(10, Math.floor(queue.length / 10)); // Log every 10% of components
-
         while (queue.length) {
           const comp = queue.shift();
           if (!comp) continue;
 
-          // --- DataMap and Well component handling ---
-          if ((comp.component?.type === 'datamap' || comp.component?.type === 'well') && Array.isArray(comp.rows) && comp.rows.length) {
+          if (isContainerType(comp.component?.type) && Array.isArray(comp.rows) && comp.rows.length) {
 
             const dataMapPath = safePath(comp);
-            labelByPathMap.set(dataMapPath, comp.component?.label || comp.key || (comp.component?.type === 'well' ? 'Well' : 'Data Map'));
+            labelByPathMap.set(dataMapPath, comp.component?.label || comp.key);
             indexByPathMap.set(dataMapPath, topIndexFor(comp));
 
             comp.rows.forEach((row, rIdx) => {
@@ -1378,7 +1347,6 @@ export default class ReviewButton extends FieldComponent {
             });
 
             // Helper: flatten a cell's component tree into leaf fields under the correct column path.
-            const isContainerType = (t) => ['panel', 'container', 'columns', 'well', 'dataMap', 'fieldset', 'table', 'tabs'].includes(t);
             const pushValueLeaf = (node, basePath) => {
               pushLeaf({
                 comp: node,
