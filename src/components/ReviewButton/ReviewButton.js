@@ -2445,18 +2445,13 @@ export default class ReviewButton extends FieldComponent {
             }
 
             // ignore stray tokens
-            if (/^\d+\]$/.test(k)) {
+            if (/^\d+\]$/.test(k) || v?.__comp == undefined) {
               return v && typeof v === 'object' ? renderNode(v.__children || {}, depth) : '';
             }
 
             if (v && v.__leaf) {
               // Check if this is a form component leaf
               const isFormComponent = v.__comp?.type === 'form' || v.__comp?.component?.type === 'form';
-
-              // Log form components we're rendering
-              if (isFormComponent) {
-
-              }
 
               const val = firstLeafVal(v);
 
