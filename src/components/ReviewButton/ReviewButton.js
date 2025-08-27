@@ -1608,9 +1608,9 @@ export default class ReviewButton extends FieldComponent {
             parentType === 'dataMap' ||
             parentType === 'panel' ||
             parentType === 'well' ||
-            parentType === 'table';
-            parentType === 'tabs';
-            parentType === 'fieldset';
+            parentType === 'table' ||
+            parentType === 'tabs' ||
+            parentType === 'fieldset' ||
             parentType === 'columns';
 
           // Check if component is inside a TagPad form
@@ -1626,12 +1626,12 @@ export default class ReviewButton extends FieldComponent {
             comp?.component?.type === 'content' ||
             comp?.component?.type === 'htmlelement' ||
             comp?.component?.type === 'dataMap' ||
-            comp?.type === 'content' ||
-            comp?.type === 'dataMap' ||
-            comp?.type === 'htmlelement';
             comp?.component?.type === 'tabs' ||
             comp?.component?.type === 'columns' ||
             comp?.component?.type === 'fieldset' ||
+            comp?.type === 'content' ||
+            comp?.type === 'dataMap' ||
+            comp?.type === 'htmlelement' ||
             comp?.type === 'tabs' ||
             comp?.type === 'columns' ||
             comp?.type === 'fieldset';
