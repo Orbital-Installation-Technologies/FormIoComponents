@@ -803,50 +803,6 @@ export default class ReviewButton extends FieldComponent {
   }
 
   /**
-   * Attach the component to the DOM
-   * @param {HTMLElement} element - Element to attach to
-   * @returns {HTMLElement} The attached element
-   */
-  /**
-   * Log form structure for debugging
-   */
-  logFormStructure() {
-    // Log the entire form structure
-
-    // Log detailed component hierarchy
-    const componentMap = this.buildComponentMap();
-
-    // Log form data
-
-  }
-
-  /**
-   * Build a map of components for debugging
-   * @returns {Object} Map of components with their properties
-   */
-  buildComponentMap() {
-    const componentMap = {};
-
-    this.root.everyComponent(comp => {
-      const compInfo = {
-        type: comp.component?.type || comp.type,
-        key: comp.key,
-        path: comp.path,
-        label: comp.component?.label || comp.label || comp.key,
-        value: comp.getValue ? comp.getValue() : comp.dataValue,
-        hasParent: !!comp.parent,
-        parentKey: comp.parent?.key,
-        parentType: comp.parent?.component?.type || comp.parent?.type,
-        hasChildren: Array.isArray(comp.components) && comp.components.length > 0,
-        childCount: Array.isArray(comp.components) ? comp.components.length : 0
-      };
-      componentMap[comp.path || comp.key || 'unknown'] = compInfo;
-    });
-
-    return componentMap;
-  }
-
-  /**
    * Update all form values to ensure the latest data is captured
    * @returns {Promise<void>}
    */
