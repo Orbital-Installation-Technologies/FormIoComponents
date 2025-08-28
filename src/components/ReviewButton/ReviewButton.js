@@ -955,14 +955,6 @@ export default class ReviewButton extends FieldComponent {
         scrollToError: true
       });
 
-      // If validation fails, show error and exit
-      // if (!validation.isValid) {
-      //   if (validation.errorCount > 0) {
-      //     alert(`Please fix the following errors before proceeding:\n\n${validation.errorSummary}`);
-      //   }
-      //   return false;
-      // }
-
       // Update all form values to ensure latest data
       try {
         await this.updateFormValues();
@@ -991,12 +983,6 @@ export default class ReviewButton extends FieldComponent {
     // Add click event listener to button
     this.addEventListener(this.refs.button, "click", async () => {
 
-      // if (!validation.isValid) {
-      //   if (validation.errorCount > 0) {
-      //     alert(`Please fix the following errors before proceeding:\n\n${validation.errorSummary}`);
-      //   }
-      //   return;
-      // }
 
       try {
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -1504,7 +1490,7 @@ export default class ReviewButton extends FieldComponent {
             }
           }
 
-          // ---- Tagpad (fix: expand editForms -> fields)
+          // ---- Tagpad 
           if (comp.component?.type === 'tagpad') {
             // Tagpad container label
             const tagpadPath = safePath(comp);
