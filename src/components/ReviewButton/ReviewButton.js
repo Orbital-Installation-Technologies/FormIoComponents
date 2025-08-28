@@ -1705,7 +1705,18 @@ export default class ReviewButton extends FieldComponent {
             // Process any container component using our helper function
             if (comp.components && comp.components.length > 0) {
               const processedContainer = customComponentForReview(comp);
-
+              
+              // Add the processed container to leaves if it has meaningful content
+              if (processedContainer) {
+                leaves.push(processedContainer);
+              }
+              
+              // Add child components to the queue for processing
+              comp.components.forEach(childComp => {
+                if (childComp && !processedPaths.has(safePath(childComp))) {
+                  queue.push(childComp);
+                }
+              });
             }
           }
 
@@ -2500,6 +2511,11 @@ export default class ReviewButton extends FieldComponent {
                 v.__comp?.type === 'panel' ||
                 v.__comp?.component?.type === 'well' ||
                 v.__comp?.type === 'well';
+              
+              // Check if this is any container component type that should be handled recursively  
+              const isContainerComponent = v.__comp?.component?.type && 
+                isContainerType(v.__comp.component.type) ||
+                v.__comp?.type && isContainerType(v.__comp.type);
 
 
               const displayLabel = v.__suppress ? '' : (v.__label || (k === 'form' ? '' : k));
@@ -2517,8 +2533,8 @@ export default class ReviewButton extends FieldComponent {
                   v.__value._type === 'columns' ||
                   (v.__value._row && Array.isArray(v.__value._row)));
 
-              // Special handling for panel and well components
-              if (isPanelComponent || isWellComponent || hasCustomStructure) {
+              // Special handling for all container components (panel, well, columns, fieldset, etc.)
+              if (isPanelComponent || isWellComponent || isContainerComponent || hasCustomStructure) {
                 // Get all direct child components to display under this panel
                 let panelChildrenHtml = '';
 
@@ -2529,7 +2545,34 @@ export default class ReviewButton extends FieldComponent {
                 }
                 // If no children were found in the tree but we have child components in the original component
                 else if (v.__comp && Array.isArray(v.__comp.components) && v.__comp.components.length > 0) {
-
+                  // Build a children structure from the component definitions
+                  const artificialChildren = {};
+                  v.__comp.components.forEach((comp, index) => {
+                    if (comp && comp.key) {
+                      // Create a structure similar to __children for recursive rendering
+                      artificialChildren[comp.key] = {
+                        __label: comp.label || comp.key,
+                        __comp: comp,
+                        __leaf: !comp.components || comp.components.length === 0,
+                        __value: comp.defaultValue || '',
+                        __children: comp.components && comp.components.length > 0 ? 
+                          comp.components.reduce((acc, child, idx) => {
+                            if (child && child.key) {
+                              acc[child.key] = {
+                                __label: child.label || child.key,
+                                __comp: child,
+                                __leaf: !child.components || child.components.length === 0,
+                                __value: child.defaultValue || ''
+                              };
+                            }
+                            return acc;
+                          }, {}) : {}
+                      };
+                    }
+                  });
+                  
+                  // Recursively render the artificial children structure
+                  panelChildrenHtml = renderNode(artificialChildren, depth + 1);
                 }
 
                 // Check for custom structure
@@ -2572,9 +2615,11 @@ export default class ReviewButton extends FieldComponent {
                     </div>
                   `;
                 } else {
-                  // Determine the appropriate container title
-                  const isWell = v.__comp?.component?.type === 'well' || v.__comp?.type === 'well';
-                  const containerType = isWell ? 'Well' : 'Panel';
+                  // Use the component type as the container title, with basic formatting
+                  const componentType = v.__comp?.component?.type || v.__comp?.type;
+                  const containerType = componentType 
+                    ? componentType.charAt(0).toUpperCase() + componentType.slice(1).replace(/([A-Z])/g, ' $1')
+                    : 'Container';
 
                   // Create a fieldset-like container for better grouping
                   return `
