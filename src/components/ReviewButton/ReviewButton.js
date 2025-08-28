@@ -6,18 +6,22 @@ const FieldComponent = Components.components.field;
 /**
  * Helper function to check if a component type is a container type. This is why I like Javascript.
  * @param {string|string[]} t - The component type(s) to check - can be a single string or array of strings
- * @returns {boolean} True if any of the component types is a container type
+ * @param {string[]} exclude - Array of container types to exclude from the check
+ * @returns {boolean} True if any of the component types is a container type (and not excluded)
  */
-const isContainerType = (t) => {
+const isContainerType = (t, exclude = []) => {
   const containerTypes = ['panel', 'container', 'columns', 'well', 
                          'dataMap', 'fieldset', 'table', 'tabs', 
-                         'row', 'column'];
+                         'row', 'column', 'content', 'htmlelement', 'dataMap'];
+  
+  // Filter out excluded types
+  const allowedTypes = containerTypes.filter(type => !exclude.includes(type));
   
   if (Array.isArray(t)) {
-    return t.some(type => type && containerTypes.includes(type));
+    return t.some(type => type && allowedTypes.includes(type));
   }
   
-  return containerTypes.includes(t);
+  return allowedTypes.includes(t);
 };
 
 /**
@@ -1128,7 +1132,7 @@ export default class ReviewButton extends FieldComponent {
             _type: componentType,
             _row: tableRows
           };
-        } else if (['panel', 'container', 'well', 'fieldset', 'columns', 'tabs', 'table'].includes(componentType)) {
+        } else if (isContainerType(componentType)) {
           // Handle panel, container, well and similar container components
           const children = component.components || [];
           const containerItems = children.filter(child => {
@@ -1576,15 +1580,7 @@ export default class ReviewButton extends FieldComponent {
             const containerLabel = comp.component?.label || comp.key || '';
 
             // Special handling for components with children - make sure they're marked for review
-            const isContainer = comp.component?.type === 'panel' ||
-              comp.component?.type === 'container' ||
-              comp.component?.type === 'columns' ||
-              comp.component?.type === 'fieldset' ||
-              comp.component?.type === 'well' ||
-              comp.component?.type === 'tabs' ||
-              comp.component?.type === 'fieldset' ||
-              comp.component?.type === 'dataMap' ||
-              comp.component?.type === 'table';
+            const isContainer = isContainerType([comp.type, comp.component?.type]);
 
             if (isContainer) {
 
@@ -1604,18 +1600,9 @@ export default class ReviewButton extends FieldComponent {
 
           const parent = comp?.parent;
           const parentType = parent?.component?.type;
-          const parentIsHandled =
-            parentType === 'datatable' ||
-            parentType === 'datagrid' ||
-            parentType === 'editgrid' ||
-            parentType === 'tagpad' ||
-            parentType === 'dataMap' ||
-            parentType === 'panel' ||
-            parentType === 'well' ||
-            parentType === 'table' ||
-            parentType === 'tabs' ||
-            parentType === 'fieldset' ||
-            parentType === 'columns';
+          const parentsToBeHandled = ['datatable', 'datagrid', 'editgrid', 'tagpad', 'dataMap', 
+                                      'panel', 'well', 'table', 'tabs', 'fieldset', 'columns'];
+          const parentIsHandled = parentsToBeHandled.includes(parentType);
 
           // Check if component is inside a TagPad form
           const isInTagpadForm =
@@ -1626,19 +1613,7 @@ export default class ReviewButton extends FieldComponent {
           const isTagpadComponent = comp.type === 'tagpad' || comp.component?.type === 'tagpad' || isInTagpadForm;
 
           // Skip content and htmlelement components
-          const isContentComponent =
-            comp?.component?.type === 'content' ||
-            comp?.component?.type === 'htmlelement' ||
-            comp?.component?.type === 'dataMap' ||
-            comp?.component?.type === 'tabs' ||
-            comp?.component?.type === 'columns' ||
-            comp?.component?.type === 'fieldset' ||
-            comp?.type === 'content' ||
-            comp?.type === 'dataMap' ||
-            comp?.type === 'htmlelement' ||
-            comp?.type === 'tabs' ||
-            comp?.type === 'columns' ||
-            comp?.type === 'fieldset';
+          const isContentComponent = isContainerType([comp?.type, comp?.component?.type]);
 
           // Extra check to ensure we don't get duplicate fields from datatables/datagrids
           const componentPath = safePath(comp);
@@ -1649,16 +1624,6 @@ export default class ReviewButton extends FieldComponent {
           // Check if this is a form or panel component
           const isFormComponent = comp.type === 'form' || comp.component?.type === 'form';
           const isPanelComponent = comp.type === 'panel' || comp.component?.type === 'panel';
-
-          // Debug panel components
-          if (isPanelComponent) {
-
-          }
-
-          // Log form component info
-          if (isFormComponent) {
-
-          }
 
           // Process panel components specifically
           if (isPanelComponent) {
@@ -1671,9 +1636,6 @@ export default class ReviewButton extends FieldComponent {
             if (!comp.component) {
               comp.component = {};
             }
-            //comp.component.reviewVisible = true;
-
-
 
             // Make sure all child components of the panel are also included
             if (Array.isArray(comp.components) && comp.components.length > 0) {
@@ -1682,28 +1644,19 @@ export default class ReviewButton extends FieldComponent {
                 if (!child.component) {
                   child.component = {};
                 }
-                //child.component.reviewVisible = true;
-
               });
             }
           }
 
           // Check if this is a container component that should be included
-          const isContainerComponent = comp.component?.type === 'panel' ||
-            comp.component?.type === 'container' ||
-            comp.component?.type === 'columns' ||
-            comp.component?.type === 'fieldset' ||
-            comp.component?.type === 'tabs' ||
-            comp.component?.type === 'dataMap' ||
-            comp.component?.type === 'well' ||
-            comp.component?.type === 'table';
+          const isContainerComponent = isContainerType([comp.type, comp.component?.type]);
 
           // Debug well components specifically
           if (comp.component?.type === 'well' || comp.type === 'well' ||
             comp.component?.type === 'table' || comp.type === 'table') {
               
             // Process the well component using our new helper function
-            const processedWell = customComponentForReview(comp);
+            customComponentForReview(comp);
           }
           
           // Always process and include panel components regardless of reviewVisible setting
@@ -1768,23 +1721,13 @@ export default class ReviewButton extends FieldComponent {
         // Make sure all panel and well components are included
         if (Array.isArray(root?.components)) {
           root.components.forEach(comp => {
-            const isPanelOrWell =
-                          (
-                            comp.component?.type === 'panel' || comp.type === 'panel' ||
-                            comp.component?.type === 'well' || comp.type === 'well' ||
-                            comp.component?.type === 'fieldset' || comp.type === 'fieldset' ||
-                            comp.component?.type === 'columns' || comp.type === 'columns' ||
-                            comp.component?.type === 'tabs' || comp.type === 'tabs'
-                          ) &&
+            const isContainer = isContainerType([comp.type, comp.component?.type], ['table']) &&
                           Array.isArray(comp.components) && comp.components.length > 0;
 
-            if (isPanelOrWell) {
+            if (isContainer) {
 
               // Check if this panel/well is already in leaves
               let panelPath = safePath(comp);
-              const containerType = comp.component?.type || comp.type;
-              const isWell = containerType === 'well';
-
 
               const panelInLeaves = leaves.some(leaf =>
                 (leaf.path === panelPath || leaf.comp === comp)
@@ -2123,11 +2066,7 @@ export default class ReviewButton extends FieldComponent {
             return '(Form data)';
           }
 
-          const isFileish =
-            comp?.component?.type === 'file' ||
-            comp?.component?.type === 'image' ||
-            comp?.component?.storage ||
-            comp?.component?.filePattern;
+          const isFileComponent = comp?.component?.type === 'file' 
 
           // Handle signature components
           if (comp?.component?.type === 'signature') {
@@ -2164,7 +2103,7 @@ export default class ReviewButton extends FieldComponent {
           }
 
           if (Array.isArray(value)) {
-            if (isFileish && value.length && typeof value[0] === 'object') {
+            if (isFileComponent && value.length && typeof value[0] === 'object') {
               const names = value.map(v => v?.originalName || v?.name || v?.fileName || v?.path || '[file]');
               return names.join(', ');
             }
@@ -2172,7 +2111,7 @@ export default class ReviewButton extends FieldComponent {
           }
 
           if (value && typeof value === 'object') {
-            if (isFileish) return value.originalName || value.name || value.fileName || '[file]';
+            if (isFileComponent) return value.originalName || value.name || value.fileName || '[file]';
             try { return JSON.stringify(value); } catch { return String(value); }
           }
 
@@ -2194,47 +2133,17 @@ export default class ReviewButton extends FieldComponent {
         // Track paths we've already processed in the tree to avoid duplicates
         const processedTreePaths = new Set();
 
-        // Log entire form structure to help debugging
-
 
         // Pre-process all panel components to ensure they're properly included
         const panelComponents = sortedLeaves.filter(leaf =>
-          leaf.comp?.component?.type === 'panel' ||
-          leaf.comp?.type === 'panel' ||
-          leaf.comp?.component?.type === 'well' ||
-          leaf.comp?.type === 'well' ||
-          leaf.comp?.component?.type === 'table' ||
-          leaf.comp?.type === 'table' ||
-          (leaf.comp?.components?.length > 0 && (
-            leaf.comp?.component?.type === 'container' ||
-            leaf.comp?.component?.type === 'columns' ||
-            leaf.comp?.component?.type === 'fieldset' ||
-            leaf.comp?.component?.type === 'well' ||
-            leaf.comp?.component?.type === 'table'
-          ))
+          isContainerType([leaf.comp?.type, leaf.comp?.component?.type])
         );
 
-
-
-        // If no panels were found in sortedLeaves but they exist in the form, log this info
-        if (panelComponents.length === 0) {
-
-        }
 
         // First, organize components by parent-child relationships
         const componentsByParentPath = {};
         const isParentComponent = (comp) => {
-          return comp?.component?.type === 'panel' ||
-            comp?.type === 'panel' ||
-            comp?.type === 'container' ||
-            comp?.type === 'columns' ||
-            comp?.type === 'tabs' ||
-            comp?.component?.type === 'container' ||
-            comp?.component?.type === 'columns' ||
-            comp?.component?.type === 'tabs' ||
-            comp?.component?.type === 'fieldset' ||
-            comp?.component?.type === 'well' ||
-            comp?.type === 'well';
+          return isContainerType([comp?.type, comp?.component?.type], ['table'])
         };
 
         // First pass - identify all panel components
