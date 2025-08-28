@@ -2422,10 +2422,8 @@ export default class ReviewButton extends FieldComponent {
           return sortedEntries.map(([k, v]) => {
             
             // For DataMap containers, flatten all __children from __rows into v.__children
-            if (v.__comp?._visible == false || (v.__comp?.component.reviewVisible == false && !v.__comp?.component.validate.required)) {
-              return '';
-            }
-            if(v.__comp?.type === 'datasource') {
+            if (v.__comp?._visible == false || v.__comp?.type === 'datasource' ||
+               (v.__comp?.component.reviewVisible == false && !v.__comp?.component.validate.required)) {
               return '';
             }
 
