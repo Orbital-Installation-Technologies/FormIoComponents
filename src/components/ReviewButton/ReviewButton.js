@@ -14,7 +14,6 @@ const isContainerType = (t, exclude = []) => {
                          'dataMap', 'fieldset', 'table', 'tabs', 
                          'row', 'column', 'content', 'htmlelement', 'dataMap'];
   
-  // Filter out excluded types
   const allowedTypes = containerTypes.filter(type => !exclude.includes(type));
   
   if (Array.isArray(t)) {
@@ -66,19 +65,13 @@ export default class ReviewButton extends FieldComponent {
   init() {
     super.init();
 
-    // Refresh page after successful submission
     this.root.on("submitDone", () => {
       window.location.reload();
     });
 
     if (this.root) {
-      // Register validation methods on the root form
       this.registerFormValidationMethods();
-
-      // Setup validation event handler
       this.setupValidationEventHandler();
-
-      // Expose validation methods to window for external access
       this.exposeValidationMethods();
     }
   }
@@ -138,7 +131,6 @@ export default class ReviewButton extends FieldComponent {
     try {
       let isValid = true;
 
-      // Validate each component
       this.root.everyComponent(component => {
         if (component.checkValidity) {
           const valid = component.checkValidity(component.data, true);
@@ -149,10 +141,8 @@ export default class ReviewButton extends FieldComponent {
         }
       });
 
-      // Redraw the form to show validation messages
       this.root.redraw();
 
-      // Scroll to the first error if validation failed
       if (!isValid) {
         this.scrollToFirstError();
       }
@@ -179,10 +169,8 @@ export default class ReviewButton extends FieldComponent {
    */
   async validateFormHard() {
     try {
-      // Mark all components as dirty
       this.markAllComponentsAsDirty();
 
-      // Get form data and validate
       const data = this.root?.submission?.data ?? this.root?.data ?? {};
       let isValid = true;
 
@@ -190,7 +178,6 @@ export default class ReviewButton extends FieldComponent {
         isValid = this.root.checkValidity(data, true);
       }
 
-      // Show errors and redraw
       if (!isValid && typeof this.root?.showErrors === 'function') {
         this.root.showErrors();
       }
@@ -199,10 +186,8 @@ export default class ReviewButton extends FieldComponent {
         await this.root.redraw();
       }
 
-      // Special handling for datagrid components
       this.markDatagridRowsAsDirty();
 
-      // Scroll to first error if validation failed
       if (!isValid) {
         this.scrollToFirstErrorAdvanced();
       }
@@ -274,16 +259,10 @@ export default class ReviewButton extends FieldComponent {
     };
 
     try {
-      // Initialize results object
       const results = this.initializeValidationResults();
-
-      // Find components to validate
       const componentsToValidate = this.findComponentsToValidate(keys);
-
-      // Validate each component
       await this.validateSelectedComponents(componentsToValidate, results, opts);
 
-      // Handle UI updates (show errors and scroll)
       if (opts.showErrors) {
         await this.updateUIWithErrors(results, opts.scrollToError);
       }
@@ -340,13 +319,10 @@ export default class ReviewButton extends FieldComponent {
       const componentLabel = component.component?.label || componentKey;
       const componentPath = component.path || componentKey;
 
-      // Mark component as dirty for validation
       this.markComponentAsDirty(component);
 
-      // Validate the component
       const isValid = component.checkValidity ? component.checkValidity(component.data, true) : true;
 
-      // Record results
       this.recordComponentValidationResult(
         results,
         component,
@@ -379,7 +355,6 @@ export default class ReviewButton extends FieldComponent {
    * @param {boolean} showErrors - Whether to display errors
    */
   recordComponentValidationResult(results, component, key, label, path, isValid, showErrors) {
-    // Always record result
     results.fieldResults[key] = {
       isValid,
       errors: component.errors || [],
@@ -387,7 +362,6 @@ export default class ReviewButton extends FieldComponent {
       path
     };
 
-    // If invalid, record error information
     if (!isValid) {
       results.isValid = false;
       results.errors[key] = {
@@ -400,7 +374,6 @@ export default class ReviewButton extends FieldComponent {
         label
       });
 
-      // Show validation errors on the component if needed
       if (showErrors && component.setCustomValidity) {
         component.setCustomValidity(component.errors, true);
       }
@@ -413,12 +386,10 @@ export default class ReviewButton extends FieldComponent {
    * @param {boolean} scrollToError - Whether to scroll to the first error
    */
   async updateUIWithErrors(results, scrollToError) {
-    // Redraw the form to show validation errors
     if (typeof this.root?.redraw === 'function') {
       await this.root.redraw();
     }
 
-    // Scroll to first invalid component if needed
     if (scrollToError && !results.isValid && results.invalidComponents.length > 0) {
       const firstComponent = results.invalidComponents[0].component;
       if (firstComponent.element?.scrollIntoView) {
@@ -446,15 +417,12 @@ export default class ReviewButton extends FieldComponent {
    */
   async isFormValid() {
     try {
-      // Get form data
       const data = this.root?.submission?.data ?? this.root?.data ?? {};
       let isValid = true;
 
-      // Check each visible and enabled component
       if (this.root?.everyComponent) {
         this.root.everyComponent((c) => {
           try {
-            // Only validate components that are visible and not disabled
             const shouldValidate = c.checkValidity && c.visible !== false && !c.disabled;
 
             if (shouldValidate && !c.checkValidity(c.data, false)) {
@@ -486,32 +454,21 @@ export default class ReviewButton extends FieldComponent {
     };
 
     try {
-      // Initialize results object
       const results = this.initializeExternalValidationResults();
-
-      // Mark all components as dirty for validation
       this.markAllComponentsAsDirty();
-
-      // Get form data
       const data = this.root?.submission?.data ?? this.root?.data ?? {};
 
-      // Maps to store errors and warnings
       const errorMap = new Map();
       const warningMap = new Map();
 
-      // Validate all visible and enabled components
       if (this.root?.everyComponent) {
         await this.validateComponentsAndCollectResults(errorMap, warningMap, results, opts);
       }
 
-      // Convert maps to objects for the results
       results.errors = Object.fromEntries(errorMap);
       results.warnings = Object.fromEntries(warningMap);
-
-      // Generate error summary text
       this.generateErrorSummary(errorMap, results);
 
-      // Handle UI updates if needed
       if (opts.showErrors) {
         await this.handleExternalValidationUIUpdates(results, opts);
       }
@@ -548,19 +505,15 @@ export default class ReviewButton extends FieldComponent {
   async validateComponentsAndCollectResults(errorMap, warningMap, results, opts) {
     this.root.everyComponent((component) => {
       try {
-        // Skip invisible or disabled components
         if (!component.visible || component.disabled) return;
 
         if (component.checkValidity) {
-          // Validate the component
           const isValid = component.checkValidity(component.data, true);
 
-          // Process errors if validation failed
           if (!isValid) {
             this.processComponentErrors(component, errorMap, results, opts.showErrors);
           }
 
-          // Process warnings if requested
           if (opts.includeWarnings && component.warnings && component.warnings.length) {
             this.processComponentWarnings(component, warningMap, results);
           }
@@ -579,16 +532,13 @@ export default class ReviewButton extends FieldComponent {
    * @param {boolean} showErrors - Whether to display errors
    */
   processComponentErrors(component, errorMap, results, showErrors) {
-    // Mark form as invalid and increment error count
     results.isValid = false;
     results.errorCount++;
 
-    // Get component identification info
     const componentKey = component.key || component.path;
     const componentLabel = component.component?.label || componentKey;
     const componentPath = component.path || componentKey;
 
-    // Collect errors
     if (component.errors && component.errors.length) {
       component.errors.forEach(error => {
         if (!errorMap.has(componentPath)) {
@@ -601,14 +551,12 @@ export default class ReviewButton extends FieldComponent {
       });
     }
 
-    // Track invalid components
     results.invalidComponents.push({
       component,
       path: componentPath,
       label: componentLabel
     });
 
-    // Show validation errors if requested
     if (showErrors) {
       component.setCustomValidity(component.errors, true);
     }
@@ -621,15 +569,12 @@ export default class ReviewButton extends FieldComponent {
    * @param {Object} results - Results object to update
    */
   processComponentWarnings(component, warningMap, results) {
-    // Increment warning count
     results.warningCount += component.warnings.length;
 
-    // Get component identification info
     const componentKey = component.key || component.path;
     const componentLabel = component.component?.label || componentKey;
     const componentPath = component.path || componentKey;
 
-    // Initialize warning container for this component
     if (!warningMap.has(componentPath)) {
       warningMap.set(componentPath, {
         label: componentLabel,
@@ -637,7 +582,6 @@ export default class ReviewButton extends FieldComponent {
       });
     }
 
-    // Collect warnings
     component.warnings.forEach(warning => {
       warningMap.get(componentPath).warnings.push(warning);
     });
@@ -666,16 +610,13 @@ export default class ReviewButton extends FieldComponent {
    * @param {Object} opts - Validation options
    */
   async handleExternalValidationUIUpdates(results, opts) {
-    // Redraw the form to show validation errors
     if (typeof this.root?.redraw === 'function') {
       await this.root.redraw();
 
-      // Show errors if validation failed
       if (!results.isValid && typeof this.root?.showErrors === 'function') {
         this.root.showErrors();
       }
 
-      // Scroll to first error if requested
       if (opts.scrollToError && !results.isValid) {
         this.scrollToFirstErrorAdvanced();
       }
@@ -711,14 +652,12 @@ export default class ReviewButton extends FieldComponent {
       ...options
     };
 
-    // Validate the form
     const results = await this.validateFormExternal({
       showErrors: opts.showErrors,
       scrollToError: opts.scrollToError,
       includeWarnings: true
     });
 
-    // Display error summary if requested and there are errors
     if (opts.showSummary && !results.isValid) {
       this.showValidationErrorSummary(results);
     }
@@ -731,19 +670,10 @@ export default class ReviewButton extends FieldComponent {
    * @param {Object} results - Validation results containing errors
    */
   showValidationErrorSummary(results) {
-    // Create error summary element
     const errorSummaryEl = this.createErrorSummaryElement();
-
-    // Generate error summary content
     errorSummaryEl.innerHTML = this.generateErrorSummaryContent(results);
-
-    // Add to document
     document.body.appendChild(errorSummaryEl);
-
-    // Setup close button handler
     this.setupErrorSummaryCloseButton(errorSummaryEl);
-
-    // Auto-dismiss after 10 seconds
     this.setupErrorSummaryAutoDismiss(errorSummaryEl);
   }
 
@@ -755,7 +685,6 @@ export default class ReviewButton extends FieldComponent {
     const errorSummaryEl = document.createElement('div');
     errorSummaryEl.className = 'alert alert-danger validation-summary';
 
-    // Apply styles
     Object.assign(errorSummaryEl.style, {
       position: 'fixed',
       top: '20px',
@@ -775,7 +704,6 @@ export default class ReviewButton extends FieldComponent {
    * @returns {string} HTML content for the error summary
    */
   generateErrorSummaryContent(results) {
-    // Generate list items for each error
     const errorListItems = Object.values(results.errors)
       .flatMap(item => item.errors.map(error => `<li>${item.label}: ${error}</li>`))
       .join('');
@@ -829,11 +757,9 @@ export default class ReviewButton extends FieldComponent {
    */
   async updateFormValues() {
     try {
-      // Small delay to ensure all UI updates are complete
-      await new Promise(resolve => setTimeout(resolve, 100));
+          await new Promise(resolve => setTimeout(resolve, 100));
 
-      // Collect all datagrids and datatables, with safety check
-      const allDatagrids = [];
+    const allDatagrids = [];
       try {
         if (this.root && typeof this.root.everyComponent === 'function') {
           this.root.everyComponent(comp => {
@@ -847,8 +773,7 @@ export default class ReviewButton extends FieldComponent {
         console.error("Error collecting datagrids/datatables:", e);
       }
 
-      // Update values in all datagrid and datatable components
-      for (const datagrid of allDatagrids) {
+          for (const datagrid of allDatagrids) {
         try {
           this.updateDatagridValues(datagrid);
         } catch (e) {
@@ -856,12 +781,11 @@ export default class ReviewButton extends FieldComponent {
         }
       }
 
-      // Update values in top-level components
-      try {
-        this.updateTopLevelComponentValues();
-      } catch (e) {
-        console.error("Error updating top-level components:", e);
-      }
+          try {
+      this.updateTopLevelComponentValues();
+    } catch (e) {
+      console.error("Error updating top-level components:", e);
+    }
     } catch (e) {
       console.error("Error in updateFormValues:", e);
     }
@@ -872,7 +796,6 @@ export default class ReviewButton extends FieldComponent {
    * @param {Object} datagrid - Datagrid or datatable component
    */
   updateDatagridValues(datagrid) {
-    // Update the datagrid/datatable value
     if (datagrid && datagrid.updateValue && typeof datagrid.updateValue === 'function') {
       try {
         datagrid.updateValue();
@@ -881,7 +804,6 @@ export default class ReviewButton extends FieldComponent {
       }
     }
 
-    // For datatables, update values in each saved row
     if (datagrid && datagrid.component?.type === 'datatable' && Array.isArray(datagrid.savedRows)) {
       datagrid.savedRows.forEach(row => {
         if (row && Array.isArray(row.components)) {
@@ -891,7 +813,6 @@ export default class ReviewButton extends FieldComponent {
         }
       });
     }
-    // For datagrids, update values in each row
     else if (datagrid && Array.isArray(datagrid.rows)) {
       datagrid.rows.forEach(row => {
         if (row && typeof row === 'object') {
@@ -911,16 +832,13 @@ export default class ReviewButton extends FieldComponent {
   safelyUpdateComponent(component, context) {
     if (!component) return;
 
-    // Skip components that might cause issues
     if (component.type === 'select' && (!component.choices || !Array.isArray(component.choices))) {
       console.warn(`Skipping Select component update in ${context} - missing choices array`);
       return;
     }
 
-    // Only call updateValue if it exists and is a function
     if (component.updateValue && typeof component.updateValue === 'function') {
       try {
-        // Ensure all required properties exist before calling updateValue for select components
         if (component.type === 'select' && typeof component.resetValue !== 'function') {
           console.warn(`Select component in ${context} missing resetValue method - skipping update`);
           return;
