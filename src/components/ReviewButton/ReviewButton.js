@@ -942,12 +942,12 @@ export default class ReviewButton extends FieldComponent {
       });
 
       // If validation fails, show error and exit
-      if (!validation.isValid) {
-        if (validation.errorCount > 0) {
-          alert(`Please fix the following errors before proceeding:\n\n${validation.errorSummary}`);
-        }
-        return false;
-      }
+      // if (!validation.isValid) {
+      //   if (validation.errorCount > 0) {
+      //     alert(`Please fix the following errors before proceeding:\n\n${validation.errorSummary}`);
+      //   }
+      //   return false;
+      // }
 
       // Update all form values to ensure latest data
       try {
@@ -976,27 +976,13 @@ export default class ReviewButton extends FieldComponent {
 
     // Add click event listener to button
     this.addEventListener(this.refs.button, "click", async () => {
-      try {
-        // Handle initial validation and data update
-        const isValid = await this.handleReviewClick();
-        if (!isValid) return;
 
-        // Process continues with the original implementation to avoid variable conflicts
-        // The original code collects form components and renders the review modal
-      } catch (e) {
-        console.error("Unhandled error in button click handler:", e);
-        alert("An unexpected error occurred. Please try again or contact support if the issue persists.");
-      } const validation = await this.validateFormExternal({
-        showErrors: true,
-        scrollToError: true
-      });
-
-      if (!validation.isValid) {
-        if (validation.errorCount > 0) {
-          alert(`Please fix the following errors before proceeding:\n\n${validation.errorSummary}`);
-        }
-        return;
-      }
+      // if (!validation.isValid) {
+      //   if (validation.errorCount > 0) {
+      //     alert(`Please fix the following errors before proceeding:\n\n${validation.errorSummary}`);
+      //   }
+      //   return;
+      // }
 
       try {
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -1271,6 +1257,10 @@ export default class ReviewButton extends FieldComponent {
         while (queue.length) {
           const comp = queue.shift();
           if (!comp) continue;
+
+          console.log("comp", comp);
+
+           if (comp?._visible == false || comp?.component.reviewVisible == false) continue;
 
           if (isContainerType(comp.component?.type) && Array.isArray(comp.rows) && comp.rows.length) {
 
@@ -1589,7 +1579,7 @@ export default class ReviewButton extends FieldComponent {
               if (!comp.component) {
                 comp.component = {};
               }
-              comp.component.reviewVisible = true;
+              //comp.component.reviewVisible = true;
             }
 
             labelByPathMap.set(containerPath, containerLabel);
@@ -1667,7 +1657,7 @@ export default class ReviewButton extends FieldComponent {
             if (!comp.component) {
               comp.component = {};
             }
-            comp.component.reviewVisible = true;
+            //comp.component.reviewVisible = true;
 
 
 
@@ -1678,7 +1668,7 @@ export default class ReviewButton extends FieldComponent {
                 if (!child.component) {
                   child.component = {};
                 }
-                child.component.reviewVisible = true;
+                //child.component.reviewVisible = true;
 
               });
             }
@@ -1701,7 +1691,7 @@ export default class ReviewButton extends FieldComponent {
             // Process the well component using our new helper function
             const processedWell = customComponentForReview(comp);
           }
-
+          
           // Always process and include panel components regardless of reviewVisible setting
           if (isPanelComponent || isContainerComponent) {
             // Force container components to be included in review
@@ -1803,6 +1793,7 @@ export default class ReviewButton extends FieldComponent {
 
                 // Also make sure child components are included
                 comp.components.forEach(childComp => {
+
                   const childKey = childComp.key || childComp.path || 'child';
                   const childPath = `${panelPath}.${childKey}`;
                   labelByPathMap.set(childPath, childComp.component?.label || childComp.key);
@@ -1869,12 +1860,9 @@ export default class ReviewButton extends FieldComponent {
       // Build readable HTML tree using labels
       function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, rootInstance) {
         // Specifically check for well components in leaves
-        const wellTableComponents = leaves.filter(l =>
-          l.comp?.component?.type === 'well' ||
-          l.comp?.type === 'well' ||
-          l.comp?.component?.type === 'table' ||
-          l.comp?.type === 'table'
-        );
+        // if (v.__comp?._visible == false || v.__comp?.component.reviewVisible == false) {
+        //   return '';
+        // }
 
         // Sort leaves based on their original position in form.components
         const sortedLeaves = [...leaves].sort((a, b) => {
@@ -2426,9 +2414,13 @@ export default class ReviewButton extends FieldComponent {
             return (a[1]?.__formIndex ?? -1) - (b[1]?.__formIndex ?? -1);
           });
 
+          console.log("sorted entries", sortedEntries)
           return sortedEntries.map(([k, v]) => {
             // For DataMap containers, flatten all __children from __rows into v.__children
-            
+            if (v.__comp?._visible == false || v.__comp?.component.reviewVisible == false) {
+              return '';
+            }
+
             if (v.__comp?.parent?.type === 'datamap') {
               // Merge all __children from each row into v.__children
               if (v?.__rows) {
@@ -2811,8 +2803,19 @@ export default class ReviewButton extends FieldComponent {
         notesRequiredWrapper.style.display = value === "Not Verified" ? "block" : "none";
       };
 
-      modal.querySelector("#cancelModal").onclick = () => {
+      modal.querySelector("#cancelModal").onclick = async () => {
         hideScreenshot();
+
+        // Rerun validation after modal close
+        try {
+          await this.validateFormExternal({
+            showErrors: true,
+            scrollToError: true
+          });
+        } catch (validationError) {
+          console.error("Error during validation rerun after cancel:", validationError);
+        }
+
         document.body.removeChild(modal);
         this.root.off("submitError", onSubmitError);
       };
