@@ -4,13 +4,21 @@ import editForm from "./ReviewButton.form";
 const FieldComponent = Components.components.field;
 
 /**
- * Helper function to check if a component type is a container type
- * @param {string} t - The component type to check
- * @returns {boolean} True if the component is a container type
+ * Helper function to check if a component type is a container type. This is why I like Javascript.
+ * @param {string|string[]} t - The component type(s) to check - can be a single string or array of strings
+ * @returns {boolean} True if any of the component types is a container type
  */
-const isContainerType = (t) => ['panel', 'container', 'columns', 'well', 
-                                'dataMap', 'fieldset', 'table', 'tabs', 
-                                'row', 'column'].includes(t);
+const isContainerType = (t) => {
+  const containerTypes = ['panel', 'container', 'columns', 'well', 
+                         'dataMap', 'fieldset', 'table', 'tabs', 
+                         'row', 'column'];
+  
+  if (Array.isArray(t)) {
+    return t.some(type => type && containerTypes.includes(type));
+  }
+  
+  return containerTypes.includes(t);
+};
 
 /**
  * ReviewButton Component for Form.io
@@ -2511,8 +2519,8 @@ export default class ReviewButton extends FieldComponent {
               const hasRows = v.__rows && Object.keys(v.__rows).length;
               // Check if this is any container component type that should be handled recursively
               const isContainerComponent = 
-                isContainerType(v.__comp?.component?.type) || isContainerType(v.__comp?.type) ||
-                isContainerType(v.__value?._type) || Array.isArray(v.__value?._row);
+                  isContainerType([v.__comp?.component?.type, v.__comp?.type, v.__value?._type]) || 
+                  Array.isArray(v.__value?._row);
 
               const displayLabel = v.__suppress ? '' : (v.__label || (k === 'form' ? '' : k));
               const header = displayLabel ? `<div style="${pad}"><strong>${displayLabel}:</strong>` : `<div style="${pad}">`;
