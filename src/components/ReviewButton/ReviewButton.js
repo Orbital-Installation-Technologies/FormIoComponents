@@ -8,7 +8,9 @@ const FieldComponent = Components.components.field;
  * @param {string} t - The component type to check
  * @returns {boolean} True if the component is a container type
  */
-const isContainerType = (t) => ['panel', 'container', 'columns', 'well', 'dataMap', 'fieldset', 'table', 'tabs'].includes(t);
+const isContainerType = (t) => ['panel', 'container', 'columns', 'well', 
+                                'dataMap', 'fieldset', 'table', 'tabs', 
+                                'row', 'column'].includes(t);
 
 /**
  * ReviewButton Component for Form.io
@@ -2507,34 +2509,16 @@ export default class ReviewButton extends FieldComponent {
             if (v && typeof v === 'object') {
               const hasChildren = v.__children && Object.keys(v.__children).length;
               const hasRows = v.__rows && Object.keys(v.__rows).length;
-              const isPanelComponent = v.__comp?.component?.type === 'panel' ||
-                v.__comp?.type === 'panel' ||
-                v.__comp?.component?.type === 'well' ||
-                v.__comp?.type === 'well';
-              
-              // Check if this is any container component type that should be handled recursively  
-              const isContainerComponent = v.__comp?.component?.type && 
-                isContainerType(v.__comp.component.type) ||
-                v.__comp?.type && isContainerType(v.__comp.type);
-
+              // Check if this is any container component type that should be handled recursively
+              const isContainerComponent = 
+                isContainerType(v.__comp?.component?.type) || isContainerType(v.__comp?.type) ||
+                isContainerType(v.__value?._type) || Array.isArray(v.__value?._row);
 
               const displayLabel = v.__suppress ? '' : (v.__label || (k === 'form' ? '' : k));
               const header = displayLabel ? `<div style="${pad}"><strong>${displayLabel}:</strong>` : `<div style="${pad}">`;
 
-              // Check explicitly for well components
-              const isWellComponent = v.__comp?.component?.type === 'well' || v.__comp?.type === 'well';
-
-              // Check if this node has a custom component structure
-              const hasCustomStructure = v.__value &&
-                (v.__value._type === 'panel' ||
-                  v.__value._type === 'well' ||
-                  v.__value._type === 'container' ||
-                  v.__value._type === 'fieldset' ||
-                  v.__value._type === 'columns' ||
-                  (v.__value._row && Array.isArray(v.__value._row)));
-
               // Special handling for all container components (panel, well, columns, fieldset, etc.)
-              if (isPanelComponent || isWellComponent || isContainerComponent || hasCustomStructure) {
+              if (isContainerComponent) {
                 // Get all direct child components to display under this panel
                 let panelChildrenHtml = '';
 
@@ -2731,13 +2715,6 @@ export default class ReviewButton extends FieldComponent {
             return '';
           }).join('');
         };
-
-        // tiny spacer to keep "Column X" label on its own line before fields
-        function innerSpacer() { return `<span style="display:block;height:2px;"></span>`; }
-
-        // Log the structured tree for debugging
-
-
         return renderNode(root, 0);
       }
 
