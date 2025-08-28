@@ -1111,7 +1111,7 @@ export default class ReviewButton extends FieldComponent {
 
             tableRows.push({ _row: rowData });
           });
-
+  
           return {
             _label: label,
             _key: key,
@@ -1121,7 +1121,11 @@ export default class ReviewButton extends FieldComponent {
         } else if (['panel', 'container', 'well', 'fieldset', 'columns', 'tabs', 'table'].includes(componentType)) {
           // Handle panel, container, well and similar container components
           const children = component.components || [];
-          const containerItems = children.map(child => {
+          const containerItems = children.filter(child => {
+            // Only include children that have reviewVisible explicitly set to true
+            return child.component?.reviewVisible || child?.component.validate.required;
+          }) 
+          .map(child => {
             const childKey = child.key || child.path || '';
             const childValue = child.dataValue || (data[childKey] || '');
             return {
@@ -1260,7 +1264,7 @@ export default class ReviewButton extends FieldComponent {
 
           console.log("comp", comp);
 
-           if (comp?._visible == false || comp?.component.reviewVisible == false) continue;
+           if (comp?._visible == false || (!comp?.component.reviewVisible && !comp?.component.validate.required)) continue;
 
           if (isContainerType(comp.component?.type) && Array.isArray(comp.rows) && comp.rows.length) {
 
@@ -1711,7 +1715,7 @@ export default class ReviewButton extends FieldComponent {
             !isContentComponent &&
             !isGridChild &&
             comp.visible !== false &&
-            (comp.component?.reviewVisible === true || isTagpadComponent || isFormComponent || isPanelComponent || isContainerComponent)
+            (comp.component?.reviewVisible === true || comp?.component.validate.required || isTagpadComponent || isFormComponent || isPanelComponent || isContainerComponent)
           ) {
             // For form or panel components, ensure we include them and their data
             let componentValue;
@@ -2417,7 +2421,7 @@ export default class ReviewButton extends FieldComponent {
           console.log("sorted entries", sortedEntries)
           return sortedEntries.map(([k, v]) => {
             // For DataMap containers, flatten all __children from __rows into v.__children
-            if (v.__comp?._visible == false || v.__comp?.component.reviewVisible == false) {
+            if (v.__comp?._visible == false || v.__comp?.component.reviewVisible == false && !v.__comp?.component.validate.required) {
               return '';
             }
 
