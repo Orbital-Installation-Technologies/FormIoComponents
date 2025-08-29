@@ -1781,7 +1781,8 @@ export default class ReviewButton extends FieldComponent {
               return finalTable;
             };
             const customTable = customTableForReview(comp, comp.data || {});
-            let tableHtml = `<table style="width:100%;border-collapse:collapse;margin-bottom:8px;">`;
+            let tableHtml = '';
+            tableHtml += `<table style="width:100%;border-collapse:collapse;margin-bottom:8px;">`;
             customTable._row.forEach(rowObj => {
               tableHtml += `<tr>`;
               if (Array.isArray(rowObj._row)) {
@@ -1811,17 +1812,17 @@ export default class ReviewButton extends FieldComponent {
 
 
           if (comp?.type === 'survey' || comp?.component?.type === 'survey') {
-            let surveyHTML = '<div style="padding-left: 10px;">';
+            let surveyHTML = '<div idx="7" style="padding-left: 10px;">';
             // Use pad and depth for consistent styling
             const padStyle = typeof pad !== 'undefined' ? pad : '';
             const depthLevel = typeof depth !== 'undefined' ? depth : 0;
             comp.component.questions.forEach((question, index) => {
               if (value[question.value]) {
-                surveyHTML += `<div style="${padStyle}margin-left:${(depthLevel + 1) * 15}px; padding-left: 10px; border-left:1px dotted #ccc;">
+                surveyHTML += `<div idx="8" style="${padStyle}padding-left: 10px; border-left:1px dotted #ccc;">
                                 <strong>${question.label}:</strong> ${String(comp.component?.values[index].label)}
                               </div>`;
               } else {
-                surveyHTML += `<div style="${padStyle}margin-left:${(depthLevel + 1) * 15}px; padding-left: 10px; border-left:1px dotted #ccc;">
+                surveyHTML += `<div idx="9" style="${padStyle}padding-left: 10px; border-left:1px dotted #ccc;">
                                 <strong>${question.label}:</strong>
                               </div>`;
               }
@@ -2059,7 +2060,8 @@ export default class ReviewButton extends FieldComponent {
         }
 
         const renderNode = (node, depth = 0) => {
-          const pad = `margin-left:${depth * 15}px; padding-left:10px; border-left:1px dotted #ccc;`;
+          let pad = `padding-left:10px; border-left:1px dotted #ccc;`;
+          
 
           const sortedEntries = Object.entries(node).sort((a, b) => {
             const aIsTagpad = a[1]?.__label === 'Tagpad' || a[1]?.__comp?.component?.type === 'tagpad';
@@ -2111,28 +2113,34 @@ export default class ReviewButton extends FieldComponent {
 
               if (isFormComponent) {
                 const formValue = v.__value || {};
-                let formContentHtml = '';
+                let formContentHtml = '<div idx="10" depth="${depth}" style="padding-left: 10px;">';
 
                 if (typeof formValue === 'object' && !Array.isArray(formValue)) {
-                  formContentHtml = Object.entries(formValue)
+                  const contentItems = Object.entries(formValue)
                     .filter(([fieldKey, fieldVal]) => fieldVal !== null && fieldVal !== undefined)
                     .map(([fieldKey, fieldVal]) => {
                       const displayVal = typeof fieldVal === 'object'
                         ? JSON.stringify(fieldVal)
                         : String(fieldVal);
-                      return `<div style="${pad}; margin-left:${(depth + 1) * 15}px;"><strong>${fieldKey}:</strong> ${displayVal}</div>`;
+                      return `<div idx="2" depth="${depth}" style="margin-left:10px; ${pad};"><strong>${fieldKey}:</strong> ${displayVal}</div>`;
                     })
                     .join('');
+                  formContentHtml += contentItems;
                 }
 
+                formContentHtml += '</div>';
+
                 return `
-                  <div style="${pad}"><strong>${v.__label || k}:</strong></div>
-                  ${formContentHtml || `<div style="${pad}; margin-left:${(depth + 1) * 15}px;">(No data)</div>`}
+                  <div idx="1" style="${pad}"><strong>${v.__label || k}:</strong></div>
+                  ${formContentHtml || `<div idx="3" style="padding-left: 10px;"><div idx="4" style="${pad};">(No data)</div></div>`}
                 `;
               } else if (isTagpadDot) {
-                return `<div style="${pad}"><strong>${v.__label || k}:</strong> ${val}</div>`;
+                return `<div idx="5" depth="${depth}" style="${pad}"><strong>${v.__label || k}:</strong> ${val}</div>`;
               } else {
-                return `<div style="${pad}"><strong>${v.__label || k}:</strong> ${val}</div>`;
+                if(depth >= 1) {
+                  pad += `margin-left: 10px;`;
+                }
+                return `<div idx="6" depth="${depth}" style="${pad}"><strong>${v.__label || k}:</strong> ${val}</div>`;
               }
             }
 
@@ -2144,7 +2152,10 @@ export default class ReviewButton extends FieldComponent {
                   Array.isArray(v.__value?._row);
 
               const displayLabel = v.__suppress ? '' : (v.__label || (k === 'form' ? '' : k));
-              const header = displayLabel ? `<div style="${pad}"><strong>${displayLabel}:</strong>` : `<div style="${pad}">`;
+              if(depth >= 1) {
+                pad += `margin-left: 10px;`;
+              }
+              const header = displayLabel ? `<div idx="11" depth="${depth}" style="${pad}"><strong>${displayLabel}:</strong>` : `<div idx="12" style="margin-left:10px; ${pad}">`;
 
               if (isContainerComponent) {
                 let panelChildrenHtml = '';
@@ -2191,13 +2202,13 @@ export default class ReviewButton extends FieldComponent {
                       if (item._children) {
                         const childLabel = item._children._label || '';
                         const childValue = item._children._value || '';
-                        return `<div style="${pad}margin-left:${(depth + 1) * 15}px;"><strong>${childLabel}:</strong> ${childValue}</div>`;
+                        return `<div idx="13" style="${pad}"><strong>${childLabel}:</strong> ${childValue}</div>`;
                       } else if (item._row && Array.isArray(item._row)) {
                         return item._row.map(cell => {
                           if (cell._children) {
                             const cellLabel = cell._children._label || '';
                             const cellValue = cell._children._value || '';
-                            return `<div style="${pad}margin-left:${(depth + 1) * 15}px;"><strong>${cellLabel}:</strong> ${cellValue}</div>`;
+                            return `<div idx="14" style="${pad}"><strong>${cellLabel}:</strong> ${cellValue}</div>`;
                           }
                           return '';
                         }).join('');
@@ -2207,9 +2218,9 @@ export default class ReviewButton extends FieldComponent {
                   }
 
                   return `
-                    <div style="margin-left:0px; padding-left:10px; border-left:1px dotted #ccc;">
+                    <div idx="15" style="padding-left:10px; margin-left:0px; border-left:1px dotted #ccc;">
                       <strong>${containerLabel}</strong>
-                      <div style="padding-left: 10px;">
+                      <div idx="16" style="padding-left: 10px;">
                         ${customChildrenHtml || panelChildrenHtml}
                       </div>
                     </div>
@@ -2219,13 +2230,13 @@ export default class ReviewButton extends FieldComponent {
                   const containerType = componentType 
                     ? componentType.charAt(0).toUpperCase() + componentType.slice(1).replace(/([A-Z])/g, ' $1')
                     : 'Container';
-
+                  if(depth >= 1) {
+                    pad += `margin-left: 10px;`;
+                  }
                   return `
-                    <div style="margin-left:0px; padding-left:10px; border-left:1px dotted #ccc;">
+                    <div idx="17" style="${pad}">
                       <strong>${displayLabel || containerType}</strong>
-                      <div style="padding-left: 10px;">
-                        ${panelChildrenHtml}
-                      </div>
+                      ${panelChildrenHtml}
                     </div>
                   `;
                 }
@@ -2244,17 +2255,19 @@ export default class ReviewButton extends FieldComponent {
                 const labelByKey = new Map(
                   (v.__colKeys || []).map((cKey, i) => [cKey, (v.__colLabels || [])[i] || cKey])
                 ); const rowIdxs = Object.keys(v.__rows).map(n => Number(n)).sort((a, b) => a - b);
-                const rowsHtml = rowIdxs.map((rowIdx) => {
+                let rowsHtml = '';
+                const rowsItems = rowIdxs.map((rowIdx) => {
                   const row = v.__rows[rowIdx];
                   const haveMultiCols = orderedKeys.length > 1;
 
-                  const padRow = `margin-left:${(depth + 1) * 15}px; padding-left:10px; border-left:1px dotted #ccc;`;
-                  const padCol = `margin-left:${(depth + 2) * 15}px; padding-left:10px; border-left:1px dotted #ccc;`;
+                  const padRow = `padding-left:10px; border-left:1px dotted #ccc;`;
+                  const padCol = `padding-left:10px; border-left:1px dotted #ccc;`;
 
                   if (haveMultiCols) {
                     const processedInThisRow = new Set();
 
-                    const colsHtml = orderedKeys.map((colKey, colIdx) => {
+                    let colsHtml = '<div idx="19" style="padding-left: 10px;">';
+                    const colsItems = orderedKeys.map((colKey, colIdx) => {
                       if (processedInThisRow.has(colKey)) {
                         return '';
                       }
@@ -2265,21 +2278,24 @@ export default class ReviewButton extends FieldComponent {
 
                       if (cell.__leaf) {
                         const val = firstLeafVal(cell);
-                        cellContent = `<div style="${padCol}"><strong>${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${val}</div>`;
+                        cellContent = `<div idx="20" style="${padCol}"><strong>${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${val}</div>`;
                       }
                       return `${cellContent}`;
                     }).filter(html => html.length > 0).join('');
+                    colsHtml += colsItems;
+                    colsHtml += '</div>';
 
-                    return `<li style="margin-left:0 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;', '')}">Row ${rowIdx + 1}:${colsHtml}</li>`;
+                    return `<li style="margin-left:15 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;', '')}">Row ${rowIdx + 1}:${colsHtml}</li>`;
                   } else {
                     const onlyKey = orderedKeys[0];
                     const cell = row.__children[onlyKey];
                     const inner = cell?.__leaf
-                      ? `<div style="${padRow}"><strong>${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong> ${firstLeafVal(cell)}</div>`
+                      ? `<div idx="21" style="${padRow}"><strong>${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong> ${firstLeafVal(cell)}</div>`
                       : renderNode(cell?.__children || {}, depth + 1);
                     return `<li style="margin-left:0 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;', '')}">Row ${rowIdx + 1}:${inner}</li>`;
                   }
                 }).join('');
+                rowsHtml += rowsItems;
 
                 return `${header}<ul style="list-style-type:circle; padding-left:30px; margin:0;">${rowsHtml}</ul></div>`;
               }
@@ -2332,7 +2348,7 @@ export default class ReviewButton extends FieldComponent {
       modal.innerHTML = `
         <div class="bg-white p-6 rounded shadow-md w-full max-w-2xl max-h-[90vh] overflow-y-auto">
           <h2 class="text-xl font-semibold mb-4">Review Form Data</h2>
-          <div class="mb-4 text-sm" style="max-height:200px; overflow-y:auto; border:1px solid #ccc; padding:8px;">
+          <div idx="22" class="mb-4 text-sm" style="max-height:200px; overflow-y:auto; border:1px solid #ccc; padding:8px;">
             ${reviewHtml}
           </div>
           <div class="flex space-x-4 mb-4">
@@ -2350,15 +2366,15 @@ export default class ReviewButton extends FieldComponent {
               </select>
             </div>
           </div>
-          <div class="mb-4 text-sm w-full" id="screenshotWrapper" style="display: none;">
+          <div idx="23" class="mb-4 text-sm w-full" id="screenshotWrapper" style="display: none;">
             <label for="screenshotContainer">Screenshot Upload<span class="text-red-500">(Required)*</label>
             <div id="screenshotContainer"></div>
           </div>
-          <div class="mb-4 text-sm w-full" id="notesOptionalWrapper" style="display: none;">
+          <div idx="24" class="mb-4 text-sm w-full" id="notesOptionalWrapper" style="display: none;">
             <label class="block font-medium mb-1">Notes (optional)</label>
             <textarea id="notesOptional" class="w-full border rounded p-2 text-sm"></textarea>
           </div>
-          <div class="mb-4 text-sm w-full" id="notesRequiredWrapper" style="display: none;">
+          <div idx="25" class="mb-4 text-sm w-full" id="notesRequiredWrapper" style="display: none;">
             <label class="block font-medium mb-1">Explain why not verified<span class="text-red-500">(Required)*</span></label>
             <textarea id="notesRequired" class="w-full border rounded p-2 text-sm"></textarea>
           </div>
