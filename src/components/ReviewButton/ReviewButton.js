@@ -11,8 +11,8 @@ const FieldComponent = Components.components.field;
  */
 const isContainerType = (t, exclude = []) => {
   const containerTypes = ['panel', 'container', 'columns', 'well', 
-                         'dataMap', 'fieldset', 'table', 'tabs', 
-                         'row', 'column', 'content', 'htmlelement', 'dataMap'];
+                         'fieldset', 'datamap', 'editgrid', 'table', 'tabs', 
+                         'row', 'column', 'content', 'htmlelement',];
   
   const allowedTypes = containerTypes.filter(type => !exclude.includes(type));
   
@@ -996,7 +996,7 @@ export default class ReviewButton extends FieldComponent {
               if (!colKey || rowDone.has(colKey)) return;
 
               const val = typeof rowObj === 'object' ? rowObj[colKey] : '';
-
+              console.log("colKey", colKey, "colLabel", colLabel, "val", val)
               rowData.push({
                 _children: {
                   _label: colLabel,
@@ -1012,7 +1012,7 @@ export default class ReviewButton extends FieldComponent {
 
             tableRows.push({ _row: rowData });
           });
-  
+          console.log("label3", label, "key", key, "componentType", componentType, "tableRows", tableRows)
           return {
             _label: label,
             _key: key,
@@ -1027,6 +1027,7 @@ export default class ReviewButton extends FieldComponent {
           .map(child => {
             const childKey = child.key || child.path || '';
             const childValue = child.dataValue || (data[childKey] || '');
+            console.log("childKey", childKey, "childValue", childValue)
             return {
               _children: {
                 _label: child.label || child.key || 'Unnamed',
@@ -1037,7 +1038,7 @@ export default class ReviewButton extends FieldComponent {
               }
             };
           });
-
+          console.log("label2", label, "key", key, "componentType", componentType, "tableRows", tableRows)
           return {
             _label: label,
             _key: key,
@@ -1045,7 +1046,7 @@ export default class ReviewButton extends FieldComponent {
             _row: containerItems
           };
         }
-
+        console.log("label1", label, "key", key, "componentType", componentType, "tableRows", tableRows)
         return {
           _label: label,
           _key: key,
@@ -1153,9 +1154,7 @@ export default class ReviewButton extends FieldComponent {
           const comp = queue.shift();
           if (!comp) continue;
 
-
-
-           if (comp?._visible == false || (!comp?.component.reviewVisible && !comp?.component.validate.required)) continue;
+          if (comp?._visible == false || (!comp?.component.reviewVisible && !comp?.component.validate.required)) continue;
 
           if (isContainerType(comp.component?.type) && Array.isArray(comp.rows) && comp.rows.length) {
 
@@ -1171,8 +1170,9 @@ export default class ReviewButton extends FieldComponent {
               // Get key and value
               const key = keyComp ? (keyComp.getValue ? keyComp.getValue() : keyComp.dataValue) : '';
               const value = valueComp ? (valueComp.getValue ? valueComp.getValue() : valueComp.dataValue) : '';
-
+              console.log("key", key, "value", value)
               // Push key leaf
+              if(!key) return;
               pushLeaf({
                 comp: keyComp,
                 path: `${dataMapPath}[${rIdx}].key`,
@@ -1230,10 +1230,11 @@ export default class ReviewButton extends FieldComponent {
             });
 
             const pushValueLeaf = (node, basePath) => {
+              console.log("node", node, "basePath", basePath)
               pushLeaf({
                 comp: node,
                 path: basePath,
-                label: node.component?.label || node.label || node.key || 'Value',
+                label: node.component?.label || node.label || node.key || 'Missing Value 1',
                 value: ('getValue' in node) ? node.getValue() : node.dataValue,
                 formIndex: topIndexFor(node)
               });
@@ -1245,7 +1246,7 @@ export default class ReviewButton extends FieldComponent {
               if (t === 'form' && node.subForm) {
                 node.subForm.__reviewPrefix = `${basePath}.`;
                 node.subForm.everyComponent?.((ch) => {
-                  const chPath = `${basePath}.${ch.path || ch.key || 'value'}`;
+                  const chPath = `${basePath}.${ch.path || ch.key || 'Missing Value 2'}`;
                   if (isContainerType(ch.component?.type || ch.type)) {
                     flattenCell(ch, chPath);
                   } else {
@@ -1267,7 +1268,7 @@ export default class ReviewButton extends FieldComponent {
 
               if (isContainerType(t) && Array.isArray(node.components)) {
                 node.components.forEach((ch) => {
-                  const chPath = `${basePath}.${ch.key || ch.path || 'value'}`;
+                  const chPath = `${basePath}.${ch.key || ch.path || 'Missing Value 3'}`;
                   flattenCell(ch, chPath);
                 });
                 return;
@@ -1291,6 +1292,7 @@ export default class ReviewButton extends FieldComponent {
                   const cLabel = columnLabels[i] || cKey;
                   if (!cKey || rowDone.has(cKey)) return;
                   const val = rowObj?.[cKey];
+                  console.log("cKey", cKey, "cLabel", cLabel, "val", val)
                   pushLeaf({
                     comp: comp,
                     path: `${gridPath}[${rIdx}].${cKey}`,
@@ -1325,9 +1327,9 @@ export default class ReviewButton extends FieldComponent {
             const gridPath = safePath(comp);
             labelByPathMap.set(gridPath, comp.component?.label || comp.key || 'Items');
             indexByPathMap.set(gridPath, topIndexFor(comp));
-
+            console.log("comp.editRows", comp.editRows)
             comp.editRows.forEach((r, rIdx) => (r.components || []).forEach((ch) => {
-              ch.__reviewPath = `${gridPath}[${rIdx}].${ch.key || 'value'}`;
+              ch.__reviewPath = `${gridPath}[${rIdx}].${ch.key || 'Missing Value 4'}`;
               queue.push(ch);
             }));
             continue;
@@ -1448,7 +1450,7 @@ export default class ReviewButton extends FieldComponent {
 
           const parent = comp?.parent;
           const parentType = parent?.component?.type;
-          const parentsToBeHandled = ['datatable', 'datagrid', 'editgrid', 'tagpad', 'dataMap', 
+          const parentsToBeHandled = ['datatable', 'datagrid', 'editgrid', 'tagpad', 'datamap', 
                                       'panel', 'well', 'table', 'tabs', 'fieldset', 'columns'];
           const parentIsHandled = parentsToBeHandled.includes(parentType);
 
@@ -2020,9 +2022,13 @@ export default class ReviewButton extends FieldComponent {
                     __colLabels: null
                   };
                 } else {
+                  let labelData = label || key
+                  if(comp?.parent?.type === 'datamap') {
+                    labelData = key;
+                  }
                   ptr[key] = {
                     __leaf: true,
-                    __label: label || key,
+                    __label: labelData,
                     __value: value,
                     __comp: comp,
                     __formIndex: formIndex
@@ -2037,16 +2043,21 @@ export default class ReviewButton extends FieldComponent {
                 });
                 ptr = node.__children;
               }
-              if (comp?.component?.type === 'dataMap' || comp?.type === 'dataMap') {
-                ptr[key].__comp = comp;
-                if (ptr[key].__children && typeof ptr[key].__children === 'object') {
-                  Object.keys(ptr[key].__children).forEach(childKey => {
-                    if (ptr[key].__children[childKey] && !ptr[key].__children[childKey].__comp) {
-                      ptr[key].__children[childKey].__comp = comp;
-                    }
-                  });
+              if ((comp?.component?.type === 'datamap' || comp?.parent.type === 'datamap')) {
+                console.log("comp1", comp) 
+                if(ptr && ptr[key] && ptr[key].__comp) {
+                  ptr[key].__comp = comp;
+                  if (ptr[key].__children && typeof ptr[key].__children === 'object') {
+                    Object.keys(ptr[key].__children).forEach(childKey => {
+                      if (ptr[key].__children[childKey] && !ptr[key].__children[childKey].__comp) {
+                        ptr[key].__children[childKey].__comp = comp;
+                      }
+                    });
+                  }
+                  console.log("ptr[key]", ptr[key])
                 }
               }
+                
             } catch (error) {
               console.error('Error processing path segment:', {
                 segment: seg,
@@ -2077,24 +2088,27 @@ export default class ReviewButton extends FieldComponent {
             return (a[1]?.__formIndex ?? -1) - (b[1]?.__formIndex ?? -1);
           });
 
-
-          return sortedEntries.map(([k, v]) => {
+          console.log("sortedEntries", sortedEntries)
+          return sortedEntries.map(([k, v], index) => {
             if (v.__comp?._visible == false || v.__comp?.type === 'datasource' ||
                (v.__comp?.component.reviewVisible == false && !v.__comp?.component.validate.required)) {
               return '';
             }
 
             if (v.__comp?.parent?.type === 'datamap') {
-              if (v?.__rows) {
+              if (index === 0) {
+                delete v.__comp;
+              } else if (v?.__rows) {
                 v.__children = {};
                 Object.values(v.__rows).forEach(row => {
                   if (row?.__children) {
                     Object.entries(row.__children).forEach(([childKey, childVal]) => {
-                      v.__children[childVal.__label] = childVal;
+                      v.__children[childVal.__label] = childKey;
                     });
                   }
                 });
                 v.__rows = {};
+                console.log("v.__children", v)
               }
             }
 
