@@ -10,7 +10,7 @@ const FieldComponent = Components.components.field;
  * @returns {boolean} True if any of the component types is a container type (and not excluded)
  */
 const isContainerType = (t, exclude = []) => {
-  const containerTypes = ['panel', 'container', 'columns', 'well', 
+  const containerTypes = ['panel', 'columns', 'well', 
                          'fieldset', 'datamap', 'editgrid', 'table', 'tabs', 
                          'row', 'column', 'content', 'htmlelement',];
   
@@ -1210,6 +1210,7 @@ export default class ReviewButton extends FieldComponent {
         const processedPaths = new Set();
 
         const enqueueAll = (f) => {
+          console.log("enqueueAll", f)
           if (!f || !f.everyComponent) {
             return;
           }
@@ -1232,8 +1233,17 @@ export default class ReviewButton extends FieldComponent {
         while (queue.length) {
           const comp = queue.shift();
           if (!comp) continue;
+          console.log("comp", comp)
 
-          if (comp?._visible == false || (!comp?.component.reviewVisible && !comp?.component.validate.required)) continue;
+          // Check if this is an Address component
+          const isAddressComponentEarly = comp.component?.type === 'address' || comp.type === 'address';
+
+          // Debug logging for Address components
+          if (isAddressComponentEarly) {
+            console.log('Processing Address component:', comp.key, comp.component?.label, 'visible:', comp.visible, '_visible:', comp._visible, 'reviewVisible:', comp.component?.reviewVisible, 'required:', comp.component?.validate?.required);
+          }
+
+          if (comp?._visible == false || ((!comp?.component.reviewVisible && !comp?.component.validate.required) && !isAddressComponentEarly)) continue;
 
           if (isContainerType(comp.component?.type) && Array.isArray(comp.rows) && comp.rows.length) {
 
@@ -1598,12 +1608,20 @@ export default class ReviewButton extends FieldComponent {
             }
           }
 
+          // Check if this is an Address component
+          const isAddressComponentMain = comp.component?.type === 'address' || comp.type === 'address';
+
+          // Debug logging for Address components in main filter
+          if (isAddressComponentMain) {
+            console.log('Address component in main filter:', comp.key, 'parentIsHandled:', parentIsHandled, 'isContentComponent:', isContentComponent, 'isGridChild:', isGridChild, 'visible:', comp.visible);
+          }
+
           if (
             !parentIsHandled &&
             !isContentComponent &&
             !isGridChild &&
             comp.visible !== false &&
-            (comp.component?.reviewVisible === true || comp?.component.validate.required || isTagpadComponent || isFormComponent || isPanelComponent || isContainerComponent)
+            (comp.component?.reviewVisible === true || comp?.component.validate.required || isTagpadComponent || isFormComponent || isPanelComponent || isContainerComponent || isAddressComponentMain)
           ) {
             let componentValue;
             if (isFormComponent) {
@@ -1613,6 +1631,13 @@ export default class ReviewButton extends FieldComponent {
               componentValue = customStructure;
             } else {
               componentValue = ('getValue' in comp) ? comp.getValue() : comp.dataValue;
+            }
+
+
+            // Debug logging when adding Address component to leaves
+            if (isAddressComponentMain) {
+              componentValue = comp.dataValue?.formattedPlace || "";
+              console.log('Adding Address component to leaves:', comp.key, 'path:', comp.__reviewPath || safePath(comp) || comp.key, 'value:', componentValue);
             }
 
             pushLeaf({
@@ -1890,7 +1915,7 @@ export default class ReviewButton extends FieldComponent {
             return tableHtml;
           }
 
-
+          if(comp?._type === 'container') console.log("test container", value, comp)
 
           if (comp?.type === 'survey' || comp?.component?.type === 'survey') {
             let surveyHTML = '<div idx="7" style="padding-left: 10px;">';
@@ -1914,6 +1939,7 @@ export default class ReviewButton extends FieldComponent {
 
           if (value && value._type && (value._type === 'panel' || value._type === 'well' ||
             value._type === 'container' || value._type === 'fieldset' || value._type === 'columns')) {
+            
             return `(${value._type} data)`;
           }
           if (value && value._label && typeof value._row === 'object') {
@@ -2169,8 +2195,16 @@ export default class ReviewButton extends FieldComponent {
 
           console.log("sortedEntries", sortedEntries)
           return sortedEntries.map(([k, v], index) => {
+            // Check if this is an Address component for rendering
+            const isAddressComponentRender = v.__comp?.component?.type === 'address' || v.__comp?.type === 'address';
+
+            // Debug logging for Address components in rendering
+            if (isAddressComponentRender) {
+              console.log('Rendering Address component:', k, 'visible:', v.__comp?._visible, 'reviewVisible:', v.__comp?.component.reviewVisible, 'required:', v.__comp?.component.validate?.required);
+            }
+
             if (v.__comp?._visible == false || v.__comp?.type === 'datasource' ||
-               (v.__comp?.component.reviewVisible == false && !v.__comp?.component.validate.required)) {
+               (v.__comp?.component.reviewVisible == false && !v.__comp?.component.validate.required && !isAddressComponentRender)) {
               return '';
             }
 
