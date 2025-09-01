@@ -27,6 +27,85 @@ const isContainerType = (t, exclude = []) => {
  * ReviewButton Component for Form.io
  * Handles form validation and submission review functionality
  */
+/**
+ * Finds a component by key within the component tree
+ * @param {Object} root - Root component to search from
+ * @param {string} targetKey - Key of the component to find
+ * @param {string} currentPath - Current path for recursion (internal use)
+ * @returns {Object|null} - Found component or null if not found
+ */
+function findComponentByKey(root, targetKey, currentPath = '') {
+  if (!root || !targetKey) return null;
+
+  // Check if current component matches the key
+  const currentKey = root.key || root.component?.key;
+  if (currentKey === targetKey) {
+    return {
+      component: root,
+      path: currentPath,
+      parent: null // Could be enhanced to track parent
+    };
+  }
+
+  // Search in components array (for containers)
+  if (Array.isArray(root.components)) {
+    for (let i = 0; i < root.components.length; i++) {
+      const child = root.components[i];
+      if (child) {
+        const childPath = currentPath ? `${currentPath}.${child.key || child.component?.key || i}` : (child.key || child.component?.key || i);
+        const found = findComponentByKey(child, targetKey, childPath);
+        if (found) {
+          return found;
+        }
+      }
+    }
+  }
+
+  // Search in subForm (for form components)
+  if (root.subForm && typeof root.subForm === 'object') {
+    const subFormPath = currentPath ? `${currentPath}.subForm` : 'subForm';
+    const found = findComponentByKey(root.subForm, targetKey, subFormPath);
+    if (found) {
+      return found;
+    }
+  }
+
+  // Search in editRows (for editgrid components)
+  if (Array.isArray(root.editRows)) {
+    for (let i = 0; i < root.editRows.length; i++) {
+      const row = root.editRows[i];
+      if (row && Array.isArray(row.components)) {
+        for (let j = 0; j < row.components.length; j++) {
+          const child = row.components[j];
+          if (child) {
+            const rowPath = currentPath ? `${currentPath}[${i}].${child.key || child.component?.key || j}` : `[${i}].${child.key || child.component?.key || j}`;
+            const found = findComponentByKey(child, targetKey, rowPath);
+            if (found) {
+              return found;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Search in editForms (for tagpad components)
+  if (Array.isArray(root.editForms)) {
+    for (let i = 0; i < root.editForms.length; i++) {
+      const form = root.editForms[i];
+      if (form) {
+        const formPath = currentPath ? `${currentPath}[${i}]` : `[${i}]`;
+        const found = findComponentByKey(form, targetKey, formPath);
+        if (found) {
+          return found;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 export default class ReviewButton extends FieldComponent {
   static editForm = editForm;
 
@@ -1288,7 +1367,7 @@ export default class ReviewButton extends FieldComponent {
                 if (!processedFields.has(rIdx)) processedFields.set(rIdx, new Set());
                 const rowDone = processedFields.get(rIdx);
                 colDefs.forEach((c, i) => {
-                  const cKey = c.key || c.component?.key;
+                  const cKey = c.key || c.component?.key || c.path;
                   const cLabel = columnLabels[i] || cKey;
                   if (!cKey || rowDone.has(cKey)) return;
                   const val = rowObj?.[cKey];
@@ -2070,7 +2149,7 @@ export default class ReviewButton extends FieldComponent {
           }
         }
 
-        const renderNode = (node, depth = 0) => {
+        const renderNode = (node, depth = 0, rootInstance = null) => {
           let pad = `padding-left:10px; border-left:1px dotted #ccc;`;
           
 
@@ -2113,7 +2192,7 @@ export default class ReviewButton extends FieldComponent {
             }
 
             if (/^\d+\]$/.test(k) || v?.__comp == undefined) {
-              return v && typeof v === 'object' ? renderNode(v.__children || {}, depth) : '';
+              return v && typeof v === 'object' ? renderNode(v.__children || {}, depth, rootInstance) : '';
             }
 
             if (v && v.__leaf) {
@@ -2130,6 +2209,7 @@ export default class ReviewButton extends FieldComponent {
                 let formContentHtml = '<div idx="10" depth="${depth}" style="padding-left: 10px;">';
 
                 if (typeof formValue === 'object' && !Array.isArray(formValue)) {
+                  
                   const contentItems = Object.entries(formValue)
                     .filter(([fieldKey, fieldVal]) => fieldVal !== null && fieldVal !== undefined)
                     .map(([fieldKey, fieldVal]) => {
@@ -2159,23 +2239,36 @@ export default class ReviewButton extends FieldComponent {
             }
 
             if (v && typeof v === 'object') {
+              if(!v.__label){
+                // Try to find the component by key to get its proper label
+                const foundComponent = findComponentByKey(rootInstance, k);
+                if (foundComponent) {
+                  v.__label = foundComponent.component.component?.label || foundComponent.component.label || k;
+                  console.log("Found component by key:", k, foundComponent);
+                } else {
+                  v.__label = k; // Fallback to key if not found
+                }
+              }
+
               const hasChildren = v.__children && Object.keys(v.__children).length;
               const hasRows = v.__rows && Object.keys(v.__rows).length;
               const isContainerComponent = 
                   isContainerType([v.__comp?.component?.type, v.__comp?.type, v.__value?._type]) || 
                   Array.isArray(v.__value?._row);
 
-              const displayLabel = v.__suppress ? '' : (v.__label || (k === 'form' ? '' : k));
+              const displayLabel = v.__suppress ? '' : (v.__label || (k === 'form' ? '' : k + " - missing __label") );
               if(depth >= 1) {
                 pad += `margin-left: 10px;`;
               }
+              
+              
               const header = displayLabel ? `<div idx="11" depth="${depth}" style="${pad}"><strong>${displayLabel}:</strong>` : `<div idx="12" style="margin-left:10px; ${pad}">`;
 
               if (isContainerComponent) {
                 let panelChildrenHtml = '';
 
                 if (hasChildren) {
-                  panelChildrenHtml = renderNode(v.__children, depth + 1);
+                  panelChildrenHtml = renderNode(v.__children, depth + 1, rootInstance);
                 }
                 else if (v.__comp && Array.isArray(v.__comp.components) && v.__comp.components.length > 0) {
                   const artificialChildren = {};
@@ -2202,7 +2295,7 @@ export default class ReviewButton extends FieldComponent {
                     }
                   });
                   
-                  panelChildrenHtml = renderNode(artificialChildren, depth + 1);
+                  panelChildrenHtml = renderNode(artificialChildren, depth + 1, rootInstance);
                 }
 
                 const customStructure = v.__value && v.__value._type && v.__value._row;
@@ -2305,7 +2398,7 @@ export default class ReviewButton extends FieldComponent {
                     const cell = row.__children[onlyKey];
                     const inner = cell?.__leaf
                       ? `<div idx="21" style="${padRow}"><strong>${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong> ${firstLeafVal(cell)}</div>`
-                      : renderNode(cell?.__children || {}, depth + 1);
+                      : renderNode(cell?.__children || {}, depth + 1, rootInstance);
                     return `<li style="margin-left:0 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;', '')}">Row ${rowIdx + 1}:${inner}</li>`;
                   }
                 }).join('');
@@ -2325,7 +2418,7 @@ export default class ReviewButton extends FieldComponent {
 
                     const hasChildren = r.__children && Object.keys(r.__children).length > 0;
                     const content = hasChildren
-                      ? renderNode(r.__children, depth + 1)
+                      ? renderNode(r.__children, depth + 1, rootInstance)
                       : ``;
 
                     const rowClass = isTagpad ? 'tagpad-row' : 'data-row';
@@ -2333,14 +2426,14 @@ export default class ReviewButton extends FieldComponent {
                     return `<li class="${rowClass}" style="margin-left:0 !important; padding-left: 0 !important;">${rowLabel}:${content}</li>`;
                   }).join('')
                   }</ul>` : '',
-                hasChildren ? renderNode(v.__children, depth + 1) : ''
+                hasChildren ? renderNode(v.__children, depth + 1, rootInstance) : ''
               ].join('');
               return `${header}${childrenHtml}</div>`;
             }
             return '';
           }).join('');
         };
-        return renderNode(root, 0);
+        return renderNode(root, 0, rootInstance);
       }
 
 
