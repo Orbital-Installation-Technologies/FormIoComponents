@@ -1724,7 +1724,7 @@ export default class ReviewButton extends FieldComponent {
         return { leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath };
       }
 
-      function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, rootInstance) {
+      function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, rootInstance, invalidFields = new Set()) {
 
         // Sort leaves based on their original position in form.components
         const sortedLeaves = [...leaves].sort((a, b) => {
@@ -1833,6 +1833,14 @@ export default class ReviewButton extends FieldComponent {
             node.__formIndex = indexByPath[containerPath];
           }
         }
+
+        function isFieldInvalid(comp, path) {
+          if (!invalidFields || invalidFields.size === 0) return false;
+          const fieldPath = path || comp?.path || comp?.key || comp?.component?.key;
+          return invalidFields.has(fieldPath);
+        }
+
+        const getInvalidStyle = (comp, path) => isFieldInvalid(comp, path) ? 'background-color:rgb(240, 96, 96); padding: 2px 4px; border-radius: 3px;' : '';
 
         function formatValue(value, comp) {
           if (value && value._type === 'table' && Array.isArray(comp.table)) {
@@ -2175,7 +2183,7 @@ export default class ReviewButton extends FieldComponent {
           }
         }
 
-        const renderNode = (node, depth = 0, rootInstance = null) => {
+        const renderNode = (node, depth = 0, rootInstance = null, invalidFields = new Set()) => {
           let pad = `padding-left:10px; border-left:1px dotted #ccc;`;
           
 
@@ -2226,7 +2234,7 @@ export default class ReviewButton extends FieldComponent {
             }
 
             if (/^\d+\]$/.test(k) || v?.__comp == undefined) {
-              return v && typeof v === 'object' ? renderNode(v.__children || {}, depth, rootInstance) : '';
+              return v && typeof v === 'object' ? renderNode(v.__children || {}, depth, rootInstance, invalidFields) : '';
             }
 
             if (v && v.__leaf) {
@@ -2250,7 +2258,8 @@ export default class ReviewButton extends FieldComponent {
                       const displayVal = typeof fieldVal === 'object'
                         ? JSON.stringify(fieldVal)
                         : String(fieldVal);
-                      return `<div idx="2" depth="${depth}" style="margin-left:10px; ${pad};"><strong>${fieldKey}:</strong> ${displayVal}</div>`;
+                      const fieldPath = `${k}.${fieldKey}`;
+                      return `<div idx="2" depth="${depth}" style="margin-left:10px; ${pad};"><strong style="${getInvalidStyle(v.__comp, fieldPath)}">${fieldKey}:</strong> ${displayVal}</div>`;
                     })
                     .join('');
                   formContentHtml += contentItems;
@@ -2259,16 +2268,16 @@ export default class ReviewButton extends FieldComponent {
                 formContentHtml += '</div>';
 
                 return `
-                  <div idx="1" style="${pad}"><strong>${v.__label || k}:</strong></div>
+                  <div idx="1" style="${pad}"><strong style="${getInvalidStyle(v.__comp, k)}">${v.__label || k}:</strong></div>
                   ${formContentHtml || `<div idx="3" style="padding-left: 10px;"><div idx="4" style="${pad};">(No data)</div></div>`}
                 `;
               } else if (isTagpadDot) {
-                return `<div idx="5" depth="${depth}" style="${pad}"><strong>${v.__label || k}:</strong> ${val}</div>`;
+                return `<div idx="5" depth="${depth}" style="${pad}"><strong style="${getInvalidStyle(v.__comp, k)}">${v.__label || k}:</strong> ${val}</div>`;
               } else {
                 if(depth >= 1) {
                   pad += `margin-left: 10px;`;
                 }
-                return `<div idx="6" depth="${depth}" style="${pad}"><strong>${v.__label || k}:</strong> ${val}</div>`;
+                return `<div idx="6" depth="${depth}" style="${pad}"><strong style="${getInvalidStyle(v.__comp, k)}">${v.__label || k}:</strong> ${val}</div>`;
               }
             }
 
@@ -2296,13 +2305,13 @@ export default class ReviewButton extends FieldComponent {
               }
               
               
-              const header = displayLabel ? `<div idx="11" depth="${depth}" style="${pad}"><strong>${displayLabel}:</strong>` : `<div idx="12" style="margin-left:10px; ${pad}">`;
+              const header = displayLabel ? `<div idx="11" depth="${depth}" style="${pad}"><strong style="${getInvalidStyle(v.__comp, k)}">${displayLabel}:</strong>` : `<div idx="12" style="margin-left:10px; ${pad}">`;
 
               if (isContainerComponent) {
                 let panelChildrenHtml = '';
 
                 if (hasChildren) {
-                  panelChildrenHtml = renderNode(v.__children, depth + 1, rootInstance);
+                  panelChildrenHtml = renderNode(v.__children, depth + 1, rootInstance, invalidFields);
                 }
                 else if (v.__comp && Array.isArray(v.__comp.components) && v.__comp.components.length > 0) {
                   const artificialChildren = {};
@@ -2329,7 +2338,7 @@ export default class ReviewButton extends FieldComponent {
                     }
                   });
                   
-                  panelChildrenHtml = renderNode(artificialChildren, depth + 1, rootInstance);
+                  panelChildrenHtml = renderNode(artificialChildren, depth + 1, rootInstance, invalidFields);
                 }
 
                 const customStructure = v.__value && v.__value._type && v.__value._row;
@@ -2343,13 +2352,15 @@ export default class ReviewButton extends FieldComponent {
                       if (item._children) {
                         const childLabel = item._children._label || '';
                         const childValue = item._children._value || '';
-                        return `<div idx="13" style="${pad}"><strong>${childLabel}:</strong> ${childValue}</div>`;
+                        const childPath = item._children._key || childLabel;
+                        return `<div idx="13" style="${pad}"><strong style="${getInvalidStyle(item._children, childPath)}">${childLabel}:</strong> ${childValue}</div>`;
                       } else if (item._row && Array.isArray(item._row)) {
                         return item._row.map(cell => {
                           if (cell._children) {
                             const cellLabel = cell._children._label || '';
                             const cellValue = cell._children._value || '';
-                            return `<div idx="14" style="${pad}"><strong>${cellLabel}:</strong> ${cellValue}</div>`;
+                            const cellPath = cell._children._key || cellLabel;
+                            return `<div idx="14" style="${pad}"><strong style="${getInvalidStyle(cell._children, cellPath)}">${cellLabel}:</strong> ${cellValue}</div>`;
                           }
                           return '';
                         }).join('');
@@ -2360,7 +2371,7 @@ export default class ReviewButton extends FieldComponent {
 
                   return `
                     <div idx="15" style="padding-left:10px; margin-left:0px; border-left:1px dotted #ccc;">
-                      <strong>${containerLabel}</strong>
+                      <strong style="${getInvalidStyle(v.__comp, k)}">${containerLabel}</strong>
                       <div idx="16" style="padding-left: 10px;">
                         ${customChildrenHtml || panelChildrenHtml}
                       </div>
@@ -2376,7 +2387,7 @@ export default class ReviewButton extends FieldComponent {
                   }
                   return `
                     <div idx="17" style="${pad}">
-                      <strong>${displayLabel || containerType}</strong>
+                      <strong style="${getInvalidStyle(v.__comp, k)}">${displayLabel || containerType}</strong>
                       ${panelChildrenHtml}
                     </div>
                   `;
@@ -2419,7 +2430,8 @@ export default class ReviewButton extends FieldComponent {
 
                       if (cell.__leaf) {
                         const val = firstLeafVal(cell);
-                        cellContent = `<div idx="20" style="${padCol}"><strong>${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${val}</div>`;
+                        const cellPath = `${k}.${colKey}`;
+                        cellContent = `<div idx="20" style="${padCol}"><strong style="${getInvalidStyle(cell.__comp, cellPath)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${val}</div>`;
                       }
                       return `${cellContent}`;
                     }).filter(html => html.length > 0).join('');
@@ -2431,8 +2443,8 @@ export default class ReviewButton extends FieldComponent {
                     const onlyKey = orderedKeys[0];
                     const cell = row.__children[onlyKey];
                     const inner = cell?.__leaf
-                      ? `<div idx="21" style="${padRow}"><strong>${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong> ${firstLeafVal(cell)}</div>`
-                      : renderNode(cell?.__children || {}, depth + 1, rootInstance);
+                      ? `<div idx="21" style="${padRow}"><strong style="${getInvalidStyle(cell.__comp, `${k}.${onlyKey}`)}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong> ${firstLeafVal(cell)}</div>`
+                      : renderNode(cell?.__children || {}, depth + 1, rootInstance, invalidFields);
                     return `<li style="margin-left:0 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;', '')}">Row ${rowIdx + 1}:${inner}</li>`;
                   }
                 }).join('');
@@ -2452,7 +2464,7 @@ export default class ReviewButton extends FieldComponent {
 
                     const hasChildren = r.__children && Object.keys(r.__children).length > 0;
                     const content = hasChildren
-                      ? renderNode(r.__children, depth + 1, rootInstance)
+                      ? renderNode(r.__children, depth + 1, rootInstance, invalidFields)
                       : ``;
 
                     const rowClass = isTagpad ? 'tagpad-row' : 'data-row';
@@ -2460,22 +2472,37 @@ export default class ReviewButton extends FieldComponent {
                     return `<li class="${rowClass}" style="margin-left:0 !important; padding-left: 0 !important;">${rowLabel}:${content}</li>`;
                   }).join('')
                   }</ul>` : '',
-                hasChildren ? renderNode(v.__children, depth + 1, rootInstance) : ''
+                hasChildren ? renderNode(v.__children, depth + 1, rootInstance, invalidFields) : ''
               ].join('');
               return `${header}${childrenHtml}</div>`;
             }
             return '';
           }).join('');
         };
-        return renderNode(root, 0, rootInstance);
+        return renderNode(root, 0, rootInstance, invalidFields);
       }
 
 
       const { leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath } =
         await collectReviewLeavesAndLabels(this.root);
 
-      // Pass this.root as a parameter to renderLeaves
-      const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, this.root);
+      // Collect invalid fields for highlighting
+      const invalidFields = new Set();
+      const validation = await this.validateFormExternal({
+        showErrors: false, // Don't show errors yet, just collect them
+        scrollToError: false
+      });
+      if (validation && validation.invalidComponents) {
+        validation.invalidComponents.forEach(invalidComp => {
+          const path = invalidComp.path || invalidComp.component?.path || invalidComp.component?.key;
+          if (path) {
+            invalidFields.add(path);
+          }
+        });
+      }
+
+      // Pass this.root and invalidFields as parameters to renderLeaves
+      const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, this.root, invalidFields);
 
       // Get the latest data after refresh
       const allData = this.root.getValue();
