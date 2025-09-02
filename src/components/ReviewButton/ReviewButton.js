@@ -1842,6 +1842,24 @@ export default class ReviewButton extends FieldComponent {
 
         const getInvalidStyle = (comp, path) => isFieldInvalid(comp, path) ? 'background-color:rgb(240, 96, 96); padding: 2px 4px; border-radius: 3px;' : '';
 
+        // Helper functions for datagrid highlighting
+        const isRowInvalid = (row, datagridKey, rowIdx) => {
+          if (!row.__children) return false;
+          return Object.keys(row.__children).some(colKey => {
+            const cell = row.__children[colKey];
+            const cellPath = `${datagridKey}[${rowIdx}].${colKey}`;
+            return isFieldInvalid(cell.__comp, cellPath);
+          });
+        };
+
+        const isDatagridInvalid = (rows, datagridKey) => {
+          if (!rows) return false;
+          return Object.keys(rows).some(rowIdx => {
+            const row = rows[rowIdx];
+            return isRowInvalid(row, datagridKey, parseInt(rowIdx));
+          });
+        };
+
         function formatValue(value, comp) {
           if (value && value._type === 'table' && Array.isArray(comp.table)) {
             const customTableForReview = (component, data = {}) => {
@@ -2305,7 +2323,10 @@ export default class ReviewButton extends FieldComponent {
               }
               
               
-              const header = displayLabel ? `<div idx="11" depth="${depth}" style="${pad}"><strong style="${getInvalidStyle(v.__comp, k)}">${displayLabel}:</strong>` : `<div idx="12" style="margin-left:10px; ${pad}">`;
+              // Check if this is a datagrid with invalid fields for highlighting
+              const isDatagridWithErrors = (v.__kind === 'datagrid' || v.__kind === 'datatable') && isDatagridInvalid(v.__rows, k);
+              const headerStyle = isDatagridWithErrors ? 'background-color:rgb(240, 96, 96); padding: 2px 4px; border-radius: 3px;' : getInvalidStyle(v.__comp, k);
+              const header = displayLabel ? `<div idx="11" depth="${depth}" style="${pad}"><strong style="${headerStyle}">${displayLabel}:</strong>` : `<div idx="12" style="margin-left:10px; ${pad}">`;
 
               if (isContainerComponent) {
                 let panelChildrenHtml = '';
@@ -2411,6 +2432,8 @@ export default class ReviewButton extends FieldComponent {
                 const rowsItems = rowIdxs.map((rowIdx) => {
                   const row = v.__rows[rowIdx];
                   const haveMultiCols = orderedKeys.length > 1;
+                  const rowHasErrors = isRowInvalid(row, k, rowIdx);
+                  const rowLabelStyle = rowHasErrors ? 'background-color:rgb(240, 96, 96); padding: 2px 4px; border-radius: 3px;' : '';
 
                   const padRow = `padding-left:10px; border-left:1px dotted #ccc;`;
                   const padCol = `padding-left:10px; border-left:1px dotted #ccc;`;
@@ -2430,7 +2453,7 @@ export default class ReviewButton extends FieldComponent {
 
                       if (cell.__leaf) {
                         const val = firstLeafVal(cell);
-                        const cellPath = `${k}.${colKey}`;
+                        const cellPath = `${k}[${rowIdx}].${colKey}`;
                         cellContent = `<div idx="20" style="${padCol}"><strong style="${getInvalidStyle(cell.__comp, cellPath)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${val}</div>`;
                       }
                       return `${cellContent}`;
@@ -2438,14 +2461,14 @@ export default class ReviewButton extends FieldComponent {
                     colsHtml += colsItems;
                     colsHtml += '</div>';
 
-                    return `<li style="margin-left:15 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;', '')}">Row ${rowIdx + 1}:${colsHtml}</li>`;
+                    return `<li style="margin-left:15 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;', '')}"><strong style="${rowLabelStyle}">Row ${rowIdx + 1}:</strong>${colsHtml}</li>`;
                   } else {
                     const onlyKey = orderedKeys[0];
                     const cell = row.__children[onlyKey];
                     const inner = cell?.__leaf
-                      ? `<div idx="21" style="${padRow}"><strong style="${getInvalidStyle(cell.__comp, `${k}.${onlyKey}`)}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong> ${firstLeafVal(cell)}</div>`
+                      ? `<div idx="21" style="${padRow}"><strong style="${getInvalidStyle(cell.__comp, `${k}[${rowIdx}].${onlyKey}`)}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong> ${firstLeafVal(cell)}</div>`
                       : renderNode(cell?.__children || {}, depth + 1, rootInstance, invalidFields);
-                    return `<li style="margin-left:0 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;', '')}">Row ${rowIdx + 1}:${inner}</li>`;
+                    return `<li style="margin-left:0 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;', '')}"><strong style="${rowLabelStyle}">Row ${rowIdx + 1}:</strong>${inner}</li>`;
                   }
                 }).join('');
                 rowsHtml += rowsItems;
@@ -2462,6 +2485,10 @@ export default class ReviewButton extends FieldComponent {
                       v.__comp?.type === 'tagpad';
                     const rowLabel = isTagpad ? `Tag ${Number(i) + 1}` : `Row ${Number(i) + 1}`;
 
+                    // Check if this row has invalid fields
+                    const rowHasErrors = isRowInvalid(r, k, parseInt(i));
+                    const rowLabelStyle = rowHasErrors ? 'background-color:rgb(240, 96, 96); padding: 2px 4px; border-radius: 3px;' : '';
+
                     const hasChildren = r.__children && Object.keys(r.__children).length > 0;
                     const content = hasChildren
                       ? renderNode(r.__children, depth + 1, rootInstance, invalidFields)
@@ -2469,7 +2496,7 @@ export default class ReviewButton extends FieldComponent {
 
                     const rowClass = isTagpad ? 'tagpad-row' : 'data-row';
 
-                    return `<li class="${rowClass}" style="margin-left:0 !important; padding-left: 0 !important;">${rowLabel}:${content}</li>`;
+                    return `<li class="${rowClass}" style="margin-left:0 !important; padding-left: 0 !important;"><strong style="${rowLabelStyle}">${rowLabel}:</strong>${content}</li>`;
                   }).join('')
                   }</ul>` : '',
                 hasChildren ? renderNode(v.__children, depth + 1, rootInstance, invalidFields) : ''
