@@ -1840,7 +1840,7 @@ export default class ReviewButton extends FieldComponent {
           return invalidFields.has(fieldPath);
         }
 
-        const getInvalidStyle = (comp, path) => isFieldInvalid(comp, path) ? 'background-color:rgb(240, 96, 96); padding: 2px 4px; border-radius: 3px;' : '';
+        const getInvalidStyle = (comp, path) => isFieldInvalid(comp, path) ? 'background-color:rgb(255 123 123); padding: 2px 4px; border-radius: 3px;' : '';
 
         // Helper functions for datagrid highlighting
         const isRowInvalid = (row, datagridKey, rowIdx) => {
@@ -2325,7 +2325,7 @@ export default class ReviewButton extends FieldComponent {
               
               // Check if this is a datagrid with invalid fields for highlighting
               const isDatagridWithErrors = (v.__kind === 'datagrid' || v.__kind === 'datatable') && isDatagridInvalid(v.__rows, k);
-              const headerStyle = isDatagridWithErrors ? 'background-color:rgb(240, 96, 96); padding: 2px 4px; border-radius: 3px;' : getInvalidStyle(v.__comp, k);
+              const headerStyle = isDatagridWithErrors ? 'background-color:rgb(255 123 123); padding: 2px 4px; border-radius: 3px;' : getInvalidStyle(v.__comp, k);
               const header = displayLabel ? `<div idx="11" depth="${depth}" style="${pad}"><strong style="${headerStyle}">${displayLabel}:</strong>` : `<div idx="12" style="margin-left:10px; ${pad}">`;
 
               if (isContainerComponent) {
@@ -2433,7 +2433,7 @@ export default class ReviewButton extends FieldComponent {
                   const row = v.__rows[rowIdx];
                   const haveMultiCols = orderedKeys.length > 1;
                   const rowHasErrors = isRowInvalid(row, k, rowIdx);
-                  const rowLabelStyle = rowHasErrors ? 'background-color:rgb(240, 96, 96); padding: 2px 4px; border-radius: 3px;' : '';
+                  const rowLabelStyle = rowHasErrors ? 'background-color:rgb(255 123 123); padding: 2px 4px; border-radius: 3px;' : '';
 
                   const padRow = `padding-left:10px; border-left:1px dotted #ccc;`;
                   const padCol = `padding-left:10px; border-left:1px dotted #ccc;`;
@@ -2487,7 +2487,7 @@ export default class ReviewButton extends FieldComponent {
 
                     // Check if this row has invalid fields
                     const rowHasErrors = isRowInvalid(r, k, parseInt(i));
-                    const rowLabelStyle = rowHasErrors ? 'background-color:rgb(240, 96, 96); padding: 2px 4px; border-radius: 3px;' : '';
+                    const rowLabelStyle = rowHasErrors ? 'background-color:rgb(255 123 123); padding: 2px 4px; border-radius: 3px;' : '';
 
                     const hasChildren = r.__children && Object.keys(r.__children).length > 0;
                     const content = hasChildren
@@ -2540,12 +2540,56 @@ export default class ReviewButton extends FieldComponent {
       modal.className =
         "fixed top-0 left-0 w-full h-screen inset-0 bg-black bg-opacity-50 flex items-center justify-center";
 
+      // Filter out container paths and count only actual field errors
+      const allPaths = invalidFields ? Array.from(invalidFields) : [];
+      console.log('All invalid paths:', allPaths);
+
+      const isFieldPath = (path) => {
+        // If path has array index, it's a field inside a datagrid/datatable
+        if (path.includes('[') && path.includes(']')) {
+          return true;
+        }
+
+        // If path has no dots and no brackets, it might be a direct field
+        if (!path.includes('.') && !path.includes('[')) {
+          return true;
+        }
+
+        // If path has dots, check if it's a proper field path
+        if (path.includes('.')) {
+          const parts = path.split('.');
+          if (parts.length === 1) {
+            return true; // Single part with dot? Unlikely but allow
+          } else if (parts.length === 2 && path.includes('[')) {
+            return true; // Like "datagrid[0].field"
+          } else {
+            return false; // Multi-part paths without array indices are likely containers
+          }
+        }
+
+        return false; // Default to excluding uncertain cases
+      };
+
+      const fieldPaths = allPaths.filter(isFieldPath);
+      console.log('All paths:', allPaths);
+      console.log('Filtered field paths:', fieldPaths);
+      console.log('Excluded container paths:', allPaths.filter(p => !isFieldPath(p)));
+
+      const fieldErrorCount = fieldPaths.length;
+
+      // Check if there are any invalid fields
+      const hasErrors = fieldErrorCount > 0;
+
       modal.innerHTML = `
         <div class="bg-white p-6 rounded shadow-md w-full max-w-2xl max-h-[90vh] overflow-y-auto">
           <h2 class="text-xl font-semibold mb-4">Review Form Data</h2>
           <div idx="22" class="mb-4 text-sm" style="max-height:200px; overflow-y:auto; border:1px solid #ccc; padding:8px;">
             ${reviewHtml}
           </div>
+          ${hasErrors ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+            <p class="text-red-700 font-medium">⚠️ Fix the ${fieldErrorCount} error${fieldErrorCount === 1 ? '' : 's'} in the form before submitting</p>
+          </div>` : ''}
+          ${!hasErrors ? `
           <div class="flex space-x-4 mb-4">
             <div class="text-sm w-1/2">
               <label class="block font-medium mb-1">Support Number</label>
@@ -2560,7 +2604,7 @@ export default class ReviewButton extends FieldComponent {
                 <option value="Not Verified">Not Verified</option>
               </select>
             </div>
-          </div>
+          </div>` : ''}
           <div idx="23" class="mb-4 text-sm w-full" id="screenshotWrapper" style="display: none;">
             <label for="screenshotContainer">Screenshot Upload<span class="text-red-500">(Required)*</label>
             <div id="screenshotContainer"></div>
@@ -2574,8 +2618,8 @@ export default class ReviewButton extends FieldComponent {
             <textarea id="notesRequired" class="w-full border rounded p-2 text-sm"></textarea>
           </div>
           <div class="mt-4 flex justify-end space-x-4">
-            <button class="px-4 py-2 btn btn-primary rounded" id="cancelModal">Cancel</button>
-            <button class="px-4 py-2 btn btn-primary rounded" id="submitModal">Submit</button>
+            <button class="px-4 py-2 btn btn-primary rounded" id="cancelModal">${hasErrors ? 'Close' : 'Cancel'}</button>
+            ${!hasErrors ? '<button class="px-4 py-2 btn btn-primary rounded" id="submitModal">Submit</button>' : ''}
           </div>
         </div>`;
 
@@ -2628,13 +2672,16 @@ export default class ReviewButton extends FieldComponent {
       const notesOptionalWrapper = modal.querySelector("#notesOptionalWrapper");
       const notesRequiredWrapper = modal.querySelector("#notesRequiredWrapper");
 
-      verifiedSelect.onchange = () => {
-        const value = verifiedSelect.value;
-        const needShot = value === "App" || value === "Support";
-        screenshotWrapper.style.display = needShot ? "block" : "none";
-        notesOptionalWrapper.style.display = needShot ? "block" : "none";
-        notesRequiredWrapper.style.display = value === "Not Verified" ? "block" : "none";
-      };
+      // Only set up verified select event listener if the element exists
+      if (verifiedSelect) {
+        verifiedSelect.onchange = () => {
+          const value = verifiedSelect.value;
+          const needShot = value === "App" || value === "Support";
+          screenshotWrapper.style.display = needShot ? "block" : "none";
+          notesOptionalWrapper.style.display = needShot ? "block" : "none";
+          notesRequiredWrapper.style.display = value === "Not Verified" ? "block" : "none";
+        };
+      }
 
       modal.querySelector("#cancelModal").onclick = async () => {
         hideScreenshot();
@@ -2652,7 +2699,10 @@ export default class ReviewButton extends FieldComponent {
         this.root.off("submitError", onSubmitError);
       };
 
-      modal.querySelector("#submitModal").onclick = async () => {
+      // Only set up submit button event listener if the element exists
+      const submitButton = modal.querySelector("#submitModal");
+      if (submitButton) {
+        submitButton.onclick = async () => {
         let hasErrors = false;
 
         const verifiedElement = modal.querySelector("#verified");
@@ -2763,15 +2813,28 @@ export default class ReviewButton extends FieldComponent {
         this.root.off("submitError", onSubmitError);
 
         this.emit("submitButton", { type: "submit" });
-      };
+        };
+      }
 
       const cached = this.component._reviewModalCache;
       if (cached) {
-        modal.querySelector("#verified").value = cached.verifiedSelect || "";
-        modal.querySelector("#notesRequired").value = cached.notesRequired || "";
-        modal.querySelector("#notesOptional").value = cached.notesOptional || "";
-        modal.querySelector("#supportNumber").value = cached.supportNumber || "Unavailable";
-        verifiedSelect.dispatchEvent(new Event("change"));
+        const verifiedElement = modal.querySelector("#verified");
+        if (verifiedElement) {
+          verifiedElement.value = cached.verifiedSelect || "";
+          verifiedElement.dispatchEvent(new Event("change"));
+        }
+        const notesRequiredElement = modal.querySelector("#notesRequired");
+        if (notesRequiredElement) {
+          notesRequiredElement.value = cached.notesRequired || "";
+        }
+        const notesOptionalElement = modal.querySelector("#notesOptional");
+        if (notesOptionalElement) {
+          notesOptionalElement.value = cached.notesOptional || "";
+        }
+        const supportNumberElement = modal.querySelector("#supportNumber");
+        if (supportNumberElement) {
+          supportNumberElement.value = cached.supportNumber || "Unavailable";
+        }
       }
     });
 
