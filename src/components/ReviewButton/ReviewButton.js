@@ -1845,6 +1845,11 @@ export default class ReviewButton extends FieldComponent {
             return true;
           }
 
+          if(comp?._errors.length > 0) {
+            console.log("comp._errors", comp._errors)
+            return true;
+          }
+
           // Try to match nested form paths
           // If fieldPath is like "dataGrid[0].fieldName", also check for "form.data.dataGrid[0].fieldName"
           if (fieldPath && !fieldPath.startsWith('form.')) {
@@ -1921,12 +1926,43 @@ export default class ReviewButton extends FieldComponent {
         };
 
         // Helper functions for datagrid highlighting
+        const isRowInvalidRecursive = (node, currentPath) => {
+          // Check if this node itself is invalid
+          if (node.__comp && isFieldInvalid(node.__comp, currentPath)) {
+            return true;
+          }
+
+          // Recursively check children
+          if (node.__children) {
+            return Object.keys(node.__children).some(childKey => {
+              const childNode = node.__children[childKey];
+              const childPath = `${currentPath}.${childKey}`;
+              return isRowInvalidRecursive(childNode, childPath);
+            });
+          }
+
+          return false;
+        };
+
         const isRowInvalid = (row, datagridKey, rowIdx) => {
           if (!row.__children) return false;
-          return Object.keys(row.__children).some(colKey => {
+          console.log("isRowInvalid", row.__children)
+
+          // First try the original logic for direct children
+          const hasDirectInvalid = Object.keys(row.__children).some(colKey => {
             const cell = row.__children[colKey];
             const cellPath = `${datagridKey}[${rowIdx}].${colKey}`;
             return isFieldInvalid(cell.__comp, cellPath);
+          });
+          console.log("hasDirectInvalid", hasDirectInvalid)
+
+          if (hasDirectInvalid) return true;
+
+          // If no direct invalid fields, recursively check nested components
+          return Object.keys(row.__children).some(colKey => {
+            const cell = row.__children[colKey];
+            const cellPath = `${datagridKey}[${rowIdx}].${colKey}`;
+            return isRowInvalidRecursive(cell, cellPath);
           });
         };
 
@@ -2410,7 +2446,8 @@ export default class ReviewButton extends FieldComponent {
                 let panelChildrenHtml = '';
 
                 if (hasChildren) {
-                  panelChildrenHtml = renderNode(v.__children, depth + 1, rootInstance, invalidFields, basePath);
+                  const containerPath = basePath ? `${basePath}.${k}` : k;
+                  panelChildrenHtml = renderNode(v.__children, depth + 1, rootInstance, invalidFields, containerPath);
                 }
                 else if (v.__comp && Array.isArray(v.__comp.components) && v.__comp.components.length > 0) {
                   const artificialChildren = {};
@@ -2437,7 +2474,8 @@ export default class ReviewButton extends FieldComponent {
                     }
                   });
                   
-                  panelChildrenHtml = renderNode(artificialChildren, depth + 1, rootInstance, invalidFields, basePath);
+                  const containerPath = basePath ? `${basePath}.${k}` : k;
+                  panelChildrenHtml = renderNode(artificialChildren, depth + 1, rootInstance, invalidFields, containerPath);
                 }
 
                 const customStructure = v.__value && v.__value._type && v.__value._row;
@@ -2573,7 +2611,7 @@ export default class ReviewButton extends FieldComponent {
 
                     const hasChildren = r.__children && Object.keys(r.__children).length > 0;
                     const content = hasChildren
-                      ? renderNode(r.__children, depth + 1, rootInstance, invalidFields, basePath)
+                      ? renderNode(r.__children, depth + 1, rootInstance, invalidFields, `${basePath ? basePath + '.' : ''}${k}[${i}]`)
                       : ``;
 
                     const rowClass = isTagpad ? 'tagpad-row' : 'data-row';
@@ -2581,7 +2619,7 @@ export default class ReviewButton extends FieldComponent {
                     return `<li class="${rowClass}" style="margin-left:0 !important; padding-left: 0 !important;"><strong style="${rowLabelStyle}">${rowLabel}:</strong>${content}</li>`;
                   }).join('')
                   }</ul>` : '',
-                hasChildren ? renderNode(v.__children, depth + 1, rootInstance, invalidFields, basePath) : ''
+                hasChildren ? renderNode(v.__children, depth + 1, rootInstance, invalidFields, basePath ? `${basePath}.${k}` : k) : ''
               ].join('');
               return `${header}${childrenHtml}</div>`;
             }
