@@ -1836,11 +1836,89 @@ export default class ReviewButton extends FieldComponent {
 
         function isFieldInvalid(comp, path) {
           if (!invalidFields || invalidFields.size === 0) return false;
+
           const fieldPath = path || comp?.path || comp?.key || comp?.component?.key;
-          return invalidFields.has(fieldPath);
+
+          // First try exact match
+          if (invalidFields.has(fieldPath)) {
+            console.log('Exact match found for path:', fieldPath);
+            return true;
+          }
+
+          // Try to match nested form paths
+          // If fieldPath is like "dataGrid[0].fieldName", also check for "form.data.dataGrid[0].fieldName"
+          if (fieldPath && !fieldPath.startsWith('form.')) {
+            const nestedPath = `form.data.${fieldPath}`;
+            if (invalidFields.has(nestedPath)) {
+              console.log('Nested match found:', fieldPath, '->', nestedPath);
+              return true;
+            }
+
+            // Also try other common nested patterns
+            const altNestedPath = `data.${fieldPath}`;
+            if (invalidFields.has(altNestedPath)) {
+              console.log('Alt nested match found:', fieldPath, '->', altNestedPath);
+              return true;
+            }
+          }
+
+          // If fieldPath starts with form., try without the form. prefix
+          if (fieldPath && fieldPath.startsWith('form.data.')) {
+            const simplifiedPath = fieldPath.replace('form.data.', '');
+            if (invalidFields.has(simplifiedPath)) {
+              console.log('Simplified match found:', fieldPath, '->', simplifiedPath);
+              return true;
+            }
+          }
+
+          // Debug: log when no match is found
+          if (fieldPath) {
+            console.log('No match found for path:', fieldPath, 'Available paths:', Array.from(invalidFields));
+          }
+
+          return false;
         }
 
-        const getInvalidStyle = (comp, path) => isFieldInvalid(comp, path) ? 'background-color:rgb(255 123 123); padding: 2px 4px; border-radius: 3px;' : '';
+        const getInvalidStyle = (comp, path, basePath = '') => {
+          // Try different path combinations for better matching
+          const pathsToTry = [];
+
+          if (basePath) {
+            pathsToTry.push(`${basePath}.${path}`); // basePath.path
+            pathsToTry.push(`${basePath}[${path}]`); // basePath[path] for array access
+
+            // Try with form.data. prefix for nested forms
+            pathsToTry.push(`form.data.${basePath}.${path}`);
+            pathsToTry.push(`form.${basePath}.${path}`);
+
+            // Try with just data. prefix
+            pathsToTry.push(`data.${basePath}.${path}`);
+          }
+
+          pathsToTry.push(path); // just the path itself
+
+          // Try with form.data. prefix for direct paths
+          if (!path.includes('.')) {
+            pathsToTry.push(`form.data.${path}`);
+            pathsToTry.push(`data.${path}`);
+          }
+
+          // If path contains brackets, try variations
+          if (path.includes('[')) {
+            pathsToTry.push(path.replace(/\[.*?\]/g, '')); // remove array indices
+          }
+
+          // Try to find any match
+          for (const testPath of pathsToTry) {
+            if (isFieldInvalid(comp, testPath)) {
+              console.log('✅ Path match found:', testPath, 'from attempts:', pathsToTry);
+              return 'background-color:rgb(255 123 123); padding: 2px 4px; border-radius: 3px;';
+            }
+          }
+
+          console.log('❌ No path match found for:', path, 'with basePath:', basePath, 'tried paths:', pathsToTry);
+          return '';
+        };
 
         // Helper functions for datagrid highlighting
         const isRowInvalid = (row, datagridKey, rowIdx) => {
@@ -2201,7 +2279,7 @@ export default class ReviewButton extends FieldComponent {
           }
         }
 
-        const renderNode = (node, depth = 0, rootInstance = null, invalidFields = new Set()) => {
+        const renderNode = (node, depth = 0, rootInstance = null, invalidFields = new Set(), basePath = '') => {
           let pad = `padding-left:10px; border-left:1px dotted #ccc;`;
           
 
@@ -2252,7 +2330,7 @@ export default class ReviewButton extends FieldComponent {
             }
 
             if (/^\d+\]$/.test(k) || v?.__comp == undefined) {
-              return v && typeof v === 'object' ? renderNode(v.__children || {}, depth, rootInstance, invalidFields) : '';
+              return v && typeof v === 'object' ? renderNode(v.__children || {}, depth, rootInstance, invalidFields, basePath) : '';
             }
 
             if (v && v.__leaf) {
@@ -2286,16 +2364,16 @@ export default class ReviewButton extends FieldComponent {
                 formContentHtml += '</div>';
 
                 return `
-                  <div idx="1" style="${pad}"><strong style="${getInvalidStyle(v.__comp, k)}">${v.__label || k}:</strong></div>
+                  <div idx="1" style="${pad}"><strong style="${getInvalidStyle(v.__comp, k, basePath)}">${v.__label || k}:</strong></div>
                   ${formContentHtml || `<div idx="3" style="padding-left: 10px;"><div idx="4" style="${pad};">(No data)</div></div>`}
                 `;
               } else if (isTagpadDot) {
-                return `<div idx="5" depth="${depth}" style="${pad}"><strong style="${getInvalidStyle(v.__comp, k)}">${v.__label || k}:</strong> ${val}</div>`;
+                return `<div idx="5" depth="${depth}" style="${pad}"><strong style="${getInvalidStyle(v.__comp, k, basePath)}">${v.__label || k}:</strong> ${val}</div>`;
               } else {
                 if(depth >= 1) {
                   pad += `margin-left: 10px;`;
                 }
-                return `<div idx="6" depth="${depth}" style="${pad}"><strong style="${getInvalidStyle(v.__comp, k)}">${v.__label || k}:</strong> ${val}</div>`;
+                return `<div idx="6" depth="${depth}" style="${pad}"><strong style="${getInvalidStyle(v.__comp, k, basePath)}">${v.__label || k}:</strong> ${val}</div>`;
               }
             }
 
@@ -2325,14 +2403,14 @@ export default class ReviewButton extends FieldComponent {
               
               // Check if this is a datagrid with invalid fields for highlighting
               const isDatagridWithErrors = (v.__kind === 'datagrid' || v.__kind === 'datatable') && isDatagridInvalid(v.__rows, k);
-              const headerStyle = isDatagridWithErrors ? 'background-color:rgb(255 123 123); padding: 2px 4px; border-radius: 3px;' : getInvalidStyle(v.__comp, k);
+              const headerStyle = isDatagridWithErrors ? 'background-color:rgb(255 123 123); padding: 2px 4px; border-radius: 3px;' : getInvalidStyle(v.__comp, k, basePath);
               const header = displayLabel ? `<div idx="11" depth="${depth}" style="${pad}"><strong style="${headerStyle}">${displayLabel}:</strong>` : `<div idx="12" style="margin-left:10px; ${pad}">`;
 
               if (isContainerComponent) {
                 let panelChildrenHtml = '';
 
                 if (hasChildren) {
-                  panelChildrenHtml = renderNode(v.__children, depth + 1, rootInstance, invalidFields);
+                  panelChildrenHtml = renderNode(v.__children, depth + 1, rootInstance, invalidFields, basePath);
                 }
                 else if (v.__comp && Array.isArray(v.__comp.components) && v.__comp.components.length > 0) {
                   const artificialChildren = {};
@@ -2359,7 +2437,7 @@ export default class ReviewButton extends FieldComponent {
                     }
                   });
                   
-                  panelChildrenHtml = renderNode(artificialChildren, depth + 1, rootInstance, invalidFields);
+                  panelChildrenHtml = renderNode(artificialChildren, depth + 1, rootInstance, invalidFields, basePath);
                 }
 
                 const customStructure = v.__value && v.__value._type && v.__value._row;
@@ -2392,7 +2470,7 @@ export default class ReviewButton extends FieldComponent {
 
                   return `
                     <div idx="15" style="padding-left:10px; margin-left:0px; border-left:1px dotted #ccc;">
-                      <strong style="${getInvalidStyle(v.__comp, k)}">${containerLabel}</strong>
+                      <strong style="${getInvalidStyle(v.__comp, k, basePath)}">${containerLabel}</strong>
                       <div idx="16" style="padding-left: 10px;">
                         ${customChildrenHtml || panelChildrenHtml}
                       </div>
@@ -2408,7 +2486,7 @@ export default class ReviewButton extends FieldComponent {
                   }
                   return `
                     <div idx="17" style="${pad}">
-                      <strong style="${getInvalidStyle(v.__comp, k)}">${displayLabel || containerType}</strong>
+                      <strong style="${getInvalidStyle(v.__comp, k, basePath)}">${displayLabel || containerType}</strong>
                       ${panelChildrenHtml}
                     </div>
                   `;
@@ -2454,7 +2532,11 @@ export default class ReviewButton extends FieldComponent {
                       if (cell.__leaf) {
                         const val = firstLeafVal(cell);
                         const cellPath = `${k}[${rowIdx}].${colKey}`;
-                        cellContent = `<div idx="20" style="${padCol}"><strong style="${getInvalidStyle(cell.__comp, cellPath)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${val}</div>`;
+                        cellContent = `<div idx="20" style="${padCol}"><strong style="${getInvalidStyle(cell.__comp, colKey, `${k}[${rowIdx}]`)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${val}</div>`;
+                      } else {
+                        // Handle nested content in multi-column case
+                        const nestedHtml = renderNode(cell?.__children || {}, depth + 1, rootInstance, invalidFields, `${k}[${rowIdx}].${colKey}`);
+                        cellContent = `<div idx="20" style="${padCol}"><strong>${cell.__label || labelByKey.get(colKey) || colKey}:</strong></div>${nestedHtml}`;
                       }
                       return `${cellContent}`;
                     }).filter(html => html.length > 0).join('');
@@ -2466,8 +2548,8 @@ export default class ReviewButton extends FieldComponent {
                     const onlyKey = orderedKeys[0];
                     const cell = row.__children[onlyKey];
                     const inner = cell?.__leaf
-                      ? `<div idx="21" style="${padRow}"><strong style="${getInvalidStyle(cell.__comp, `${k}[${rowIdx}].${onlyKey}`)}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong> ${firstLeafVal(cell)}</div>`
-                      : renderNode(cell?.__children || {}, depth + 1, rootInstance, invalidFields);
+                      ? `<div idx="21" style="${padRow}"><strong style="${getInvalidStyle(cell.__comp, onlyKey, `${k}[${rowIdx}]`)}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong> ${firstLeafVal(cell)}</div>`
+                      : renderNode(cell?.__children || {}, depth + 1, rootInstance, invalidFields, `${k}[${rowIdx}].${onlyKey}`);
                     return `<li style="margin-left:0 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;', '')}"><strong style="${rowLabelStyle}">Row ${rowIdx + 1}:</strong>${inner}</li>`;
                   }
                 }).join('');
@@ -2491,7 +2573,7 @@ export default class ReviewButton extends FieldComponent {
 
                     const hasChildren = r.__children && Object.keys(r.__children).length > 0;
                     const content = hasChildren
-                      ? renderNode(r.__children, depth + 1, rootInstance, invalidFields)
+                      ? renderNode(r.__children, depth + 1, rootInstance, invalidFields, basePath)
                       : ``;
 
                     const rowClass = isTagpad ? 'tagpad-row' : 'data-row';
@@ -2499,14 +2581,14 @@ export default class ReviewButton extends FieldComponent {
                     return `<li class="${rowClass}" style="margin-left:0 !important; padding-left: 0 !important;"><strong style="${rowLabelStyle}">${rowLabel}:</strong>${content}</li>`;
                   }).join('')
                   }</ul>` : '',
-                hasChildren ? renderNode(v.__children, depth + 1, rootInstance, invalidFields) : ''
+                hasChildren ? renderNode(v.__children, depth + 1, rootInstance, invalidFields, basePath) : ''
               ].join('');
               return `${header}${childrenHtml}</div>`;
             }
             return '';
           }).join('');
         };
-        return renderNode(root, 0, rootInstance, invalidFields);
+        return renderNode(root, 0, rootInstance, invalidFields, '');
       }
 
 
@@ -2544,35 +2626,89 @@ export default class ReviewButton extends FieldComponent {
       const allPaths = invalidFields ? Array.from(invalidFields) : [];
       console.log('All invalid paths:', allPaths);
 
-      const isFieldPath = (path) => {
-        // If path has array index, it's a field inside a datagrid/datatable
-        if (path.includes('[') && path.includes(']')) {
-          return true;
-        }
+      // Group paths by common prefixes to better understand the structure
+      const groupPathsByPrefix = (paths) => {
+        const groups = {};
 
-        // If path has no dots and no brackets, it might be a direct field
-        if (!path.includes('.') && !path.includes('[')) {
-          return true;
-        }
-
-        // If path has dots, check if it's a proper field path
-        if (path.includes('.')) {
-          const parts = path.split('.');
-          if (parts.length === 1) {
-            return true; // Single part with dot? Unlikely but allow
-          } else if (parts.length === 2 && path.includes('[')) {
-            return true; // Like "datagrid[0].field"
+        paths.forEach(path => {
+          // Find the common prefix patterns
+          if (path.includes('dataGrid[') || path.includes('form.data.dataGrid[')) {
+            const prefix = path.includes('form.data.') ? 'form.data.dataGrid' : 'dataGrid';
+            if (!groups[prefix]) groups[prefix] = [];
+            groups[prefix].push(path);
           } else {
-            return false; // Multi-part paths without array indices are likely containers
+            // Direct fields or other patterns
+            const prefix = path.includes('.') ? path.split('.')[0] : 'direct';
+            if (!groups[prefix]) groups[prefix] = [];
+            groups[prefix].push(path);
           }
+        });
+
+        return groups;
+      };
+
+      const isFieldPath = (path) => {
+        // Common container types that should be excluded
+        const containerTypes = ['panel', 'fieldset', 'datagrid', 'datatable', 'container', 'well', 'table', 'tabs', 'columns'];
+
+        // Check if this path represents a known container type
+        const pathLower = path.toLowerCase();
+        if (containerTypes.some(type => pathLower.includes(type))) {
+          // Additional check: if it's just the container name (no dots, no brackets after container type)
+          if (!path.includes('.') && !path.includes('[')) {
+            return false; // Exclude pure container names like "panel1", "fieldSet"
+          }
+        }
+
+        // If path has no dots and no brackets, check if it's a real field (not container)
+        if (!path.includes('.') && !path.includes('[')) {
+          // Known container patterns that appear as direct paths
+          const knownContainers = ['panel1', 'fieldset', 'panel', 'datagrid', 'datatable', 'container', 'well', 'table', 'tabs', 'columns'];
+          if (knownContainers.some(container => pathLower.includes(container))) {
+            return false;
+          }
+          return true; // e.g., "textField", "file"
+        }
+
+        // If path contains array index anywhere, it's likely a field (even in nested forms)
+        if (path.includes('[') && path.includes(']')) {
+          // Check if this ends with a field name after the array index
+          const afterBracket = path.split(']').pop();
+          if (afterBracket && afterBracket.includes('.') && afterBracket.length > 1) {
+            // Like "form.data.dataGrid[0].fieldName" - has field after array index
+            return true;
+          } else if (afterBracket && !afterBracket.includes('.') && afterBracket.length > 0) {
+            // Like "dataGrid[0].textArea" - direct field after array index
+            return true;
+          } else if (!afterBracket || afterBracket.length === 0) {
+            // Like "form.data.dataGrid[0]" - just the array reference, likely a container
+            return false;
+          }
+        }
+
+        // Handle paths with dots but no array indices
+        if (path.includes('.') && !path.includes('[')) {
+          const parts = path.split('.');
+          // If it has exactly 2 parts, it might be a field path like "form.fieldName"
+          if (parts.length === 2) {
+            return true;
+          }
+          // More than 2 parts without array indices are likely nested paths or containers
+          return false;
         }
 
         return false; // Default to excluding uncertain cases
       };
 
       const fieldPaths = allPaths.filter(isFieldPath);
+      const groupedPaths = groupPathsByPrefix(allPaths);
+      const groupedFieldPaths = groupPathsByPrefix(fieldPaths);
+
+      console.log('=== PATH ANALYSIS ===');
       console.log('All paths:', allPaths);
+      console.log('Grouped by prefix:', groupedPaths);
       console.log('Filtered field paths:', fieldPaths);
+      console.log('Grouped field paths:', groupedFieldPaths);
       console.log('Excluded container paths:', allPaths.filter(p => !isFieldPath(p)));
 
       const fieldErrorCount = fieldPaths.length;
