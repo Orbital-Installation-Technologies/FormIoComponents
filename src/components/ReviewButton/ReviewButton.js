@@ -1839,80 +1839,47 @@ export default class ReviewButton extends FieldComponent {
 
           const fieldPath = path || comp?.path || comp?.key || comp?.component?.key;
 
-          // Create a comprehensive list of path variations to check
-          const pathVariations = [];
-          
-          if (fieldPath) {
-            // Add the original path
-            pathVariations.push(fieldPath);
-            
-            // Add common prefix variations
-            pathVariations.push(`data.${fieldPath}`);
-            pathVariations.push(`form.data.${fieldPath}`);
-            pathVariations.push(`form.${fieldPath}`);
-            
-            // If path starts with prefixes, try without them
-            if (fieldPath.startsWith('form.data.')) {
-              pathVariations.push(fieldPath.replace('form.data.', ''));
-              pathVariations.push(fieldPath.replace('form.', ''));
-            } else if (fieldPath.startsWith('data.')) {
-              pathVariations.push(fieldPath.replace('data.', ''));
-            }
-            
-            // For component-based matching, try the component's actual path/key
-            if (comp?.path && comp.path !== fieldPath) {
-              pathVariations.push(comp.path);
-              pathVariations.push(`data.${comp.path}`);
-              pathVariations.push(`form.data.${comp.path}`);
-            }
-            if (comp?.key && comp.key !== fieldPath) {
-              pathVariations.push(comp.key);
-              pathVariations.push(`data.${comp.key}`);
-              pathVariations.push(`form.data.${comp.key}`);
-            }
-            if (comp?.component?.key && comp.component.key !== fieldPath) {
-              pathVariations.push(comp.component.key);
-              pathVariations.push(`data.${comp.component.key}`);
-              pathVariations.push(`form.data.${comp.component.key}`);
-            }
+          // First try exact match
+          if (invalidFields.has(fieldPath)) {
+            console.log('Exact match found for path:', fieldPath);
+            return true;
           }
 
-          // Check all variations
-          for (const testPath of pathVariations) {
-            if (invalidFields.has(testPath)) {
-              console.log('✅ Match found for:', fieldPath, '-> matched:', testPath);
+          // Try to match nested form paths
+          // If fieldPath is like "dataGrid[0].fieldName", also check for "form.data.dataGrid[0].fieldName"
+          if (fieldPath && !fieldPath.startsWith('form.')) {
+            const nestedPath = `form.data.${fieldPath}`;
+            if (invalidFields.has(nestedPath)) {
+              console.log('Nested match found:', fieldPath, '->', nestedPath);
+              return true;
+            }
+
+            // Also try other common nested patterns
+            const altNestedPath = `data.${fieldPath}`;
+            if (invalidFields.has(altNestedPath)) {
+              console.log('Alt nested match found:', fieldPath, '->', altNestedPath);
               return true;
             }
           }
 
-          // Additional check: see if this field is part of any invalid path
-          // This handles cases where the exact field path isn't in invalidFields but a parent path contains it
-          const isPartOfInvalidPath = Array.from(invalidFields).some(invalidPath => {
-            return invalidPath.includes(fieldPath) || 
-                   (fieldPath && invalidPath.endsWith(`.${fieldPath}`)) ||
-                   (fieldPath && invalidPath.endsWith(`].${fieldPath}`));
-          });
-
-          if (isPartOfInvalidPath) {
-            console.log('✅ Field found as part of invalid path:', fieldPath);
-            return true;
+          // If fieldPath starts with form., try without the form. prefix
+          if (fieldPath && fieldPath.startsWith('form.data.')) {
+            const simplifiedPath = fieldPath.replace('form.data.', '');
+            if (invalidFields.has(simplifiedPath)) {
+              console.log('Simplified match found:', fieldPath, '->', simplifiedPath);
+              return true;
+            }
           }
 
           // Debug: log when no match is found
           if (fieldPath) {
-            console.log('❌ No match found for path:', fieldPath, 'tried variations:', pathVariations, 'Available paths:', Array.from(invalidFields));
+            console.log('No match found for path:', fieldPath, 'Available paths:', Array.from(invalidFields));
           }
 
           return false;
         }
 
         const getInvalidStyle = (comp, path, basePath = '') => {
-          // Use the enhanced isFieldInvalid function for better matching
-          if (isFieldInvalid(comp, path)) {
-            console.log('✅ Direct field match found for:', path, 'basePath:', basePath);
-            return 'background-color:rgb(255 123 123); padding: 2px 4px; border-radius: 3px;';
-          }
-
           // Try different path combinations for better matching
           const pathsToTry = [];
 
@@ -1941,41 +1908,12 @@ export default class ReviewButton extends FieldComponent {
             pathsToTry.push(path.replace(/\[.*?\]/g, '')); // remove array indices
           }
 
-          // Enhanced logic for datagrid containers
-          // Check if any child paths in the invalidFields set match this container
-          const hasChildErrors = Array.from(invalidFields).some(invalidPath => {
-            // Check if the invalid path is a child of this container
-            if (basePath && invalidPath.startsWith(`${basePath}.${path}[`)) {
-              return true; // Container has child errors
-            }
-            if (invalidPath.startsWith(`${path}[`)) {
-              return true; // Direct container has child errors
-            }
-            if (invalidPath.startsWith(`data.${path}[`)) {
-              return true; // Data prefixed container has child errors
-            }
-            if (invalidPath.startsWith(`form.data.${path}[`)) {
-              return true; // Form data prefixed container has child errors
-            }
-            // Additional checks for partial path matches
-            if (invalidPath.includes(`.${path}[`) || invalidPath.includes(`].${path}`)) {
-              return true; // Field is part of an invalid path
-            }
-            return false;
-          });
-
-          // Try to find any match using the enhanced isFieldInvalid function
+          // Try to find any match
           for (const testPath of pathsToTry) {
             if (isFieldInvalid(comp, testPath)) {
               console.log('✅ Path match found:', testPath, 'from attempts:', pathsToTry);
               return 'background-color:rgb(255 123 123); padding: 2px 4px; border-radius: 3px;';
             }
-          }
-
-          // If this is a container with child errors, highlight it
-          if (hasChildErrors) {
-            console.log('✅ Container highlighted due to child errors:', path, 'basePath:', basePath);
-            return 'background-color:rgb(255 123 123); padding: 2px 4px; border-radius: 3px;';
           }
 
           console.log('❌ No path match found for:', path, 'with basePath:', basePath, 'tried paths:', pathsToTry);
