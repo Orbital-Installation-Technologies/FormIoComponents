@@ -1985,11 +1985,46 @@ export default class ReviewButton extends FieldComponent {
         // Helper functions for datagrid highlighting
         const isRowInvalid = (row, datagridKey, rowIdx) => {
           if (!row.__children) return false;
-          return Object.keys(row.__children).some(colKey => {
+          
+          // Check if any child field in this row has errors
+          const hasFieldErrors = Object.keys(row.__children).some(colKey => {
             const cell = row.__children[colKey];
             const cellPath = `${datagridKey}[${rowIdx}].${colKey}`;
-            return isFieldInvalid(cell.__comp, cellPath);
+            
+            // Try multiple path variations for the cell
+            const pathsToCheck = [
+              cellPath,
+              `data.${cellPath}`,
+              `form.data.${cellPath}`,
+              colKey, // Just the field name
+              `data.${colKey}`,
+              `form.data.${colKey}`
+            ];
+            
+            // Check if any of these paths are in invalidFields
+            const fieldHasError = pathsToCheck.some(path => invalidFields.has(path));
+            
+            if (fieldHasError) {
+              console.log('✅ Row field error found:', colKey, 'in row:', rowIdx, 'paths checked:', pathsToCheck);
+              return true;
+            }
+            
+            // Also use the enhanced isFieldInvalid function
+            if (isFieldInvalid(cell.__comp, cellPath)) {
+              console.log('✅ Row field error via isFieldInvalid:', colKey, 'in row:', rowIdx);
+              return true;
+            }
+            
+            return false;
           });
+          
+          if (hasFieldErrors) {
+            console.log('✅ Row', rowIdx + 1, 'is invalid due to field errors');
+          } else {
+            console.log('❌ Row', rowIdx + 1, 'has no errors detected');
+          }
+          
+          return hasFieldErrors;
         };
 
         const isDatagridInvalid = (rows, datagridKey) => {
