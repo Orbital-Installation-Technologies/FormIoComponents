@@ -1845,7 +1845,7 @@ export default class ReviewButton extends FieldComponent {
             return true;
           }
 
-          if(comp?._errors.length > 0) {
+          if(comp?._errors && comp._errors.length > 0) {
             console.log("comp._errors", comp._errors)
             return true;
           }
@@ -1972,6 +1972,43 @@ export default class ReviewButton extends FieldComponent {
             const row = rows[rowIdx];
             return isRowInvalid(row, datagridKey, parseInt(rowIdx));
           });
+        };
+
+        // Check if a container (panel, form, etc.) has any invalid nested components
+        const isContainerInvalid = (containerNode, containerKey, containerBasePath) => {
+          if (!containerNode) return false;
+
+          // Check if the container itself is invalid
+          const containerPath = containerBasePath ? `${containerBasePath}.${containerKey}` : containerKey;
+          if (containerNode.__comp && isFieldInvalid(containerNode.__comp, containerPath)) {
+            return true;
+          }
+
+          // Recursively check all children
+          if (containerNode.__children) {
+            return Object.keys(containerNode.__children).some(childKey => {
+              const childNode = containerNode.__children[childKey];
+              const childPath = `${containerPath}.${childKey}`;
+              
+              // If child is a leaf, check if it's invalid
+              if (childNode.__leaf) {
+                return childNode.__comp && isFieldInvalid(childNode.__comp, childPath);
+              }
+              
+              // If child is a container, recursively check it
+              return isContainerInvalid(childNode, childKey, containerPath);
+            });
+          }
+
+          // Check rows if it's a datagrid-like container
+          if (containerNode.__rows) {
+            return Object.keys(containerNode.__rows).some(rowIdx => {
+              const row = containerNode.__rows[rowIdx];
+              return isRowInvalid(row, containerKey, parseInt(rowIdx));
+            });
+          }
+
+          return false;
         };
 
         function formatValue(value, comp) {
@@ -2437,9 +2474,11 @@ export default class ReviewButton extends FieldComponent {
               }
               
               
-              // Check if this is a datagrid with invalid fields for highlighting
+              // Check if this container has invalid fields for highlighting
               const isDatagridWithErrors = (v.__kind === 'datagrid' || v.__kind === 'datatable') && isDatagridInvalid(v.__rows, k);
-              const headerStyle = isDatagridWithErrors ? 'background-color:rgb(255 123 123); padding: 2px 4px; border-radius: 3px;' : getInvalidStyle(v.__comp, k, basePath);
+              const isContainerWithErrors = isContainerInvalid(v, k, basePath);
+              const containerHasErrors = isDatagridWithErrors || isContainerWithErrors;
+              const headerStyle = containerHasErrors ? 'background-color:rgb(255 123 123); padding: 2px 4px; border-radius: 3px;' : getInvalidStyle(v.__comp, k, basePath);
               const header = displayLabel ? `<div idx="11" depth="${depth}" style="${pad}"><strong style="${headerStyle}">${displayLabel}:</strong>` : `<div idx="12" style="margin-left:10px; ${pad}">`;
 
               if (isContainerComponent) {
@@ -2647,6 +2686,89 @@ export default class ReviewButton extends FieldComponent {
           }
         });
       }
+
+      // Also collect fields that have direct _errors on components
+      const collectComponentErrors = (component, currentPath = '') => {
+        if (!component) return;
+
+        // Check if this component has errors
+        if (component._errors && component._errors.length > 0) {
+          const compPath = currentPath || component.path || component.key || component.component?.key;
+          if (compPath) {
+            invalidFields.add(compPath);
+            console.log('Added component error path:', compPath);
+          }
+        }
+
+        // Recursively check child components
+        if (component.components && Array.isArray(component.components)) {
+          component.components.forEach(child => {
+            const childPath = currentPath 
+              ? `${currentPath}.${child.key || child.path || 'unknown'}`
+              : child.key || child.path || child.component?.key;
+            collectComponentErrors(child, childPath);
+          });
+        }
+
+        // Check rows for datagrids/datatables
+        if (component.rows && Array.isArray(component.rows)) {
+          component.rows.forEach((row, rowIdx) => {
+            if (row && typeof row === 'object') {
+              Object.keys(row).forEach(colKey => {
+                const cell = row[colKey];
+                if (cell && cell.component) {
+                  const cellPath = currentPath 
+                    ? `${currentPath}[${rowIdx}].${colKey}`
+                    : `${component.key || 'datagrid'}[${rowIdx}].${colKey}`;
+                  collectComponentErrors(cell.component, cellPath);
+                }
+              });
+            }
+          });
+        }
+      };
+
+      // Collect errors from the root component tree
+      collectComponentErrors(this.root);
+
+      // Add parent container paths for any nested invalid fields
+      const addParentPaths = (fieldPath) => {
+        if (!fieldPath || typeof fieldPath !== 'string') return;
+        
+        // Split the path and build parent paths
+        const parts = fieldPath.split('.');
+        let currentPath = '';
+        
+        for (let i = 0; i < parts.length - 1; i++) {
+          if (currentPath) {
+            currentPath += '.';
+          }
+          currentPath += parts[i];
+          
+          // Remove array indices for container paths
+          const cleanPath = currentPath.replace(/\[\d+\]/g, '');
+          if (cleanPath && cleanPath !== currentPath) {
+            invalidFields.add(cleanPath);
+          }
+          invalidFields.add(currentPath);
+        }
+        
+        // Also handle array-style paths like "dataGrid[0].field"
+        if (fieldPath.includes('[') && fieldPath.includes(']')) {
+          const arrayMatch = fieldPath.match(/^([^[]+)\[\d+\]/);
+          if (arrayMatch) {
+            invalidFields.add(arrayMatch[1]); // Add "dataGrid" from "dataGrid[0].field"
+          }
+        }
+      };
+
+      // Process all collected paths to add their parent containers
+      const originalPaths = Array.from(invalidFields);
+      originalPaths.forEach(path => {
+        addParentPaths(path);
+      });
+
+      console.log('Final collected invalid fields:', Array.from(invalidFields));
 
       // Pass this.root and invalidFields as parameters to renderLeaves
       const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, this.root, invalidFields);
