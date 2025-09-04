@@ -96,7 +96,7 @@ export default class BarcodeScanner extends FieldComponent {
           <input
             ref="barcode"
             type="text"
-            class="form-control"
+            class="form-control${this.errors && this.errors.length ? ' is-invalid' : ''}"
             value="${this.dataValue || ""}"
             style="flex-grow:1; margin-right:10px;"
           />
@@ -106,11 +106,10 @@ export default class BarcodeScanner extends FieldComponent {
           <!-- File upload button removed -->
         </div>
         <!-- File input removed -->
-        ${this.errorMessage
-        ? `<div class="formio-errors">
-                 <div class="form-text error">${this.errorMessage}</div>
-               </div>`
-        : ""
+        ${this.errors && this.errors.length ? `
+          <div class="formio-errors">
+            <div class="form-text error">${this.errors[0].message}</div>
+          </div>` : ""
       }
         <div ref="quaggaModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1000; flex-direction:column; align-items:center; justify-content:center; padding:20px; box-sizing:border-box;">
           <div ref="modalContainer" style="position:relative; background:black; border-radius:8px; overflow:hidden; display:flex; flex-direction:column; max-width:100%; max-height:100%;">
@@ -156,6 +155,17 @@ export default class BarcodeScanner extends FieldComponent {
     `);
   }
 
+
+  validateAndSetDirty() {
+    this.setDirty(true);
+    const valid = this.checkValidity(this.data, true);
+    if (!valid) {
+      setTimeout(() => {
+        this.setCustomValidity(this.errors, true);
+      }, 500);
+    }
+  }
+
   attach(element) {
     const attached = super.attach(element);
 
@@ -184,8 +194,20 @@ export default class BarcodeScanner extends FieldComponent {
     }
 
     if (!this.component.disabled) {
+      const input = this.refs.barcode;
+
+      this.addEventListener(input, 'input', (event) => {
+        this.updateValue(event.target.value);
+        this.validateAndSetDirty();
+      });
+
+      this.addEventListener(input, 'click', () => {
+        this.validateAndSetDirty();
+      });
+
       this.refs.barcode.addEventListener("change", () => {
         this.updateValue(this.refs.barcode.value);
+        this.validateAndSetDirty();
       });
 
       this.refs.scanButton.addEventListener("click", () => {
