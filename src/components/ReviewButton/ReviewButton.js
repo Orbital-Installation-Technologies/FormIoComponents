@@ -2950,71 +2950,8 @@ export default class ReviewButton extends FieldComponent {
         if (typeof this.root.redraw === "function") this.root.redraw();
       };
 
-      if (screenshotComp) {
-        this.component._screenshotPrev = {
-          hidden: screenshotComp.component.hidden,
-          visible: screenshotComp.visible,
-        };
-
-        screenshotComp.component.hidden = false;
-        if (typeof screenshotComp.setVisible === "function") {
-          screenshotComp.setVisible(true);
-        } else {
-          screenshotComp.visible = true;
-        }
-
-        const html = screenshotComp.render();
-        const tmp = document.createElement("div");
-        tmp.innerHTML = html;
-        const compEl = tmp.firstElementChild;
-        modal.querySelector("#screenshotContainer").appendChild(compEl);
-        screenshotComp.attach(compEl);
-      }
-
-
-      const onSubmitError = () => {
-        hideScreenshot();
-        this.root.off("submitError", onSubmitError);
-      };
-      this.root.on("submitError", onSubmitError);
-
-
-      const verifiedSelect = modal.querySelector("#verified");
-      const screenshotWrapper = modal.querySelector("#screenshotWrapper");
-      const notesOptionalWrapper = modal.querySelector("#notesOptionalWrapper");
-      const notesRequiredWrapper = modal.querySelector("#notesRequiredWrapper");
-
-      // Only set up verified select event listener if the element exists
-      if (verifiedSelect) {
-        verifiedSelect.onchange = () => {
-          const value = verifiedSelect.value;
-          const needShot = value === "App" || value === "Support";
-          screenshotWrapper.style.display = needShot ? "block" : "none";
-          notesOptionalWrapper.style.display = needShot ? "block" : "none";
-          notesRequiredWrapper.style.display = value === "Not Verified" ? "block" : "none";
-        };
-      }
-
-      modal.querySelector("#cancelModal").onclick = async () => {
-        hideScreenshot();
-
-        try {
-          await this.validateFormExternal({
-            showErrors: true,
-            scrollToError: true
-          });
-        } catch (validationError) {
-          console.error("Error during validation rerun after cancel:", validationError);
-        }
-
-        document.body.removeChild(modal);
-        this.root.off("submitError", onSubmitError);
-      };
-
-      // Only set up submit button event listener if the element exists
-      const submitButton = modal.querySelector("#submitModal");
-      if (submitButton) {
-        submitButton.onclick = async () => {
+      // Function to validate modal form and update submit button state
+      const validateModalForm = () => {
         let hasErrors = false;
 
         const verifiedElement = modal.querySelector("#verified");
@@ -3072,13 +3009,143 @@ export default class ReviewButton extends FieldComponent {
           submitButton.style.backgroundColor = "gray";
           submitButton.style.cursor = "not-allowed";
           submitButton.disabled = true;
-          alert("Please fill out all required fields correctly.");
-          return;
         } else {
           submitButton.style.backgroundColor = "";
           submitButton.style.cursor = "pointer";
           submitButton.disabled = false;
         }
+      };
+
+      if (screenshotComp) {
+        this.component._screenshotPrev = {
+          hidden: screenshotComp.component.hidden,
+          visible: screenshotComp.visible,
+        };
+
+        screenshotComp.component.hidden = false;
+        if (typeof screenshotComp.setVisible === "function") {
+          screenshotComp.setVisible(true);
+        } else {
+          screenshotComp.visible = true;
+        }
+
+        const html = screenshotComp.render();
+        const tmp = document.createElement("div");
+        tmp.innerHTML = html;
+        const compEl = tmp.firstElementChild;
+        modal.querySelector("#screenshotContainer").appendChild(compEl);
+        screenshotComp.attach(compEl);
+
+        // Add event listener for screenshot component changes
+        if (screenshotComp && typeof screenshotComp.on === 'function') {
+          screenshotComp.on('change', validateModalForm);
+        }
+      }
+
+
+      const onSubmitError = () => {
+        hideScreenshot();
+        this.root.off("submitError", onSubmitError);
+      };
+      this.root.on("submitError", onSubmitError);
+
+
+      const verifiedSelect = modal.querySelector("#verified");
+      const screenshotWrapper = modal.querySelector("#screenshotWrapper");
+      const notesOptionalWrapper = modal.querySelector("#notesOptionalWrapper");
+      const notesRequiredWrapper = modal.querySelector("#notesRequiredWrapper");
+
+      // Only set up verified select event listener if the element exists
+      if (verifiedSelect) {
+        verifiedSelect.onchange = () => {
+          const value = verifiedSelect.value;
+          const needShot = value === "App" || value === "Support";
+          screenshotWrapper.style.display = needShot ? "block" : "none";
+          notesOptionalWrapper.style.display = needShot ? "block" : "none";
+          notesRequiredWrapper.style.display = value === "Not Verified" ? "block" : "none";
+        };
+      }
+
+      modal.querySelector("#cancelModal").onclick = async () => {
+        hideScreenshot();
+
+        try {
+          await this.validateFormExternal({
+            showErrors: true,
+            scrollToError: true
+          });
+        } catch (validationError) {
+          console.error("Error during validation rerun after cancel:", validationError);
+        }
+
+        document.body.removeChild(modal);
+        this.root.off("submitError", onSubmitError);
+      };
+
+      // Add input event listeners to all form inputs in the modal
+      const addInputListeners = (element) => {
+        if (!element) return;
+
+        // Add listeners to input, textarea, and select elements
+        const inputs = element.querySelectorAll('input, textarea, select');
+        inputs.forEach(input => {
+          input.addEventListener('input', validateModalForm);
+          input.addEventListener('change', validateModalForm);
+        });
+
+        // Also add listener to the verified select that already exists
+        const verifiedSelect = modal.querySelector("#verified");
+        if (verifiedSelect) {
+          verifiedSelect.addEventListener('input', validateModalForm);
+          verifiedSelect.addEventListener('change', validateModalForm);
+        }
+      };
+
+      // Add listeners to the modal content
+      addInputListeners(modal);
+
+      // Only set up submit button event listener if the element exists
+      const submitButton = modal.querySelector("#submitModal");
+      submitButton.style.backgroundColor = "gray";
+      submitButton.style.cursor = "not-allowed";
+      submitButton.disabled = true;
+      if (submitButton) {
+        submitButton.onclick = async () => {
+          // Run validation before submitting
+          validateModalForm();
+
+          // Check if there are still errors after validation
+          const verifiedElement = modal.querySelector("#verified");
+          const selectedVerificationType = verifiedElement ? verifiedElement.value : "Empty";
+          let hasErrors = false;
+
+          if (verifiedElement && selectedVerificationType === "Empty") {
+            hasErrors = true;
+          }
+
+          const supportNumberElement = modal.querySelector("#supportNumber");
+          if (supportNumberElement && !supportNumberElement.value.trim()) {
+            hasErrors = true;
+          }
+
+          if (selectedVerificationType === "App" || selectedVerificationType === "Support") {
+            const screenshotComp = this.root.getComponent("screenshot");
+            const uploadedFiles = screenshotComp ? (screenshotComp.getValue() || []) : [];
+            if (uploadedFiles.length === 0) {
+              hasErrors = true;
+            }
+          }
+
+          if (selectedVerificationType === "Not Verified") {
+            const notesRequiredElement = modal.querySelector("#notesRequired");
+            if (notesRequiredElement && !notesRequiredElement.value.trim()) {
+              hasErrors = true;
+            }
+          }
+
+          if (hasErrors) {
+            return; // Don't submit if there are errors
+          }
 
 
         const notesRequired = modal.querySelector("#notesRequired")?.value || "";
