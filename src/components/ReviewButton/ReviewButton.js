@@ -1252,6 +1252,9 @@ export default class ReviewButton extends FieldComponent {
 
           if (comp?._visible == false || ((!comp?.component.reviewVisible && !comp?.component.validate.required) && !isAddressComponentEarly)) continue;
 
+          // Skip button components
+          if (comp.type === 'button' || comp.component?.type === 'button') continue;
+
           if (isContainerType(comp.component?.type) && Array.isArray(comp.rows) && comp.rows.length) {
 
             const dataMapPath = safePath(comp);
