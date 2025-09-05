@@ -96,7 +96,7 @@ export default class BarcodeScanner extends FieldComponent {
           <input
             ref="barcode"
             type="text"
-            class="form-control"
+            class="form-control${this.errors && this.errors.length ? ' is-invalid' : ''}"
             value="${this.dataValue || ""}"
             style="flex-grow:1; margin-right:10px;"
           />
@@ -106,11 +106,10 @@ export default class BarcodeScanner extends FieldComponent {
           <!-- File upload button removed -->
         </div>
         <!-- File input removed -->
-        ${this.errorMessage
-        ? `<div class="formio-errors">
-                 <div class="form-text error">${this.errorMessage}</div>
-               </div>`
-        : ""
+        ${this.errors && this.errors.length ? `
+          <div class="formio-errors">
+            <div class="form-text error">${this.errors[0].message}</div>
+          </div>` : ""
       }
         <div ref="quaggaModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1000; flex-direction:column; align-items:center; justify-content:center; padding:20px; box-sizing:border-box;">
           <div ref="modalContainer" style="position:relative; background:black; border-radius:8px; overflow:hidden; display:flex; flex-direction:column; max-width:100%; max-height:100%;">
@@ -156,6 +155,17 @@ export default class BarcodeScanner extends FieldComponent {
     `);
   }
 
+
+  validateAndSetDirty() {
+    this.setDirty(true);
+    const valid = this.checkValidity(this.data, true);
+    if (!valid) {
+      setTimeout(() => {
+        this.setCustomValidity(this.errors, true);
+      }, 500);
+    }
+  }
+
   attach(element) {
     const attached = super.attach(element);
 
@@ -184,8 +194,20 @@ export default class BarcodeScanner extends FieldComponent {
     }
 
     if (!this.component.disabled) {
+      const input = this.refs.barcode;
+
+      this.addEventListener(input, 'input', (event) => {
+        this.updateValue(event.target.value);
+        this.validateAndSetDirty();
+      });
+
+      this.addEventListener(input, 'click', () => {
+        this.validateAndSetDirty();
+      });
+
       this.refs.barcode.addEventListener("change", () => {
         this.updateValue(this.refs.barcode.value);
+        this.validateAndSetDirty();
       });
 
       this.refs.scanButton.addEventListener("click", () => {
@@ -429,37 +451,6 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
-  async openScanditModal() {
-    this._openModal();
-    this._lastCodes = [];
-    this._isVideoFrozen = false;
-
-    // Remove uploaded image if present
-    if (this._uploadedImageElement && this._uploadedImageElement.parentNode) {
-      this._uploadedImageElement.parentNode.removeChild(this._uploadedImageElement);
-      this._uploadedImageElement = null;
-    }
-    // Restore video if present
-    const video = this.refs.scanditContainer.querySelector('video');
-    if (video) video.style.display = '';
-
-    this.refs.freezeButton.innerHTML = '<i class="fa fa-camera" style="font-size: 24px;"></i>';
-    this.refs.freezeButton.style.background = "rgba(255,255,255,0.8)";
-    this.refs.freezeButton.style.display = "flex";
-
-    try {
-      if (!this._dataCaptureContext) {
-        await this._initializeScandit();
-      }
-      if (this._dataCaptureContext) {
-        await this._setupCamera();
-      }
-    } catch (error) {
-      this.errorMessage = "Failed to initialize scanner";
-      console.error(this.errorMessage, error);
-    }
-  }
-
   async _setupCamera() {
     try {
         // Use BarcodeBatch recommended settings for multi-barcode scanning
@@ -694,18 +685,6 @@ export default class BarcodeScanner extends FieldComponent {
         }, 50);
       }
 
-    } catch (error) {
-    }
-  }
-
-  _handleCameraResize() {
-    try {
-      this._cachedScaleFactors = null;
-      this._resizeBoundingBoxCanvas();
-
-      if (this._currentBarcodes && this._currentBarcodes.length > 0) {
-        this._drawBoundingBoxes(this._currentBarcodes);
-      }
     } catch (error) {
     }
   }
@@ -1116,15 +1095,11 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
-  _startContinuousTracking() {}
-  _stopContinuousTracking() {}
 
   detach() {
     // Stop live scanning mode
     this._stopLiveScanningMode();
 
-    // Stop continuous tracking
-    this._stopContinuousTracking();
 
     // Clean up resize handler
     if (this._resizeHandler) {
