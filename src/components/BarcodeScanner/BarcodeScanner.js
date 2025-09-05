@@ -451,37 +451,6 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
-  async openScanditModal() {
-    this._openModal();
-    this._lastCodes = [];
-    this._isVideoFrozen = false;
-
-    // Remove uploaded image if present
-    if (this._uploadedImageElement && this._uploadedImageElement.parentNode) {
-      this._uploadedImageElement.parentNode.removeChild(this._uploadedImageElement);
-      this._uploadedImageElement = null;
-    }
-    // Restore video if present
-    const video = this.refs.scanditContainer.querySelector('video');
-    if (video) video.style.display = '';
-
-    this.refs.freezeButton.innerHTML = '<i class="fa fa-camera" style="font-size: 24px;"></i>';
-    this.refs.freezeButton.style.background = "rgba(255,255,255,0.8)";
-    this.refs.freezeButton.style.display = "flex";
-
-    try {
-      if (!this._dataCaptureContext) {
-        await this._initializeScandit();
-      }
-      if (this._dataCaptureContext) {
-        await this._setupCamera();
-      }
-    } catch (error) {
-      this.errorMessage = "Failed to initialize scanner";
-      console.error(this.errorMessage, error);
-    }
-  }
-
   async _setupCamera() {
     try {
         // Use BarcodeBatch recommended settings for multi-barcode scanning
@@ -716,18 +685,6 @@ export default class BarcodeScanner extends FieldComponent {
         }, 50);
       }
 
-    } catch (error) {
-    }
-  }
-
-  _handleCameraResize() {
-    try {
-      this._cachedScaleFactors = null;
-      this._resizeBoundingBoxCanvas();
-
-      if (this._currentBarcodes && this._currentBarcodes.length > 0) {
-        this._drawBoundingBoxes(this._currentBarcodes);
-      }
     } catch (error) {
     }
   }
@@ -1138,15 +1095,11 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
-  _startContinuousTracking() {}
-  _stopContinuousTracking() {}
 
   detach() {
     // Stop live scanning mode
     this._stopLiveScanningMode();
 
-    // Stop continuous tracking
-    this._stopContinuousTracking();
 
     // Clean up resize handler
     if (this._resizeHandler) {
