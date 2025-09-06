@@ -2099,7 +2099,14 @@ export default class ReviewButton extends FieldComponent {
                     tableHtml += `<td style="border:1px solid #ccc;padding:4px;">`;
                     colObj._row.forEach(cellObj => {
                       if (cellObj._children) {
-                        tableHtml += `<strong>${cellObj._children._label}:</strong> ${cellObj._children._value ?? ''}`;
+                        const formattedValue = formatValue(cellObj._children._value, cellObj._children._comp);
+                        if (cellObj && cellObj._children && cellObj._children._type && cellObj._children._type === 'textarea') {
+                          // Special handling for textarea components in table
+                          const textareaContent = formattedValue.replace(/__TEXTAREA__/g, '');
+                          tableHtml += `<div style="display: flex; align-items: flex-start;"><strong>${cellObj._children._label}:</strong>${textareaContent}</div>`;
+                        } else {
+                          tableHtml += `<strong>${cellObj._children._label}:</strong> ${formattedValue ?? ''}`;
+                        }
                       }
                       if(colObj._row.length > 1){
                         tableHtml += `<br/>`;
@@ -2117,7 +2124,12 @@ export default class ReviewButton extends FieldComponent {
             return tableHtml;
           }
 
-          if(comp?._type === 'container') console.log("test container", value, comp)
+          if (comp?.type === 'textarea' || comp?.component?.type === 'textarea' || (value && typeof value === 'string' && value.includes('\n')))  {
+            if (value === null || value === undefined || value === '') return '';
+            const formattedValue = String(value).replace(/\n/g, '<br/>'); // Preserve line breaks
+            // Return with special marker for textarea components
+            return `__TEXTAREA__${formattedValue}__TEXTAREA__`;
+          }
 
           if (comp?.type === 'survey' || comp?.component?.type === 'survey') {
             let surveyHTML = '<div idx="7" style="padding-left: 10px;">';
@@ -2209,13 +2221,6 @@ export default class ReviewButton extends FieldComponent {
             if (value === null || value === undefined || value === '') return '';
             const passwordLength = String(value).length;
             return '•'.repeat(passwordLength); // Show one dot per character
-          }
-
-          if (comp?.type === 'textarea' || comp?.component?.type === 'textarea') {
-            if (value === null || value === undefined || value === '') return '';
-            const formattedValue = String(value).replace(/\n/g, '<br/>'); // Preserve line breaks
-            // Return special marker for textarea components - flex layout handled in rendering
-            return `<div style="display: flex; align-items: flex-start;"><div style="flex: 1;">${formattedValue}</div></div>`;
           }
 
           if (value === false) return 'No';
@@ -2486,11 +2491,12 @@ export default class ReviewButton extends FieldComponent {
                 `;
               } else if (isTagpadDot) {
                 return `<div idx="5" depth="${depth}" style="${pad}"><strong style="${getInvalidStyle(v.__comp, k, basePath)}">${v.__label || k}:</strong> ${val}</div>`;
-              } else if (val && typeof val === 'string' && val.includes('<div style="display: flex; align-items: flex-start;">')) {
-                // Special handling for textarea components with flex layout
-                return `<div idx="6" depth="${depth}" style="${pad}; display: flex; align-items: flex-start;">
-                          <strong style="${getInvalidStyle(v.__comp, k, basePath)}; margin-right: 8px;">${v.__label || k}:</strong>
-                          ${val}
+              } else if (val && typeof val === 'string' && val.includes('__TEXTAREA__')) {
+                // Special handling for textarea components
+                const textareaContent = val.replace(/__TEXTAREA__/g, '');
+                return `<div idx="6" depth="${depth}" style="${pad} display: flex; align-items: flex-start;">
+                          <strong style="${getInvalidStyle(v.__comp, k, basePath)}">${v.__label || k}:</strong>
+                          ${textareaContent}
                         </div>`;
               } else {
                 return `<div idx="6" depth="${depth}" style="${pad}"><strong style="${getInvalidStyle(v.__comp, k, basePath)}">${v.__label || k}:</strong> ${val}</div>`;
@@ -2654,7 +2660,16 @@ export default class ReviewButton extends FieldComponent {
                       if (cell.__leaf) {
                         const val = firstLeafVal(cell);
                         const cellPath = `${k}[${rowIdx}].${colKey}`;
-                        cellContent = `<div idx="20" style="${padCol}"><strong style="${getInvalidStyle(cell.__comp, colKey, `${k}[${rowIdx}]`)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${val}</div>`;
+                        if (val && typeof val === 'string' && val.includes('__TEXTAREA__')) {
+                          // Special handling for textarea components in table cells
+                          const textareaContent = val.replace(/__TEXTAREA__/g, '');
+                          cellContent = `<div idx="20" style="${padCol}">
+                                          <strong style="${getInvalidStyle(cell.__comp, colKey, `${k}[${rowIdx}]`)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong><br/>
+                                          ${textareaContent}
+                                        </div>`;
+                        } else {
+                          cellContent = `<div idx="20" style="${padCol}"><strong style="${getInvalidStyle(cell.__comp, colKey, `${k}[${rowIdx}]`)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${val}</div>`;
+                        }
                       } else {
                         // Handle nested content in multi-column case
                         const nestedHtml = renderNode(cell?.__children || {}, depth + 1, rootInstance, invalidFields, `${k}[${rowIdx}].${colKey}`);
@@ -2669,8 +2684,17 @@ export default class ReviewButton extends FieldComponent {
                   } else {
                     const onlyKey = orderedKeys[0];
                     const cell = row.__children[onlyKey];
+                    const val = cell?.__leaf ? firstLeafVal(cell) : null;
                     const inner = cell?.__leaf
-                      ? `<div idx="21" style="${padRow}"><strong style="${getInvalidStyle(cell.__comp, onlyKey, `${k}[${rowIdx}]`)}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong> ${firstLeafVal(cell)}</div>`
+                      ? (val && typeof val === 'string' && val.includes('__TEXTAREA__'))
+                        ? (() => {
+                            const textareaContent = val.replace(/__TEXTAREA__/g, '');
+                            return `<div idx="21" style="${padRow}">
+                                     <strong style="${getInvalidStyle(cell.__comp, onlyKey, `${k}[${rowIdx}]`)}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong><br/>
+                                     ${textareaContent}
+                                   </div>`;
+                          })()
+                        : `<div idx="21" style="${padRow}"><strong style="${getInvalidStyle(cell.__comp, onlyKey, `${k}[${rowIdx}]`)}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong> ${val}</div>`
                       : renderNode(cell?.__children || {}, depth + 1, rootInstance, invalidFields, `${k}[${rowIdx}].${onlyKey}`);
                     return `<li style="margin-left:0 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;', '')}"><strong style="${rowLabelStyle}">Row ${rowIdx + 1}:</strong>${inner}</li>`;
                   }
