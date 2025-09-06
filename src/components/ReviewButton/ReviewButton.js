@@ -2211,6 +2211,12 @@ export default class ReviewButton extends FieldComponent {
             return '•'.repeat(passwordLength); // Show one dot per character
           }
 
+          if (comp?.type === 'textarea' || comp?.component?.type === 'textarea') {
+            console.log("textarea", comp, value)
+            if (value === null || value === undefined || value === '') return '';
+            return String(value).replace(/\n/g, '<br/>'); // Preserve line breaks
+          }
+
           if (value === false) return 'No';
           if (value === true) return 'Yes';
           return value ?? '';
