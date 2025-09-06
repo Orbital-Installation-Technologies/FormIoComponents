@@ -2212,9 +2212,10 @@ export default class ReviewButton extends FieldComponent {
           }
 
           if (comp?.type === 'textarea' || comp?.component?.type === 'textarea') {
-            console.log("textarea", comp, value)
             if (value === null || value === undefined || value === '') return '';
-            return String(value).replace(/\n/g, '<br/>'); // Preserve line breaks
+            const formattedValue = String(value).replace(/\n/g, '<br/>'); // Preserve line breaks
+            // Return special marker for textarea components - flex layout handled in rendering
+            return `<div style="display: flex; align-items: flex-start;"><div style="flex: 1;">${formattedValue}</div></div>`;
           }
 
           if (value === false) return 'No';
@@ -2485,6 +2486,12 @@ export default class ReviewButton extends FieldComponent {
                 `;
               } else if (isTagpadDot) {
                 return `<div idx="5" depth="${depth}" style="${pad}"><strong style="${getInvalidStyle(v.__comp, k, basePath)}">${v.__label || k}:</strong> ${val}</div>`;
+              } else if (val && typeof val === 'string' && val.includes('<div style="display: flex; align-items: flex-start;">')) {
+                // Special handling for textarea components with flex layout
+                return `<div idx="6" depth="${depth}" style="${pad}; display: flex; align-items: flex-start;">
+                          <strong style="${getInvalidStyle(v.__comp, k, basePath)}; margin-right: 8px;">${v.__label || k}:</strong>
+                          ${val}
+                        </div>`;
               } else {
                 return `<div idx="6" depth="${depth}" style="${pad}"><strong style="${getInvalidStyle(v.__comp, k, basePath)}">${v.__label || k}:</strong> ${val}</div>`;
               }
