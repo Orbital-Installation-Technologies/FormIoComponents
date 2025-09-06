@@ -2205,6 +2205,12 @@ export default class ReviewButton extends FieldComponent {
             }).format(numValue);
           }
 
+          if (comp?.type === 'password' || comp?.component?.type === 'password') {
+            if (value === null || value === undefined || value === '') return '';
+            const passwordLength = String(value).length;
+            return '•'.repeat(passwordLength); // Show one dot per character
+          }
+
           if (value === false) return 'No';
           if (value === true) return 'Yes';
           return value ?? '';
