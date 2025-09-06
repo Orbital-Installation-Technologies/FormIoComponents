@@ -3034,14 +3034,16 @@ export default class ReviewButton extends FieldComponent {
         }
 
         const submitButton = modal.querySelector("#submitModal");
-        if (hasErrors) {
-          submitButton.style.backgroundColor = "gray";
-          submitButton.style.cursor = "not-allowed";
-          submitButton.disabled = true;
-        } else {
-          submitButton.style.backgroundColor = "";
-          submitButton.style.cursor = "pointer";
-          submitButton.disabled = false;
+        if(submitButton && submitButton.style){
+          if (hasErrors) {
+            submitButton.style.backgroundColor = "gray";
+            submitButton.style.cursor = "not-allowed";
+            submitButton.disabled = true;
+          } else {
+            submitButton.style.backgroundColor = "";
+            submitButton.style.cursor = "pointer";
+            submitButton.disabled = false;
+          }
         }
       };
 
