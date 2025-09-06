@@ -2195,6 +2195,16 @@ export default class ReviewButton extends FieldComponent {
             try { return JSON.stringify(value); } catch { return String(value); }
           }
 
+          if (comp?.type === 'currency' || comp?.component?.type === 'currency') {
+            if (value === null || value === undefined || value === '') return '';
+            const numValue = typeof value === 'number' ? value : parseFloat(value);
+            if (isNaN(numValue)) return value ?? '';
+            return new Intl.NumberFormat('en-US', {
+              style: 'currency',
+              currency: 'USD'
+            }).format(numValue);
+          }
+
           if (value === false) return 'No';
           if (value === true) return 'Yes';
           return value ?? '';
