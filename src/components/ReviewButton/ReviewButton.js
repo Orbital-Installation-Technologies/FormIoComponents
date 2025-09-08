@@ -1562,7 +1562,8 @@ export default class ReviewButton extends FieldComponent {
           const isTagpadComponent = comp.type === 'tagpad' || comp.component?.type === 'tagpad' || isInTagpadForm;
 
           // Skip content and htmlelement components
-          const isContentComponent = isContainerType([comp?.type, comp?.component?.type]);
+          const isContentComponent = comp?.type === 'content' || comp?.component?.type === 'content' ||
+                                     comp?.type === 'htmlelement' || comp?.component?.type === 'htmlelement';
 
           // Extra check to ensure we don't get duplicate fields from datatables/datagrids
           const componentPath = safePath(comp);
@@ -1573,7 +1574,7 @@ export default class ReviewButton extends FieldComponent {
           // Check if this is a form or panel component
           const isFormComponent = comp.type === 'form' || comp.component?.type === 'form';
           const isPanelComponent = comp.type === 'panel' || comp.component?.type === 'panel';
-          const componentType = comp.type || comp.component?.type;
+          const componentType = comp.component?.type || comp.type;
 
           // Skip flattened containers from being processed as regular containers
           if (shouldFlattenContainer(componentType)) {
@@ -1637,7 +1638,7 @@ export default class ReviewButton extends FieldComponent {
             !isContentComponent &&
             !isGridChild &&
             comp.visible !== false &&
-            (comp.component?.reviewVisible === true || comp?.component.validate.required || isTagpadComponent || isFormComponent || isPanelComponent || isContainerComponent || isAddressComponentMain)
+            (comp.component?.reviewVisible === true || comp?.component.validate?.required || isTagpadComponent || isFormComponent || isPanelComponent || isContainerComponent || isAddressComponentMain)
           ) {
             let componentValue;
             if (isFormComponent) {
