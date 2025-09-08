@@ -2223,6 +2223,63 @@ export default class ReviewButton extends FieldComponent {
             return '•'.repeat(passwordLength); // Show one dot per character
           }
 
+          // Handle datetime, date, and time components
+          if (comp?.type === 'datetime' || comp?.component?.type === 'datetime' || 
+              comp?.type === 'date' || comp?.component?.type === 'date' ||
+              comp?.type === 'time' || comp?.component?.type === 'time') {
+            if (value === null || value === undefined || value === '') return '';
+            
+            try {
+              let date;
+              
+              // Special handling for time-only values
+              if (comp?.type === 'time' || comp?.component?.type === 'time') {
+                // Time values might be in format "HH:MM:SS" or "HH:MM"
+                if (typeof value === 'string' && /^\d{1,2}:\d{2}(:\d{2})?$/.test(value)) {
+                  // Create a date object with today's date and the specified time
+                  const today = new Date().toISOString().split('T')[0]; // Get today in YYYY-MM-DD format
+                  date = new Date(`${today}T${value}`);
+                } else {
+                  date = new Date(value);
+                }
+              } else {
+                date = new Date(value);
+              }
+              
+              if (isNaN(date.getTime())) return value; // Return original value if not a valid date
+              
+              // Format based on component type
+              if (comp?.type === 'datetime' || comp?.component?.type === 'datetime') {
+                // Format as: MM/DD/YYYY HH:MM AM/PM
+                return date.toLocaleString('en-US', {
+                  month: '2-digit',
+                  day: '2-digit', 
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: true
+                });
+              } else if (comp?.type === 'date' || comp?.component?.type === 'date') {
+                // Format as: MM/DD/YYYY
+                return date.toLocaleDateString('en-US', {
+                  month: '2-digit',
+                  day: '2-digit',
+                  year: 'numeric'
+                });
+              } else if (comp?.type === 'time' || comp?.component?.type === 'time') {
+                // Format as: HH:MM AM/PM (convert from military time)
+                return date.toLocaleTimeString('en-US', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: true
+                });
+              }
+            } catch (e) {
+              console.warn('Error formatting date/time value:', e);
+              return value; // Return original value if formatting fails
+            }
+          }
+
           if (value === false) return 'No';
           if (value === true) return 'Yes';
           return value ?? '';
