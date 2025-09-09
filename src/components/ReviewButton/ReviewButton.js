@@ -229,7 +229,34 @@ export default class ReviewButton extends FieldComponent {
 
       this.root.everyComponent(component => {
         if (component.checkValidity) {
-          const valid = component.checkValidity(component.data, true);
+          // Special handling for address components
+          const isAddressComponent = component.component?.type === 'address' || component.type === 'address';
+          
+          let valid = true;
+          if (isAddressComponent && component.component?.validate?.required) {
+            // For address components, check if formattedPlace is empty instead of relying on standard validation
+            const addressValue = component.dataValue?.formattedPlace;
+            const isAddressEmpty = !addressValue || addressValue.trim() === '';
+            
+            if (isAddressEmpty) {
+              valid = false;
+              // Create validation error for empty required address
+              if (!component.errors) component.errors = [];
+              const addressError = `${component.component?.label || component.key} is required.`;
+              if (!component.errors.includes(addressError)) {
+                component.errors.push(addressError);
+              }
+              setTimeout(() => {
+                component.setCustomValidity(component.errors, true);
+                component.redraw();
+              }, 5000);
+            } else {
+              valid = component.checkValidity();
+            }
+          } else {
+            valid = component.checkValidity();
+          }
+          
           if (!valid) {
             isValid = false;
             component.setCustomValidity(component.errors, true);
@@ -383,7 +410,39 @@ export default class ReviewButton extends FieldComponent {
 
       this.markComponentAsDirty(component);
 
-      const isValid = component.checkValidity ? component.checkValidity(component.data, true) : true;
+      // Special handling for address components
+      const isAddressComponent = component.component?.type === 'address' || component.type === 'address';
+      let isValid = true;
+      
+      if (component.checkValidity) {
+        if (isAddressComponent && component.component?.validate?.required) {
+          // For address components, check if formattedPlace is empty instead of relying on standard validation
+          const addressValue = component.dataValue?.formattedPlace;
+          const isAddressEmpty = !addressValue || addressValue.trim() === '';
+          
+            if (isAddressEmpty) {
+              isValid = false;
+              // Create validation error for empty required address
+              if (!component.errors) component.errors = [];
+              const addressError = `${component.component?.label || component.key} is required.`;
+              if (!component.errors.includes(addressError)) {
+                component.errors.push(addressError);
+              }
+              // Force the address component to show its error
+              if (component.setCustomValidity) {
+                component.setCustomValidity(component.errors, true);
+              }
+              // Trigger component redraw to show error
+              if (component.redraw) {
+                component.redraw();
+              }
+            } else {
+            isValid = component.checkValidity();
+          }
+        } else {
+          isValid = component.checkValidity();
+        }
+      }
 
       this.recordComponentValidationResult(
         results,
@@ -487,8 +546,24 @@ export default class ReviewButton extends FieldComponent {
           try {
             const shouldValidate = c.checkValidity && c.visible !== false && !c.disabled;
 
-            if (shouldValidate && !c.checkValidity(c.data, false)) {
-              isValid = false;
+            if (shouldValidate) {
+              // Special handling for address components
+              const isAddressComponent = c.component?.type === 'address' || c.type === 'address';
+              
+              if (isAddressComponent && c.component?.validate?.required) {
+                // For address components, check if formattedPlace is empty instead of relying on standard validation
+                const addressValue = c.dataValue?.formattedPlace;
+                const isAddressEmpty = !addressValue || addressValue.trim() === '';
+                
+                if (isAddressEmpty) {
+                  isValid = false;
+                }
+              } else {
+                // Standard validation for non-address components
+                if (!c.checkValidity()) {
+                  isValid = false;
+                }
+              }
             }
           } catch { }
         });
@@ -570,10 +645,43 @@ export default class ReviewButton extends FieldComponent {
         if (!component.visible || component.disabled) return;
 
         if (component.checkValidity) {
-          const isValid = component.checkValidity(component.data, true);
-
-          if (!isValid) {
-            this.processComponentErrors(component, errorMap, results, opts.showErrors);
+          // Special handling for address components
+          const isAddressComponent = component.component?.type === 'address' || component.type === 'address';
+          
+          if (isAddressComponent && component.component?.validate?.required) {
+            // For address components, check if formattedPlace is empty instead of relying on standard validation
+            const addressValue = component.dataValue?.formattedPlace;
+            const isAddressEmpty = !addressValue || addressValue.trim() === '';
+            
+            if (isAddressEmpty) {
+              // Manually create validation error for empty required address
+              if (!component.errors) component.errors = [];
+              const addressError = `${component.component?.label || component.key} is required.`;
+              if (!component.errors.includes(addressError)) {
+                component.errors.push(addressError);
+              }
+              // Force the address component to show its error immediately
+              if (component.setCustomValidity) {
+                component.setCustomValidity(component.errors, true);
+              }
+              // Trigger component redraw to show error
+              if (component.redraw) {
+                component.redraw();
+              }
+              this.processComponentErrors(component, errorMap, results, opts.showErrors);
+            } else {
+              // Address has value, run normal validation
+              const isValid = component.checkValidity();
+              if (!isValid) {
+                this.processComponentErrors(component, errorMap, results, opts.showErrors);
+              }
+            }
+          } else {
+            // Standard validation for non-address components
+            const isValid = component.checkValidity();
+            if (!isValid) {
+              this.processComponentErrors(component, errorMap, results, opts.showErrors);
+            }
           }
 
           if (opts.includeWarnings && component.warnings && component.warnings.length) {
