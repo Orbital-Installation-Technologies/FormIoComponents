@@ -10,7 +10,7 @@ const FieldComponent = Components.components.field;
  * @returns {boolean} True if any of the component types is a container type (and not excluded)
  */
 const isContainerType = (t, exclude = []) => {
-  const containerTypes = ['panel', 'columns', 'well', 'datagrid',
+  const containerTypes = ['panel', 'columns', 'well',
                          'fieldset', 'datamap', 'editgrid', 'table', 'tabs', 
                          'row', 'column', 'content', 'htmlelement',];
   
@@ -51,7 +51,6 @@ const shouldFlattenContainer = (t) => {
  * @returns {Object|null} - Found component or null if not found
  */
 function findComponentByKey(root, targetKey, currentPath = '') {
-  console.log("findComponentByKey", root, targetKey, currentPath)
   if (!root || !targetKey) return null;
 
   // Check if current component matches the key
@@ -96,10 +95,8 @@ function findComponentByKey(root, targetKey, currentPath = '') {
           const child = row.components[j];
           if (child) {
             const rowPath = currentPath ? `${currentPath}[${i}].${child.key || child.component?.key || j}` : `[${i}].${child.key || child.component?.key || j}`;
-            console.log("rowPath", rowPath)
             const found = findComponentByKey(child, targetKey, rowPath);
             if (found) {
-              console.log("!!!found", found)
               return found;
             }
           }
@@ -1168,7 +1165,6 @@ export default class ReviewButton extends FieldComponent {
               if (!colKey || rowDone.has(colKey)) return;
 
               const val = typeof rowObj === 'object' ? rowObj[colKey] : '';
-              console.log("colKey", colKey, "colLabel", colLabel, "val", val)
               rowData.push({
                 _children: {
                   _label: colLabel,
@@ -1184,7 +1180,6 @@ export default class ReviewButton extends FieldComponent {
 
             tableRows.push({ _row: rowData });
           });
-          console.log("label3", label, "key", key, "componentType", componentType, "tableRows", tableRows)
           return {
             _label: label,
             _key: key,
@@ -1223,7 +1218,6 @@ export default class ReviewButton extends FieldComponent {
           .map(child => {
             const childKey = child.key || child.path || '';
             const childValue = child.dataValue || (data[childKey] || '');
-            console.log("childKey", childKey, "childValue", childValue)
             return {
               _children: {
                 _label: child.label || child.key || 'Unnamed',
@@ -1234,7 +1228,6 @@ export default class ReviewButton extends FieldComponent {
               }
             };
           });
-          console.log("label2", label, "key", key, "componentType", componentType, "tableRows", tableRows)
           return {
             _label: label,
             _key: key,
@@ -1242,7 +1235,6 @@ export default class ReviewButton extends FieldComponent {
             _row: containerItems
           };
         }
-        console.log("label1", label, "key", key, "componentType", componentType, "tableRows", tableRows)
         return {
           _label: label,
           _key: key,
@@ -1327,7 +1319,6 @@ export default class ReviewButton extends FieldComponent {
         const processedPaths = new Set();
 
         const enqueueAll = (f) => {
-          console.log("enqueueAll", f)
           if (!f || !f.everyComponent) {
             return;
           }
@@ -1350,15 +1341,9 @@ export default class ReviewButton extends FieldComponent {
         while (queue.length) {
           const comp = queue.shift();
           if (!comp) continue;
-          console.log("comp", comp)
 
           // Check if this is an Address component
           const isAddressComponentEarly = comp.component?.type === 'address' || comp.type === 'address';
-
-          // Debug logging for Address components
-          if (isAddressComponentEarly) {
-            console.log('Processing Address component:', comp.key, comp.component?.label, 'visible:', comp.visible, '_visible:', comp._visible, 'reviewVisible:', comp.component?.reviewVisible, 'required:', comp.component?.validate?.required);
-          }
 
           // Check if this is an EditGrid component
           const isEditGridComponentEarly = comp.component?.type === 'editgrid' || comp.type === 'editgrid';
@@ -1382,7 +1367,6 @@ export default class ReviewButton extends FieldComponent {
                 // Get key and value
                 const key = keyComp ? (keyComp.getValue ? keyComp.getValue() : keyComp.dataValue) : '';
                 const value = valueComp ? (valueComp.getValue ? valueComp.getValue() : valueComp.dataValue) : '';
-                console.log("key", key, "value", value)
                 // Push key leaf
                 if(!key) return;
                 pushLeaf({
@@ -1408,23 +1392,18 @@ export default class ReviewButton extends FieldComponent {
 
           if (comp.component?.type === 'editgrid') {
             const gridPath = safePath(comp);
-            console.log(`EditGrid gridPath: ${gridPath}`)
             indexByPathMap.set(gridPath, topIndexFor(comp));
 
             // Set up meta information for editgrid rendering
             let colDefs = Array.isArray(comp.components) ? comp.components : [];
             const columnKeys = colDefs.map(c => c.key || c.path || c.component?.key || '');
             const columnLabels = colDefs.map(c => c.label || c.component?.label || c.key || '');
-            console.log(`EditGrid ${gridPath} - colDefs:`, colDefs.map(c => ({ key: c.key, label: c.label })))
-            console.log(`EditGrid ${gridPath} - columnKeys:`, columnKeys)
-            console.log(`EditGrid ${gridPath} - columnLabels:`, columnLabels)
 
             const editgridMeta = {
               kind: 'editgrid',
               columnKeys,
               columnLabels
             };
-            console.log(`Setting metadata for EditGrid at path ${gridPath}:`, editgridMeta)
             metaByPathMap.set(gridPath, editgridMeta);
 
             // Create the editgrid parent container first to ensure proper row structure
@@ -1440,7 +1419,6 @@ export default class ReviewButton extends FieldComponent {
             if (Array.isArray(comp.editRows) && comp.editRows.length) {
               comp.editRows.forEach((r, rIdx) => {
                 (r.components || []).forEach((ch) => {
-                  console.log("ch", ch)
                   // Try different value sources for edit grid components
                   let value = null;
                   if ('getValue' in ch && typeof ch.getValue === 'function') {
@@ -1452,7 +1430,6 @@ export default class ReviewButton extends FieldComponent {
                   }
 
                   const chPath = `${gridPath}[${rIdx}].${ch.key || 'Missing Value 4'}`;
-                  console.log("pushinglead", chPath, "label", ch.component?.label || ch.label || ch.key || 'Missing Value 4', "value", value)
                   pushLeaf({
                     comp: comp,
                     path: chPath,
@@ -1476,7 +1453,6 @@ export default class ReviewButton extends FieldComponent {
           if (comp.type === 'form') {
             if (comp.subFormReady) await comp.subFormReady;
 
-            const containerTitle = comp.formObj?.title || comp.component?.label || comp.key || 'Form';
             const formContainerPath = safePath(comp);
 
             indexByPathMap.set(formContainerPath, topIndexFor(comp));
@@ -1496,18 +1472,13 @@ export default class ReviewButton extends FieldComponent {
 
           if (comp.component?.type === 'datagrid' || comp.component?.type === 'datatable') {
             const gridPath = safePath(comp);
-            console.log(`📊 PROCESSING ${comp.component?.type.toUpperCase()}: ${gridPath}`)
             indexByPathMap.set(gridPath, topIndexFor(comp));
 
             let colDefs = Array.isArray(comp.components) ? comp.components : [];
             const columnKeys = colDefs.map(c => c.key || c.path || c.component?.key || '');
             const columnLabels = colDefs.map(c => c.label || c.component?.label || c.key || '');
-            console.log(`DataGrid ${gridPath} - colDefs:`, colDefs.map(c => ({ key: c.key, label: c.label })))
-            console.log(`DataGrid ${gridPath} - columnKeys:`, columnKeys)
-            console.log(`DataGrid ${gridPath} - columnLabels:`, columnLabels)
 
             const pushValueLeaf = (node, basePath) => {
-              console.log("node", node, "basePath", basePath)
               pushLeaf({
                 comp: node,
                 path: basePath,
@@ -1560,7 +1531,6 @@ export default class ReviewButton extends FieldComponent {
               columnKeys,
               columnLabels
             };
-            console.log(`Setting metadata for DataGrid at path ${gridPath}:`, datagridMeta)
             metaByPathMap.set(gridPath, datagridMeta);
 
             if (comp.component?.type === 'datatable') {
@@ -1578,7 +1548,6 @@ export default class ReviewButton extends FieldComponent {
                   const cLabel = columnLabels[i] || cKey;
                   if (!cKey || rowDone.has(cKey)) return;
                   const val = rowObj?.[cKey];
-                  console.log("cKey", cKey, "cLabel", cLabel, "val", val)
                   pushLeaf({
                     comp: comp,
                     path: `${gridPath}[${rIdx}].${cKey}`,
@@ -1607,7 +1576,7 @@ export default class ReviewButton extends FieldComponent {
               comp.rows.forEach((row, rIdx) => {
                 Object.entries(row).forEach(([colKey, cellComp]) => {
                   const base = `${gridPath}[${rIdx}].${colKey}`;
-                  //flattenCell(cellComp, base);
+                  flattenCell(cellComp, base);
                 });
               });
             }
@@ -1820,11 +1789,6 @@ export default class ReviewButton extends FieldComponent {
           // Check if this is an Address component
           const isAddressComponentMain = comp.component?.type === 'address' || comp.type === 'address';
 
-          // Debug logging for Address components in main filter
-          if (isAddressComponentMain) {
-            console.log('Address component in main filter:', comp.key, 'parentIsHandled:', parentIsHandled, 'isContentComponent:', isContentComponent, 'isGridChild:', isGridChild, 'visible:', comp.visible);
-          }
-
           if (
             !parentIsHandled &&
             !isContentComponent &&
@@ -1846,7 +1810,6 @@ export default class ReviewButton extends FieldComponent {
             // Debug logging when adding Address component to leaves
             if (isAddressComponentMain) {
               componentValue = comp.dataValue?.formattedPlace || "";
-              console.log('Adding Address component to leaves:', comp.key, 'path:', comp.__reviewPath || safePath(comp) || comp.key, 'value:', componentValue);
             }
 
             pushLeaf({
@@ -1924,11 +1887,7 @@ export default class ReviewButton extends FieldComponent {
         const metaByPath = {};
         metaByPathMap.forEach((value, key) => {
           metaByPath[key] = value;
-          if (key.includes('editGrid') || key.includes('dataGrid') || key.includes('dataTable')) {
-            console.log(`Converting metadata map to object for ${key}:`, value)
-          }
         });
-        console.log('metaByPath object after conversion:', metaByPathMap, labelByPathMap)
         const indexByPath = {};
         indexByPathMap.forEach((value, key) => {
           indexByPath[key] = value;
@@ -2044,18 +2003,15 @@ export default class ReviewButton extends FieldComponent {
         function setNodeMetaForPath(node, containerPath) {
           const m = metaByPath && metaByPath[containerPath];
           if (containerPath.includes('editGrid') || containerPath.includes('dataGrid') || containerPath.includes('dataTable')) {
-            console.log(`setNodeMetaForPath called for grid path: ${containerPath}, metadata:`, m, `node current __kind:`, node.__kind)
           }
           if (m) {
             if (!node.__kind) {
-              console.log(`Applying metadata to ${containerPath}: kind=${m.kind}`)
               node.__kind = m.kind;
             }
             // Always apply column metadata for data grid components
             if (m.kind === 'editgrid' || m.kind === 'datagrid' || m.kind === 'datatable') {
               node.__colKeys = m.columnKeys || [];
               node.__colLabels = m.columnLabels || [];
-              console.log(`Applied column metadata to ${containerPath}: colKeys=${JSON.stringify(node.__colKeys)}, colLabels=${JSON.stringify(node.__colLabels)}`)
             }
           }
         }
@@ -2073,12 +2029,10 @@ export default class ReviewButton extends FieldComponent {
 
           // First try exact match
           if (invalidFields.has(fieldPath)) {
-            console.log('Exact match found for path:', fieldPath);
             return true;
           }
 
           if(comp?._errors && comp._errors.length > 0) {
-            console.log("comp._errors", comp._errors)
             return true;
           }
 
@@ -2087,14 +2041,12 @@ export default class ReviewButton extends FieldComponent {
           if (fieldPath && !fieldPath.startsWith('form.')) {
             const nestedPath = `form.data.${fieldPath}`;
             if (invalidFields.has(nestedPath)) {
-              console.log('Nested match found:', fieldPath, '->', nestedPath);
               return true;
             }
 
             // Also try other common nested patterns
             const altNestedPath = `data.${fieldPath}`;
             if (invalidFields.has(altNestedPath)) {
-              console.log('Alt nested match found:', fieldPath, '->', altNestedPath);
               return true;
             }
           }
@@ -2103,14 +2055,12 @@ export default class ReviewButton extends FieldComponent {
           if (fieldPath && fieldPath.startsWith('form.data.')) {
             const simplifiedPath = fieldPath.replace('form.data.', '');
             if (invalidFields.has(simplifiedPath)) {
-              console.log('Simplified match found:', fieldPath, '->', simplifiedPath);
               return true;
             }
           }
 
           // Debug: log when no match is found
           if (fieldPath) {
-            console.log('No match found for path:', fieldPath, 'Available paths:', Array.from(invalidFields));
           }
 
           return false;
@@ -2148,12 +2098,10 @@ export default class ReviewButton extends FieldComponent {
           // Try to find any match
           for (const testPath of pathsToTry) {
             if (isFieldInvalid(comp, testPath)) {
-              console.log('✅ Path match found:', testPath, 'from attempts:', pathsToTry);
               return 'background-color:rgb(255 123 123); border-radius: 3px;';
             }
           }
 
-          console.log('❌ No path match found for:', path, 'with basePath:', basePath, 'tried paths:', pathsToTry);
           return '';
         };
 
@@ -2178,7 +2126,6 @@ export default class ReviewButton extends FieldComponent {
 
         const isRowInvalid = (row, datagridKey, rowIdx) => {
           if (!row.__children) return false;
-          console.log("isRowInvalid", row.__children)
 
           // First try the original logic for direct children
           const hasDirectInvalid = Object.keys(row.__children).some(colKey => {
@@ -2186,7 +2133,6 @@ export default class ReviewButton extends FieldComponent {
             const cellPath = `${datagridKey}[${rowIdx}].${colKey}`;
             return isFieldInvalid(cell.__comp, cellPath);
           });
-          console.log("hasDirectInvalid", hasDirectInvalid)
 
           if (hasDirectInvalid) return true;
 
@@ -2529,7 +2475,6 @@ export default class ReviewButton extends FieldComponent {
             .replace(/^submission\./, '');
 
           if (normalizedPath.includes('editGrid[')) {
-            console.log(`Processing EditGrid path: ${normalizedPath}, label: ${label}, value: ${value}`)
           }
 
           if (processedTreePaths.has(normalizedPath)) {
@@ -2606,7 +2551,6 @@ export default class ReviewButton extends FieldComponent {
                 if (!node.__rows) node.__rows = {};
                 node.__rows[idx] ??= { __children: {}, __comp: comp };
                 ptr = node.__rows[idx].__children;
-                console.log(`Building tree for EditGrid row: ${key}[${idx}], seg: ${seg}, remaining parts: ${parts.slice(i+1).join('.')}`)
               } else if (i === parts.length - 1) {
                 const isWellComponent = comp?.component?.type === 'well' || comp?.type === 'well';
 
@@ -2648,7 +2592,6 @@ export default class ReviewButton extends FieldComponent {
                 ptr = node.__children;
               }
               if ((comp?.component?.type === 'datamap' || comp?.parent.type === 'datamap')) {
-                console.log("comp1", comp) 
                 if(ptr && ptr[key] && ptr[key].__comp) {
                   ptr[key].__comp = comp;
                   if (ptr[key].__children && typeof ptr[key].__children === 'object') {
@@ -2658,7 +2601,6 @@ export default class ReviewButton extends FieldComponent {
                       }
                     });
                   }
-                  console.log("ptr[key]", ptr[key])
                 }
               }
                 
@@ -2692,14 +2634,12 @@ export default class ReviewButton extends FieldComponent {
             return (a[1]?.__formIndex ?? -1) - (b[1]?.__formIndex ?? -1);
           });
 
-          console.log("sortedEntries", sortedEntries, depth, basePath)
           return sortedEntries.map(([k, v], index) => {
             // Check if this is an Address component for rendering
             const isAddressComponentRender = v.__comp?.component?.type === 'address' || v.__comp?.type === 'address';
 
             // Debug logging for Address components in rendering
             if (isAddressComponentRender) {
-              console.log('Rendering Address component:', k, 'visible:', v.__comp?._visible, 'reviewVisible:', v.__comp?.component.reviewVisible, 'required:', v.__comp?.component.validate?.required);
             }
 
             if (v.__comp?._visible == false || v.__comp?.type === 'datasource' ||
@@ -2720,12 +2660,10 @@ export default class ReviewButton extends FieldComponent {
                   }
                 });
                 v.__rows = {};
-                console.log("v.__children", v)
               }
             }
 
             if (/^\d+\]$/.test(k) || v?.__comp == undefined) {
-              console.log("1")
               return v && typeof v === 'object' ? renderNode(v.__children || {}, depth, rootInstance, invalidFields, basePath) : '';
             }
 
@@ -2772,7 +2710,6 @@ export default class ReviewButton extends FieldComponent {
                           ${textareaContent}
                         </div>`;
               } else{
-                console.log("v.__comp", v.__comp)
                 return `<div idx="6" depth="${depth}" style="${pad}"><strong style="${getInvalidStyle(v.__comp, k, basePath)}">${v.__label || k}:</strong> ${val}</div>`;
               }
             }
@@ -2783,7 +2720,6 @@ export default class ReviewButton extends FieldComponent {
                 const foundComponent = findComponentByKey(rootInstance, k);
                 if (foundComponent) {
                   v.__label = foundComponent.component.component?.label || foundComponent.component.label || k;
-                  console.log("Found component by key:", k, foundComponent);
                 } else {
                   v.__label = k; // Fallback to key if not found
                 }
@@ -2792,18 +2728,13 @@ export default class ReviewButton extends FieldComponent {
               const hasChildren = v.__children && Object.keys(v.__children).length;
               const hasRows = v.__rows && Object.keys(v.__rows).length;
               if (v.__comp?.component?.type === 'editgrid' || v.__comp?.type === 'editgrid') {
-                console.log(`🔍 EDITGRID DETECTED: ${k}`);
-                console.log(`  - hasRows: ${hasRows}`);
-                console.log(`  - __rows exists: ${!!v.__rows}`);
-                console.log(`  - row count: ${v.__rows ? Object.keys(v.__rows).length : 0}`);
-                console.log(`  - __kind: ${v.__kind}`);
-                console.log(`  - __colKeys: ${JSON.stringify(v.__colKeys)}`);
-                console.log(`  - __colLabels: ${JSON.stringify(v.__colLabels)}`);
-                console.log("  - Full EditGrid object:", v);
               }
+              const isDataGridComponent = v.__kind === 'datagrid' || v.__kind === 'datatable' || v.__kind === 'editgrid';
               const isContainerComponent = 
-                  (isContainerType([v.__comp?.component?.type, v.__comp?.type, v.__value?._type]) ) || 
-                  Array.isArray(v.__value?._row);
+                  !isDataGridComponent && // Don't treat data grids as containers
+                  ((isContainerType([v.__comp?.component?.type, v.__comp?.type, v.__value?._type]) ) || 
+                  Array.isArray(v.__value?._row));
+              
 
               const displayLabel = v.__suppress ? '' : (v.__label || (k === 'form' ? '' : k + " - missing __label") );
               
@@ -2817,7 +2748,6 @@ export default class ReviewButton extends FieldComponent {
 
                 if (hasChildren) {
                   const containerPath = basePath ? `${basePath}.${k}` : k;
-                  console.log("2")
                   panelChildrenHtml = renderNode(v.__children, depth + 1, rootInstance, invalidFields, containerPath);
                 }
                 else if (v.__comp && Array.isArray(v.__comp.components) && v.__comp.components.length > 0) {
@@ -2846,11 +2776,9 @@ export default class ReviewButton extends FieldComponent {
                   });
                   
                   const containerPath = basePath ? `${basePath}.${k}` : k;
-                   console.log("3", artificialChildren, depth + 1, rootInstance, invalidFields, containerPath)
                    
                    // If this is an EditGrid with editRows, transform the raw FormIO structure
                    if (v?.__comp?.editRows && Array.isArray(v.__comp.editRows)) {
-                     console.log("🔧 TRANSFORMING EDITGRID ROWS:", v.__comp.editRows)
                      const transformedEditRows = {};
                      
                      v.__comp.editRows.forEach((row, rowIdx) => {
@@ -2879,7 +2807,6 @@ export default class ReviewButton extends FieldComponent {
                        }
                      });
                      
-                     console.log("🎯 TRANSFORMED EDITGRID STRUCTURE:", transformedEditRows)
                      panelChildrenHtml = renderNode(transformedEditRows, depth + 1, rootInstance, invalidFields, containerPath);
                    } else {
                      panelChildrenHtml = renderNode(artificialChildren, depth + 1, rootInstance, invalidFields, containerPath);
@@ -2943,35 +2870,14 @@ export default class ReviewButton extends FieldComponent {
               }
 
               const conditionMet = (v.__kind === 'datagrid' || v.__kind === 'datatable' || v.__kind === 'editgrid') && hasRows;
-              console.log(`🎯 CHECKING DATA GRID CONDITION for ${k} (type: ${v.__kind}):`);
-              console.log(`  - v.__kind: "${v.__kind}"`);
-              console.log(`  - hasRows: ${hasRows}`);
-              console.log(`  - condition met: ${conditionMet}`);
               if (v.__kind === 'datagrid' || v.__kind === 'datatable') {
-                console.log(`📊 DATAGRID/DATATABLE DETECTED: ${k}`, {
-                  kind: v.__kind,
-                  hasRows,
-                  rowCount: v.__rows ? Object.keys(v.__rows).length : 0,
-                  colKeys: v.__colKeys,
-                  colLabels: v.__colLabels,
-                  fullObject: v
-                });
               }
               
               if (conditionMet) {
-                console.log("v.__kind", v)
-                console.log("EditGrid rows:", v.__rows)
-                console.log("EditGrid rowKeys:", Object.keys(v.__rows))
-                Object.keys(v.__rows).forEach(rowIdx => {
-                  console.log(`Row ${rowIdx}:`, v.__rows[rowIdx])
-                  console.log(`Row ${rowIdx} children:`, v.__rows[rowIdx].__children)
-                  console.log(`Row ${rowIdx} children keys:`, Object.keys(v.__rows[rowIdx].__children || {}))
-                })
                 const presentKeys = new Set();
                 Object.values(v.__rows).forEach(r => {
                   Object.keys(r.__children || {}).forEach(cKey => presentKeys.add(cKey));
                 });
-                console.log("presentKeys:", Array.from(presentKeys))
 
                 const orderedKeys = Array.isArray(v.__colKeys) && v.__colKeys.length
                   ? v.__colKeys.filter(cKey => presentKeys.has(cKey))
@@ -3018,7 +2924,6 @@ export default class ReviewButton extends FieldComponent {
                         }
                       } else {
                         // Handle nested content in multi-column case
-                        console.log("4")
                         const nestedHtml = renderNode(cell?.__children || {}, depth + 1, rootInstance, invalidFields, `${k}[${rowIdx}].${colKey}`);
                         cellContent = `<div idx="20" style="${padCol}"><strong>${cell.__label || labelByKey.get(colKey) || colKey}:</strong></div>${nestedHtml}`;
                       }
@@ -3032,7 +2937,6 @@ export default class ReviewButton extends FieldComponent {
                     const onlyKey = orderedKeys[0];
                     const cell = row.__children[onlyKey];
                     const val = cell?.__leaf ? firstLeafVal(cell) : null;
-                    console.log("5")
                     const inner = cell?.__leaf
                       ? (val && typeof val === 'string' && val.includes('__TEXTAREA__'))
                         ? (() => {
@@ -3055,9 +2959,7 @@ export default class ReviewButton extends FieldComponent {
               const childrenHtml = [
                 hasRows
                   ? `<ul style="list-style-type:circle; padding-left:30px; margin:0; border-left:1px dotted #ccc;">${(() => {
-                    console.log(`Rendering ${Object.keys(v.__rows).length} rows for ${k}:`, Object.keys(v.__rows));
                     return Object.entries(v.__rows).map(([i, r]) => {
-                      console.log(`Rendering row ${i} for ${k}, hasChildren:`, r.__children && Object.keys(r.__children).length > 0);
                       const isTagpad = k === 'tagpad' ||
                         v.__label === 'Tagpad' ||
                         v.__comp?.component?.type === 'tagpad' ||
@@ -3069,7 +2971,6 @@ export default class ReviewButton extends FieldComponent {
                     const rowLabelStyle = rowHasErrors ? 'background-color:rgb(255 123 123); border-radius: 3px;' : '';
 
                     const hasChildren = r.__children && Object.keys(r.__children).length > 0;
-                    console.log("6")
                     const content = hasChildren
                       ? renderNode(r.__children, depth + 1, rootInstance, invalidFields, `${basePath ? basePath + '.' : ''}${k}[${i}]`)
                       : ``;
@@ -3086,7 +2987,6 @@ export default class ReviewButton extends FieldComponent {
             return '';
           }).join('');
         };
-        console.log("7")
         return renderNode(root, 0, rootInstance, invalidFields, '');
       }
 
@@ -3118,7 +3018,6 @@ export default class ReviewButton extends FieldComponent {
           const compPath = currentPath || component.path || component.key || component.component?.key;
           if (compPath) {
             invalidFields.add(compPath);
-            console.log('Added component error path:', compPath);
           }
         }
 
@@ -3190,7 +3089,6 @@ export default class ReviewButton extends FieldComponent {
         addParentPaths(path);
       });
 
-      console.log('Final collected invalid fields:', Array.from(invalidFields));
 
       // Pass this.root and invalidFields as parameters to renderLeaves
       const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, this.root, invalidFields);
@@ -3206,7 +3104,6 @@ export default class ReviewButton extends FieldComponent {
 
       // Filter out container paths and count only actual field errors
       const allPaths = invalidFields ? Array.from(invalidFields) : [];
-      console.log('All invalid paths:', allPaths);
 
       // Group paths by common prefixes to better understand the structure
       const groupPathsByPrefix = (paths) => {
@@ -3286,12 +3183,6 @@ export default class ReviewButton extends FieldComponent {
       const groupedPaths = groupPathsByPrefix(allPaths);
       const groupedFieldPaths = groupPathsByPrefix(fieldPaths);
 
-      console.log('=== PATH ANALYSIS ===');
-      console.log('All paths:', allPaths);
-      console.log('Grouped by prefix:', groupedPaths);
-      console.log('Filtered field paths:', fieldPaths);
-      console.log('Grouped field paths:', groupedFieldPaths);
-      console.log('Excluded container paths:', allPaths.filter(p => !isFieldPath(p)));
 
       const fieldErrorCount = fieldPaths.length;
 
