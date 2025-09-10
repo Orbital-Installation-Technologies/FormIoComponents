@@ -3015,14 +3015,38 @@ export default class ReviewButton extends FieldComponent {
         });
       }
 
-      // Also collect fields that have direct _errors on components
+      console.log("invalidFields 1", invalidFields)
+
+      // Helper function to determine if a component is a visible form field
+      const isVisibleFormField = (component) => {
+        if (!component) return false;
+        
+        // Skip hidden components
+        if (component._visible === false) return false;
+        
+        // Skip container components
+        const containerTypes = ['panel', 'fieldset', 'datagrid', 'datatable', 'container', 'well', 'table', 'tabs', 'columns', 'htmlelement', 'content'];
+        const componentType = component.type || component.component?.type || '';
+        if (containerTypes.includes(componentType.toLowerCase())) return false;
+        
+        // Skip button components
+        if (componentType === 'button') return false;
+        
+        // Skip components without input capability (layout components)
+        const nonInputTypes = ['htmlelement', 'content', 'panel', 'fieldset', 'well', 'table', 'tabs', 'columns'];
+        if (nonInputTypes.includes(componentType.toLowerCase())) return false;
+        
+        return true;
+      };
+
+      // Collect errors only from visible form fields
       const collectComponentErrors = (component, currentPath = '') => {
         if (!component) return;
 
-        // Check if this component has errors
-        if (component._errors && component._errors.length > 0) {
+        // Only collect errors from visible form fields
+        if (isVisibleFormField(component) && component._errors && component._errors.length > 0) {
           const compPath = currentPath || component.path || component.key || component.component?.key;
-          if (compPath) {
+          if (compPath && !isContainerType(component.type)) {
             invalidFields.add(compPath);
           }
         }
@@ -3037,13 +3061,13 @@ export default class ReviewButton extends FieldComponent {
           });
         }
 
-        // Check rows for datagrids/datatables
+        // Check rows for datagrids/datatables - only count the actual field components in cells
         if (component.rows && Array.isArray(component.rows)) {
           component.rows.forEach((row, rowIdx) => {
             if (row && typeof row === 'object') {
               Object.keys(row).forEach(colKey => {
                 const cell = row[colKey];
-                if (cell && cell.component) {
+                if (cell && cell.component && isVisibleFormField(cell.component)) {
                   const cellPath = currentPath 
                     ? `${currentPath}[${rowIdx}].${colKey}`
                     : `${component.key || 'datagrid'}[${rowIdx}].${colKey}`;
@@ -3054,48 +3078,24 @@ export default class ReviewButton extends FieldComponent {
           });
         }
       };
-
+      console.log("invalidFields 2", ...invalidFields)
       // Collect errors from the root component tree
       collectComponentErrors(this.root);
 
-      // Add parent container paths for any nested invalid fields
-      const addParentPaths = (fieldPath) => {
-        if (!fieldPath || typeof fieldPath !== 'string') return;
-        
-        // Split the path and build parent paths
-        const parts = fieldPath.split('.');
-        let currentPath = '';
-        
-        for (let i = 0; i < parts.length - 1; i++) {
-          if (currentPath) {
-            currentPath += '.';
-          }
-          currentPath += parts[i];
-          
-          // Remove array indices for container paths
-          const cleanPath = currentPath.replace(/\[\d+\]/g, '');
-          if (cleanPath && cleanPath !== currentPath) {
-            invalidFields.add(cleanPath);
-          }
-          invalidFields.add(currentPath);
-        }
-        
-        // Also handle array-style paths like "dataGrid[0].field"
-        if (fieldPath.includes('[') && fieldPath.includes(']')) {
-          const arrayMatch = fieldPath.match(/^([^[]+)\[\d+\]/);
-          if (arrayMatch) {
-            invalidFields.add(arrayMatch[1]); // Add "dataGrid" from "dataGrid[0].field"
-          }
-        }
-      };
+      // Filter out container types and fields ending with ']'
+      const filteredInvalidFields = new Set();
+      invalidFields.forEach(field => {
+        const fieldParts = field.split('.');
+        const lastPart = fieldParts[fieldParts.length - 1];
 
-      // Process all collected paths to add their parent containers
-      const originalPaths = Array.from(invalidFields);
-      originalPaths.forEach(path => {
-        addParentPaths(path);
+        
+        if (isContainerType(lastPart.toLowerCase()) || lastPart.endsWith(']')) {
+          return;
+        }
+        
+        filteredInvalidFields.add(lastPart);
       });
-
-
+      
       // Pass this.root and invalidFields as parameters to renderLeaves
       const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, this.root, invalidFields);
 
@@ -3108,89 +3108,8 @@ export default class ReviewButton extends FieldComponent {
       modal.className =
         "fixed top-0 left-0 w-full h-screen inset-0 bg-black bg-opacity-50 flex items-center justify-center";
 
-      // Filter out container paths and count only actual field errors
-      const allPaths = invalidFields ? Array.from(invalidFields) : [];
-
-      // Group paths by common prefixes to better understand the structure
-      const groupPathsByPrefix = (paths) => {
-        const groups = {};
-
-        paths.forEach(path => {
-          // Find the common prefix patterns
-          if (path.includes('dataGrid[') || path.includes('form.data.dataGrid[')) {
-            const prefix = path.includes('form.data.') ? 'form.data.dataGrid' : 'dataGrid';
-            if (!groups[prefix]) groups[prefix] = [];
-            groups[prefix].push(path);
-          } else {
-            // Direct fields or other patterns
-            const prefix = path.includes('.') ? path.split('.')[0] : 'direct';
-            if (!groups[prefix]) groups[prefix] = [];
-            groups[prefix].push(path);
-          }
-        });
-
-        return groups;
-      };
-
-      const isFieldPath = (path) => {
-        // Common container types that should be excluded
-        const containerTypes = ['panel', 'fieldset', 'datagrid', 'datatable', 'container', 'well', 'table', 'tabs', 'columns'];
-
-        // Check if this path represents a known container type
-        const pathLower = path.toLowerCase();
-        if (containerTypes.some(type => pathLower.includes(type))) {
-          // Additional check: if it's just the container name (no dots, no brackets after container type)
-          if (!path.includes('.') && !path.includes('[')) {
-            return false; // Exclude pure container names like "panel1", "fieldSet"
-          }
-        }
-
-        // If path has no dots and no brackets, check if it's a real field (not container)
-        if (!path.includes('.') && !path.includes('[')) {
-          // Known container patterns that appear as direct paths
-          const knownContainers = ['panel', 'fieldset', 'panel', 'datagrid', 'datatable', 'container', 'well', 'table', 'tabs', 'columns'];
-          if (knownContainers.some(container => pathLower.includes(container))) {
-            return false;
-          }
-          return true; // e.g., "textField", "file"
-        }
-
-        // If path contains array index anywhere, it's likely a field (even in nested forms)
-        if (path.includes('[') && path.includes(']')) {
-          // Check if this ends with a field name after the array index
-          const afterBracket = path.split(']').pop();
-          if (afterBracket && afterBracket.includes('.') && afterBracket.length > 1) {
-            // Like "form.data.dataGrid[0].fieldName" - has field after array index
-            return true;
-          } else if (afterBracket && !afterBracket.includes('.') && afterBracket.length > 0) {
-            // Like "dataGrid[0].textArea" - direct field after array index
-            return true;
-          } else if (!afterBracket || afterBracket.length === 0) {
-            // Like "form.data.dataGrid[0]" - just the array reference, likely a container
-            return false;
-          }
-        }
-
-        // Handle paths with dots but no array indices
-        if (path.includes('.') && !path.includes('[')) {
-          const parts = path.split('.');
-          // If it has exactly 2 parts, it might be a field path like "form.fieldName"
-          if (parts.length === 2) {
-            return true;
-          }
-          // More than 2 parts without array indices are likely nested paths or containers
-          return false;
-        }
-
-        return false; // Default to excluding uncertain cases
-      };
-
-      const fieldPaths = allPaths.filter(isFieldPath);
-      const groupedPaths = groupPathsByPrefix(allPaths);
-      const groupedFieldPaths = groupPathsByPrefix(fieldPaths);
-
-
-      const fieldErrorCount = fieldPaths.length;
+      // Since we're no longer adding parent container paths, all paths in invalidFields are actual invalid fields
+      const fieldErrorCount = filteredInvalidFields ? filteredInvalidFields.size : 0;
 
       // Check if there are any invalid fields
       const hasErrors = fieldErrorCount > 0;
