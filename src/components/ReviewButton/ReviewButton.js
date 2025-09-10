@@ -1377,15 +1377,6 @@ export default class ReviewButton extends FieldComponent {
                   formIndex: topIndexFor(comp)
                 });
               });
-            } else {
-              // Even if no rows, still show the datamap component
-              pushLeaf({
-                comp: comp,
-                path: dataMapPath,
-                label: comp.component?.label || comp.label || comp.key || 'Data Map',
-                value: 'No data entered',
-                formIndex: topIndexFor(comp)
-              });
             }
             continue;
           }
@@ -1856,7 +1847,7 @@ export default class ReviewButton extends FieldComponent {
                 pushLeaf({
                   comp: comp,
                   path: panelPath,
-                  label: containerLabel,
+                  label: "",
                   value: isWell ? '(Well contents)' : '(Panel contents)',
                   formIndex: panelFormIndex
                 });
@@ -2850,16 +2841,11 @@ export default class ReviewButton extends FieldComponent {
                     </div>
                   `;
                 } else {
-                  const componentType = v.__comp?.component?.type || v.__comp?.type;
-                  const containerType = componentType 
-                    ? componentType.charAt(0).toUpperCase() + componentType.slice(1).replace(/([A-Z])/g, ' $1')
-                    : 'Container';
                   if(depth >= 1) {
                     pad += `margin-left: 10px;`;
                   }
                   return `
                     <div idx="17" style="${pad}">
-                      <strong style="${getInvalidStyle(v.__comp, k, basePath)}">${displayLabel || containerType}</strong>
                       ${panelChildrenHtml}
                     </div>
                   `;
