@@ -2909,7 +2909,7 @@ export default class ReviewButton extends FieldComponent {
                       const cell = row.__children[colKey];
                       let cellContent = '';
 
-                      if (cell.__leaf) {
+                      if (cell.__leaf || (v?.__rows && v?.__rows?.length > 0)) {
                         const val = firstLeafVal(cell);
                         const cellPath = `${k}[${rowIdx}].${colKey}`;
                         if (val && typeof val === 'string' && val.includes('__TEXTAREA__')) {
@@ -2920,12 +2920,32 @@ export default class ReviewButton extends FieldComponent {
                                           ${textareaContent}
                                         </div>`;
                         } else {
-                          cellContent = `<div idx="20" style="${padCol}"><strong style="${getInvalidStyle(cell.__comp, colKey, `${k}[${rowIdx}]`)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${val}</div>`;
+                          cellContent = `<div idx="21" style="${padCol}"><strong style="${getInvalidStyle(cell.__comp, colKey, `${k}[${rowIdx}]`)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${val}</div>`;
                         }
                       } else {
+                        // Check if cell has children to render
+                        const hasChildren = cell?.__children && Object.keys(cell.__children).length > 0;
+                        let nestedHtml = '';
+                        
+                        if (hasChildren) {
+                          nestedHtml = renderNode(cell.__children, depth + 1, rootInstance, invalidFields, `${k}[${rowIdx}].${colKey}`);
+                        }
+                        
                         // Handle nested content in multi-column case
-                        const nestedHtml = renderNode(cell?.__children || {}, depth + 1, rootInstance, invalidFields, `${k}[${rowIdx}].${colKey}`);
-                        cellContent = `<div idx="20" style="${padCol}"><strong>${cell.__label || labelByKey.get(colKey) || colKey}:</strong></div>${nestedHtml}`;
+                        const hasNestedContent = nestedHtml && nestedHtml.trim().length > 0;
+                        
+                        // Get the direct value - check __value first, then use firstLeafVal as fallback
+                        const directVal = cell?.__value !== undefined ? formatValue(cell.__value, cell.__comp) : firstLeafVal(cell);
+                        
+                        if (hasNestedContent) {
+                          cellContent = `<div idx="23" style="${padCol}"><strong>${cell.__label || labelByKey.get(colKey) || colKey}:</strong></div>${nestedHtml}`;
+                        } else if (directVal) {
+                          // Show the direct value
+                          cellContent = `<div idx="22" style="${padCol}"><strong style="${getInvalidStyle(cell.__comp, colKey, `${k}[${rowIdx}]`)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${directVal}</div>`;
+                        } else {
+                          // Show just the label if no content is available
+                          cellContent = `<div idx="24" style="${padCol}"><strong>${cell.__label || labelByKey.get(colKey) || colKey}:</strong></div>`;
+                        }
                       }
                       return `${cellContent}`;
                     }).filter(html => html.length > 0).join('');
