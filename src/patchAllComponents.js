@@ -35,16 +35,5 @@ setTimeout(() => {
       Component._patchedForReview = true;
     }
 
-    // 2. Patch updateValue to avoid re-renders (e.g. auto-scroll)
-    const proto = Component.prototype;
-    if (!proto || proto._patchedUpdateValue) return;
-
-    const originalUpdateValue = proto.updateValue;
-    proto.updateValue = function (value, flags = {}) {
-      flags = { noUpdateEvent: true, fromUser: true, ...flags };
-      return originalUpdateValue.call(this, value, flags);
-    };
-
-    proto._patchedUpdateValue = true;
   });
 }, 1000);
