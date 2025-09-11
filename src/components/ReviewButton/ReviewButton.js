@@ -3015,8 +3015,6 @@ export default class ReviewButton extends FieldComponent {
         });
       }
 
-      console.log("invalidFields 1", invalidFields)
-
       // Helper function to determine if a component is a visible form field
       const isVisibleFormField = (component) => {
         if (!component) return false;
@@ -3078,7 +3076,6 @@ export default class ReviewButton extends FieldComponent {
           });
         }
       };
-      console.log("invalidFields 2", ...invalidFields)
       // Collect errors from the root component tree
       collectComponentErrors(this.root);
 
