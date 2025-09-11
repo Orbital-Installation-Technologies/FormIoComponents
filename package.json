@@ -1,6 +1,6 @@
 {
   "name": "formiocomponents",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "",
   "main": "src/app-prod.js",
   "scripts": {
@@ -11,6 +11,7 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "debug": "^4.4.1",
     "eslint": "^8.57.1",
     "eslint-config-airbnb-base": "^15.0.0",
     "html-webpack-plugin": "^5.6.3",

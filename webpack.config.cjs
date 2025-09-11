@@ -20,5 +20,8 @@ module.exports = {
   },
   devServer: {
     static: "./dist",
+    server: "https",
+    host: "0.0.0.0",
+    port: 8080,
   },
 };
