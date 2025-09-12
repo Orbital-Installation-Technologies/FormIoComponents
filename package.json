@@ -1,16 +1,17 @@
 {
   "name": "formiocomponents",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "",
   "main": "src/app-prod.js",
   "scripts": {
-    "dev": "webpack --config webpack.config.cjs --watch",
+    "dev": "webpack serve --config webpack.config.cjs",
     "dev-pack": "node -e \"const fs=require('fs');const pkg=JSON.parse(fs.readFileSync('package.json'));pkg.version=pkg.version==='1.1.1'?'1.1.0':'1.1.1';fs.writeFileSync('package.json',JSON.stringify(pkg,null,2));\" && npm pack"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "debug": "^4.4.1",
     "eslint": "^8.57.1",
     "eslint-config-airbnb-base": "^15.0.0",
     "html-webpack-plugin": "^5.6.3",
