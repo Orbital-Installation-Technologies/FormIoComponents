@@ -942,20 +942,6 @@ export default class ReviewButton extends FieldComponent {
               
               // File is invalid if required and has no value
               isValid = !isRequired || hasValue;
-              
-              // Debug logging for main validation path
-              console.log(`[MAIN VALIDATION] File component "${componentPath}" check:`, {
-                isValid: isValid,
-                isRequired: isRequired,
-                hasValue: hasValue,
-                componentKey: componentKey,
-                dataValue: !!dataValue,
-                componentData: !!componentData,
-                rootComponentData: !!rootComponentData,
-                submissionComponentData: !!submissionComponentData,
-                nestedPathData: !!nestedPathData,
-                nestedSubmissionPathData: !!nestedSubmissionPathData
-              });
             } else {
               // Standard validation for non-address, non-file components
               isValid = component.checkValidity();
@@ -2390,15 +2376,8 @@ export default class ReviewButton extends FieldComponent {
            // Try to find any match
            for (const testPath of pathsToTry) {
              if (isFieldInvalid(comp, testPath)) {
-               if (componentType === 'file') {
-                 console.log(`❌ File component "${path}" matched invalid path: "${testPath}"`);
-               }
                return 'background-color:rgb(255 123 123); border-radius: 3px;';
              }
-           }
-
-           if (componentType === 'file') {
-             console.log(`✅ File component "${path}" has no invalid styling`);
            }
 
            return '';
@@ -3544,38 +3523,6 @@ export default class ReviewButton extends FieldComponent {
                isActuallyInvalid = (isRequired && !hasValue) ||
                                   (hasCheckValidity && !hasValue);
                                   
-               // Debug logging for file components
-               console.log(`File component "${componentPath}" validation check:`, {
-                 isActuallyInvalid: isActuallyInvalid,
-                 hasErrors: hasErrors,
-                 hasCheckValidity: hasCheckValidity,
-                 isRequired: isRequired,
-                 hasValue: hasValue,
-                 dataValue: component.dataValue,
-                 data: component.data,
-                 getValue: getValue,
-                 getValueAsString: getValueAsString,
-                 componentData: component.component?.data,
-                 privateData: component._data,
-                 files: component.files,
-                 errors: component.errors,
-                 element: !!component.element,
-                 fileService: !!component.fileService,
-                 // New nested form data sources
-                 rootData: !!rootData,
-                 submissionData: !!submissionData,
-                 componentKey: componentKey,
-                 rootComponentData: rootComponentData,
-                 submissionComponentData: submissionComponentData,
-                 nestedPathData: nestedPathData,
-                 nestedSubmissionPathData: nestedSubmissionPathData
-               });
-               
-               if (isActuallyInvalid) {
-                 console.log(`❌ File component "${componentPath}" marked as INVALID`);
-               } else {
-                 console.log(`✅ File component "${componentPath}" marked as VALID`);
-               }
              } else {
                // For non-file components, use checkValidity if available
                if (component.checkValidity) {
