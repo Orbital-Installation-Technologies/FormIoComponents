@@ -3,118 +3,79 @@ import editForm from "./ReviewButton.form";
 
 const FieldComponent = Components.components.field;
 
-/**
- * Helper function to check if a component type is a container type.
- * @param {string|string[]} t - The component type(s) to check - can be a single string or array of strings
- * @param {string[]} exclude - Array of container types to exclude from the check
- * @returns {boolean} True if any of the component types is a container type (and not excluded)
- */
 const isContainerType = (t, exclude = []) => {
-  const containerTypes = ['panel', 'columns', 'well',
-                         'fieldset', 'datamap', 'editgrid', 'table', 'tabs', 
-                         'row', 'column', 'content', 'htmlelement',];
-  
+  const containerTypes = ['panel', 'columns', 'well', 'fieldset', 'datamap', 'editgrid', 'table', 'tabs', 'row', 'column', 'content', 'htmlelement'];
   const allowedTypes = containerTypes.filter(type => !exclude.includes(type));
-  
-  if (Array.isArray(t)) {
-    return t.some(type => type && allowedTypes.includes(type));
-  }
-  
-  return allowedTypes.includes(t);
+  return Array.isArray(t) ? t.some(type => type && allowedTypes.includes(type)) : allowedTypes.includes(t);
 };
 
-/**
- * Helper function to check if a component type should be flattened (hidden with children promoted to root)
- * @param {string|string[]} t - The component type(s) to check
- * @returns {boolean} True if the component type should be flattened
- */
 const shouldFlattenContainer = (t) => {
-  const flattenTypes = ['columns', 'fieldset', 'tabs', 'tagpad', 'survey',
-                       'panel', 'well', 'container', 'datagrid', 'datatable'];
-  
-  if (Array.isArray(t)) {
-    return t.some(type => type && flattenTypes.includes(type?.toLowerCase()));
-  }
-  
-  return flattenTypes.includes(t?.toLowerCase());
+  const flattenTypes = ['columns', 'fieldset', 'tabs', 'tagpad', 'survey', 'panel', 'well', 'container', 'datagrid', 'datatable'];
+  return Array.isArray(t) ? t.some(type => type && flattenTypes.includes(type?.toLowerCase())) : flattenTypes.includes(t?.toLowerCase());
 };
 
-/**
- * ReviewButton Component for Form.io
- * Handles form validation and submission review functionality
- */
-/**
- * Finds a component by key within the component tree
- * @param {Object} root - Root component to search from
- * @param {string} targetKey - Key of the component to find
- * @param {string} currentPath - Current path for recursion (internal use)
- * @returns {Object|null} - Found component or null if not found
- */
+const hasActualFileData = (value) => {
+  if (!value) return false;
+  if (Array.isArray(value)) {
+    return value.length > 0 && value.some(item => item && (item.name || item.filename || item.originalName || item.url || item.data));
+  }
+  if (typeof value === 'object') {
+    return !!(value.name || value.filename || value.originalName || value.url || value.data || value.storage || value.size || (value.file && (value.file.name || value.file.url)));
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 && (trimmed.startsWith('data:') || trimmed.startsWith('http') || trimmed.startsWith('/') || trimmed.includes('.'));
+  }
+  return false;
+};
+
 function findComponentByKey(root, targetKey, currentPath = '') {
   if (!root || !targetKey) return null;
 
-  // Check if current component matches the key
   const currentKey = root.key || root.component?.key;
   if (currentKey === targetKey) {
-    return {
-      component: root,
-      path: currentPath,
-      parent: null // Could be enhanced to track parent
-    };
+    return { component: root, path: currentPath, parent: null };
   }
 
-  // Search in components array (for containers)
   if (Array.isArray(root.components)) {
     for (let i = 0; i < root.components.length; i++) {
       const child = root.components[i];
       if (child) {
         const childPath = currentPath ? `${currentPath}.${child.key || child.component?.key || i}` : (child.key || child.component?.key || i);
         const found = findComponentByKey(child, targetKey, childPath);
-        if (found) {
-          return found;
-        }
+        if (found) return found;
       }
     }
   }
 
-  // Search in subForm (for form components)
   if (root.subForm && typeof root.subForm === 'object') {
     const subFormPath = currentPath ? `${currentPath}.subForm` : 'subForm';
     const found = findComponentByKey(root.subForm, targetKey, subFormPath);
-    if (found) {
-      return found;
-    }
+    if (found) return found;
   }
-
-  // Search in editRows (for editgrid components)
   if (Array.isArray(root.editRows)) {
     for (let i = 0; i < root.editRows.length; i++) {
       const row = root.editRows[i];
-      if (row && Array.isArray(row.components)) {
+      if (row?.components) {
         for (let j = 0; j < row.components.length; j++) {
           const child = row.components[j];
           if (child) {
             const rowPath = currentPath ? `${currentPath}[${i}].${child.key || child.component?.key || j}` : `[${i}].${child.key || child.component?.key || j}`;
             const found = findComponentByKey(child, targetKey, rowPath);
-            if (found) {
-              return found;
-            }
+            if (found) return found;
           }
         }
       }
     }
   }
 
-  // Search in editForms (for tagpad components)
   if (Array.isArray(root.editForms)) {
     for (let i = 0; i < root.editForms.length; i++) {
       const form = root.editForms[i];
       if (form) {
         const formPath = currentPath ? `${currentPath}[${i}]` : `[${i}]`;
         const found = findComponentByKey(form, targetKey, formPath);
-        if (found) {
-          return found;
-        }
+        if (found) return found;
       }
     }
   }
@@ -125,28 +86,19 @@ function findComponentByKey(root, targetKey, currentPath = '') {
 export default class ReviewButton extends FieldComponent {
   static editForm = editForm;
 
-  /**
-   * Schema definition for the component
-   */
   static schema(...extend) {
-    return FieldComponent.schema(
-      {
-        type: "reviewbutton",
-        label: "Review and Submit",
-        key: "reviewButton",
-        input: false,
-      },
-      ...extend,
-    );
+    return FieldComponent.schema({
+      type: "reviewbutton",
+      label: "Review and Submit", 
+      key: "reviewButton",
+      input: false,
+    }, ...extend);
   }
 
-  /**
-   * Builder information for Form.io builder
-   */
   static get builderInfo() {
     return {
       title: "Review Button",
-      group: "basic",
+      group: "basic", 
       icon: "eye",
       weight: 10,
       documentation: "",
@@ -154,12 +106,8 @@ export default class ReviewButton extends FieldComponent {
     };
   }
 
-  /**
-   * Initialize component
-   */
   init() {
     super.init();
-
     this.root.on("submitDone", () => {
       window.location.reload();
     });
@@ -171,43 +119,21 @@ export default class ReviewButton extends FieldComponent {
     }
   }
 
-  /**
-   * Register validation methods on the root form
-   */
   registerFormValidationMethods() {
-    this.root.validateFormExternal = async (options) => {
-      return await this.validateFormExternal(options);
-    };
-
-    this.root.isFormValid = async () => {
-      return await this.isFormValid();
-    };
-
-    this.root.validateFields = async (fieldKeys, options) => {
-      return await this.validateFields(fieldKeys, options);
-    };
-
-    this.root.triggerValidation = async (options) => {
-      return await this.triggerValidation(options);
-    };
+    this.root.validateFormExternal = async (options) => await this.validateFormExternal(options);
+    this.root.isFormValid = async () => await this.isFormValid();
+    this.root.validateFields = async (fieldKeys, options) => await this.validateFields(fieldKeys, options);
+    this.root.triggerValidation = async (options) => await this.triggerValidation(options);
   }
 
-  /**
-   * Setup validation event handler
-   */
   setupValidationEventHandler() {
     this.root.on("validateForm", async (callback) => {
       const results = await this.validateFormExternal();
-      if (typeof callback === "function") {
-        callback(results);
-      }
+      if (typeof callback === "function") callback(results);
       return results;
     });
   }
 
-  /**
-   * Expose validation methods to window object for external access
-   */
   exposeValidationMethods() {
     if (typeof window !== 'undefined') {
       window.formValidation = {
@@ -218,10 +144,6 @@ export default class ReviewButton extends FieldComponent {
     }
   }
 
-  /**
-   * Basic form validation
-   * @returns {Promise<boolean>} Whether the form is valid
-   */
   async validateForm() {
     try {
       let isValid = true;
@@ -231,7 +153,6 @@ export default class ReviewButton extends FieldComponent {
         if (!component.visible || component.disabled || component._visible === false || component.component?.hidden) return;
         
         if (component.checkValidity) {
-          console.log("component.checkValidity", component);
           let valid = true;
           
           // Special handling for file components in nested forms
@@ -250,53 +171,10 @@ export default class ReviewButton extends FieldComponent {
               const submissionData = this.root?.submission?.data;
               const componentKey = component.key || component.component?.key;
               
-              // Helper function to check if a value represents actual file data
-              const hasActualFileData = (value) => {
-                if (!value) return false;
-                
-                if (Array.isArray(value)) {
-                  return value.length > 0 && value.some(item => 
-                    item && (item.name || item.filename || item.originalName || item.url || item.data)
-                  );
-                }
-                
-                if (typeof value === 'object') {
-                  return !!(value.name || value.filename || value.originalName || value.url || 
-                           value.data || value.storage || value.size || 
-                           (value.file && (value.file.name || value.file.url)));
-                }
-                
-                if (typeof value === 'string') {
-                  const trimmed = value.trim();
-                  return trimmed.length > 0 && (
-                    trimmed.startsWith('data:') || trimmed.startsWith('http') ||  
-                    trimmed.startsWith('/') || trimmed.includes('.')
-                  );
-                }
-                
-                return false;
-              };
-              
-              // Check primary data sources for actual file content
-              if (hasActualFileData(dataValue)) {
-                hasValue = true;
-              }
-              
-              if (!hasValue && hasActualFileData(componentData)) {
-                hasValue = true;
-              }
-              
-              if (!hasValue && rootData && componentKey && hasActualFileData(rootData[componentKey])) {
-                hasValue = true;
-              }
-              
-              if (!hasValue && submissionData && componentKey && hasActualFileData(submissionData[componentKey])) {
-                hasValue = true;
-              }
-              
-              if (!hasValue && component.files && Array.isArray(component.files) && component.files.length > 0) {
-                hasValue = true;
-              }
+              hasValue = hasActualFileData(dataValue) || hasActualFileData(componentData) || 
+                        (rootData && componentKey && hasActualFileData(rootData[componentKey])) ||
+                        (submissionData && componentKey && hasActualFileData(submissionData[componentKey])) ||
+                        (component.files && Array.isArray(component.files) && component.files.length > 0);
               
               valid = hasValue;
             }
@@ -324,20 +202,11 @@ export default class ReviewButton extends FieldComponent {
     }
   }
 
-  /**
-   * Scroll to the first error element in the form
-   */
   scrollToFirstError() {
     const firstError = this.root.element.querySelector('.formio-error-wrapper, .has-error, .is-invalid');
-    if (firstError) {
-      firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+    if (firstError) firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
-
-  /**
-   * Mark all components as dirty for validation
-   */
   markAllComponentsAsDirty() {
     if (this.root?.everyComponent) {
       this.root.everyComponent((c) => {
@@ -349,9 +218,6 @@ export default class ReviewButton extends FieldComponent {
     }
   }
 
-  /**
-   * Mark all datagrid rows as dirty for validation
-   */
   markDatagridRowsAsDirty() {
     if (this.root?.everyComponent) {
       this.root.everyComponent((c) => {
@@ -3601,8 +3467,6 @@ export default class ReviewButton extends FieldComponent {
       };
       // Collect errors from the root component tree
       collectComponentErrors(this.root, '', 0, '');
-      console.log("invalidFields", invalidFields);
-      console.log("uniqueInvalidComponents", uniqueInvalidComponents);
       
       // Filter out container types and fields ending with ']' from paths
       const filteredInvalidFields = new Set();
@@ -3624,10 +3488,7 @@ export default class ReviewButton extends FieldComponent {
         );
         
         // Skip parent containers when their children are already in the list
-        if (isParentContainer) {
-          console.log(`Hiding container field "${field}" because nested children exist`);
-          return;
-        }
+        if (isParentContainer) return;
         
         // Check if this field is a longer/more specific version of another field
         // Remove longer paths when shorter, simpler paths exist
@@ -3656,16 +3517,11 @@ export default class ReviewButton extends FieldComponent {
         });
         
         // Skip longer paths when shorter versions exist (but preserve datagrid/container paths)
-        if (hasShorterVersion) {
-          console.log(`Hiding longer field "${field}" because shorter version exists`);
-          return;
-        }
+        if (hasShorterVersion) return;
         
         // Keep the full path for proper matching in nested forms
         filteredInvalidFields.add(field);
       });
-
-      console.log("filteredInvalidFields", filteredInvalidFields);
       
       // Pass this.root and filteredInvalidFields as parameters to renderLeaves
       const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, this.root, filteredInvalidFields);
