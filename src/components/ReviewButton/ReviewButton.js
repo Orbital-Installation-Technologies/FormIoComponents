@@ -227,7 +227,11 @@ export default class ReviewButton extends FieldComponent {
       let isValid = true;
 
       this.root.everyComponent(component => {
+        // Skip hidden or disabled components
+        if (!component.visible || component.disabled || component._visible === false || component.component?.hidden) return;
+        
         if (component.checkValidity) {
+          console.log("component.checkValidity", component);
           let valid = true;
           
           // Special handling for file components in nested forms
@@ -3306,8 +3310,11 @@ export default class ReviewButton extends FieldComponent {
       const isVisibleFormField = (component) => {
         if (!component) return false;
         
-        // Skip hidden components
+        // Comprehensive visibility checks - skip hidden or disabled components
         if (component._visible === false) return false;
+        if (component.visible === false) return false;
+        if (component.disabled === true) return false;
+        if (component.component?.hidden === true) return false;
         
         // Skip container components
         const containerTypes = ['panel', 'fieldset', 'datagrid', 'datatable', 'container', 'well', 'table', 'tabs', 'columns', 'htmlelement', 'content'];
@@ -3351,6 +3358,12 @@ export default class ReviewButton extends FieldComponent {
       // Collect errors only from visible form fields using unique identifiers
       const collectComponentErrors = (component, parentId = '', childIndex = 0, currentPath = '') => {
         if (!component) return;
+
+        // Skip hidden containers entirely - don't traverse into them at all
+        if (component._visible === false || component.visible === false || 
+            component.disabled === true || component.component?.hidden === true) {
+          return;
+        }
 
         const uniqueId = generateUniqueComponentId(component, parentId, childIndex);
         const componentPath = currentPath || component.path || component.key || component.component?.key;
@@ -3664,7 +3677,7 @@ export default class ReviewButton extends FieldComponent {
             ${reviewHtml}
           </div>
           ${hasErrors ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-             <p class="text-red-700 font-medium">⚠️ Fix the error${fieldErrorCount === 1 ? '' : 's'} in the form before submitting</p>
+             <p class="text-red-700 font-medium">⚠️ Fix the ${fieldErrorCount} error${fieldErrorCount === 1 ? '' : 's'} in the form before submitting</p>
           </div>` : ''}
           ${!hasErrors ? `
           <div class="flex space-x-4 mb-4">
