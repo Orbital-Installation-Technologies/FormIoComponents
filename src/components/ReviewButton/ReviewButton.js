@@ -1997,9 +1997,8 @@ export default class ReviewButton extends FieldComponent {
             return true;
           }
 
-          if(comp?._errors && comp._errors.length > 0) {
-            return true;
-          }
+          // Removed _errors check as it can cause stale error states to persist
+          // The invalidFields set should already contain only actually invalid fields
 
           // Try to match nested form paths
           // If fieldPath is like "dataGrid[0].fieldName", also check for "form.data.dataGrid[0].fieldName"
@@ -2055,10 +2054,11 @@ export default class ReviewButton extends FieldComponent {
             pathsToTry.push(`data.${path}`);
           }
 
-          // If path contains brackets, try variations
-          if (path.includes('[')) {
-            pathsToTry.push(path.replace(/\[.*?\]/g, '')); // remove array indices
-          }
+          // More precise path matching - only try without indices if there's a specific reason
+          // Removing this broad array index removal as it causes cross-contamination between fields
+          // if (path.includes('[')) {
+          //   pathsToTry.push(path.replace(/\[.*?\]/g, '')); // remove array indices
+          // }
 
           // Try to find any match
           for (const testPath of pathsToTry) {
@@ -3015,11 +3015,15 @@ export default class ReviewButton extends FieldComponent {
       const collectComponentErrors = (component, currentPath = '') => {
         if (!component) return;
 
-        // Only collect errors from visible form fields
-        if (isVisibleFormField(component) && component._errors && component._errors.length > 0) {
+        // Only collect errors from visible form fields that are actually invalid
+        if (isVisibleFormField(component) && component.checkValidity) {
           const compPath = currentPath || component.path || component.key || component.component?.key;
           if (compPath && !isContainerType(component.type)) {
-            invalidFields.add(compPath);
+            // Check if component is actually invalid using checkValidity() instead of relying on _errors
+            // This fixes issues with stale error states, especially in file components in nested forms
+            if (!component.checkValidity()) {
+              invalidFields.add(compPath);
+            }
           }
         }
 
@@ -3064,12 +3068,13 @@ export default class ReviewButton extends FieldComponent {
           return;
         }
         
-        filteredInvalidFields.add(lastPart);
+        // Keep the full path for proper matching in nested forms, not just the last part
+        filteredInvalidFields.add(field);
       });
 
       console.log("filteredInvalidFields", filteredInvalidFields);
       
-      // Pass this.root and invalidFields as parameters to renderLeaves
+      // Pass this.root and filteredInvalidFields as parameters to renderLeaves
       const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, this.root, invalidFields);
 
       // Get the latest data after refresh
