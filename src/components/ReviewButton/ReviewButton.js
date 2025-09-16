@@ -462,6 +462,11 @@ export default class ReviewButton extends FieldComponent {
       const isAddressComponent = component.component?.type === 'address' || component.type === 'address';
       let isValid = true;
       
+      // Fix address components with "[object Object]" string value
+      if (isAddressComponent && component.dataValue === "[object Object]") {
+        component.dataValue = {};
+      }
+      
       if (component.checkValidity) {
         if (isAddressComponent && component.component?.validate?.required) {
           // For address components, check if formattedPlace is empty instead of relying on standard validation
@@ -597,6 +602,11 @@ export default class ReviewButton extends FieldComponent {
             if (shouldValidate) {
               // Special handling for address components
               const isAddressComponent = c.component?.type === 'address' || c.type === 'address';
+              
+              // Fix address components with "[object Object]" string value
+              if (isAddressComponent && c.dataValue === "[object Object]") {
+                c.dataValue = {};
+              }
               
               if (isAddressComponent && c.component?.validate?.required) {
                 // For address components, check if formattedPlace is empty instead of relying on standard validation
@@ -765,6 +775,11 @@ export default class ReviewButton extends FieldComponent {
         if (component.checkValidity) {
           // Special handling for address components
           const isAddressComponent = component.component?.type === 'address' || component.type === 'address';
+          
+          // Fix address components with "[object Object]" string value
+          if (isAddressComponent && component.dataValue === "[object Object]") {
+            component.dataValue = {};
+          }
           
           if (isAddressComponent && component.component?.validate?.required) {
             // For address components, check if formattedPlace is empty instead of relying on standard validation
