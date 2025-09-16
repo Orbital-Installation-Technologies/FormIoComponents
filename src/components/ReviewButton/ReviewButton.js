@@ -3664,7 +3664,7 @@ export default class ReviewButton extends FieldComponent {
             ${reviewHtml}
           </div>
           ${hasErrors ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-             <p class="text-red-700 font-medium">⚠️ Fix the ${fieldErrorCount} error${fieldErrorCount === 1 ? '' : 's'} in the form before submitting</p>
+             <p class="text-red-700 font-medium">⚠️ Fix the error${fieldErrorCount === 1 ? '' : 's'} in the form before submitting</p>
           </div>` : ''}
           ${!hasErrors ? `
           <div class="flex space-x-4 mb-4">
