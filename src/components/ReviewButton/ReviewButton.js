@@ -3011,29 +3011,64 @@ export default class ReviewButton extends FieldComponent {
         return true;
       };
 
-      // Collect errors only from visible form fields
-      const collectComponentErrors = (component, currentPath = '') => {
+      // Generate truly unique identifier for components to avoid key collisions
+      const generateUniqueComponentId = (component, parentId = '', childIndex = 0) => {
+        if (!component) return null;
+        
+        // Create composite identifier using multiple factors for uniqueness:
+        // 1. Parent context for hierarchical uniqueness
+        // 2. Child position index to distinguish siblings
+        // 3. Component instance reference (object reference as string)
+        // 4. Key as additional context
+        const componentRef = component.toString ? component.toString().slice(-8) : Math.random().toString(36).substr(2, 8);
+        const key = component.key || component.component?.key || 'unnamed';
+        const type = component.type || component.component?.type || 'unknown';
+        
+        const uniqueId = parentId 
+          ? `${parentId}:${childIndex}:${type}:${key}:${componentRef}`
+          : `root:${childIndex}:${type}:${key}:${componentRef}`;
+          
+        return uniqueId;
+      };
+
+      // Track unique components to avoid duplicates - this is our enhanced error tracking
+      const uniqueInvalidComponents = new Set();
+      const uniqueIdToPathMap = new Map();
+
+      // Collect errors only from visible form fields using unique identifiers
+      const collectComponentErrors = (component, parentId = '', childIndex = 0, currentPath = '') => {
         if (!component) return;
+
+        const uniqueId = generateUniqueComponentId(component, parentId, childIndex);
+        const componentPath = currentPath || component.path || component.key || component.component?.key;
+
+        // Store mapping from unique ID to path for reference
+        if (uniqueId && componentPath) {
+          uniqueIdToPathMap.set(uniqueId, componentPath);
+        }
 
         // Only collect errors from visible form fields that are actually invalid
         if (isVisibleFormField(component) && component.checkValidity) {
-          const compPath = currentPath || component.path || component.key || component.component?.key;
-          if (compPath && !isContainerType(component.type)) {
+          if (uniqueId && !isContainerType(component.type)) {
             // Check if component is actually invalid using checkValidity() instead of relying on _errors
             // This fixes issues with stale error states, especially in file components in nested forms
             if (!component.checkValidity()) {
-              invalidFields.add(compPath);
+              uniqueInvalidComponents.add(uniqueId);
+              // Also add the path to invalidFields for renderLeaves compatibility
+              if (componentPath) {
+                invalidFields.add(componentPath);
+              }
             }
           }
         }
 
         // Recursively check child components
         if (component.components && Array.isArray(component.components)) {
-          component.components.forEach(child => {
+          component.components.forEach((child, index) => {
             const childPath = currentPath 
               ? `${currentPath}.${child.key || child.path || 'unknown'}`
               : child.key || child.path || child.component?.key;
-            collectComponentErrors(child, childPath);
+            collectComponentErrors(child, uniqueId, index, childPath);
           });
         }
 
@@ -3041,13 +3076,14 @@ export default class ReviewButton extends FieldComponent {
         if (component.rows && Array.isArray(component.rows)) {
           component.rows.forEach((row, rowIdx) => {
             if (row && typeof row === 'object') {
-              Object.keys(row).forEach(colKey => {
+              Object.keys(row).forEach((colKey, colIdx) => {
                 const cell = row[colKey];
                 if (cell && cell.component && isVisibleFormField(cell.component)) {
+                  const cellUniqueId = `${uniqueId}:row${rowIdx}:col${colIdx}:${colKey}`;
                   const cellPath = currentPath 
                     ? `${currentPath}[${rowIdx}].${colKey}`
                     : `${component.key || 'datagrid'}[${rowIdx}].${colKey}`;
-                  collectComponentErrors(cell.component, cellPath);
+                  collectComponentErrors(cell.component, cellUniqueId, 0, cellPath);
                 }
               });
             }
@@ -3055,27 +3091,29 @@ export default class ReviewButton extends FieldComponent {
         }
       };
       // Collect errors from the root component tree
-      collectComponentErrors(this.root);
+      collectComponentErrors(this.root, '', 0, '');
       console.log("invalidFields", invalidFields);
-      // Filter out container types and fields ending with ']'
+      console.log("uniqueInvalidComponents", uniqueInvalidComponents);
+      
+      // Filter out container types and fields ending with ']' from paths
       const filteredInvalidFields = new Set();
       invalidFields.forEach(field => {
         const fieldParts = field.split('.');
         const lastPart = fieldParts[fieldParts.length - 1];
 
-        
+        // Skip container types and array indices
         if (isContainerType(lastPart.toLowerCase()) || lastPart.endsWith(']')) {
           return;
         }
         
-        // Keep the full path for proper matching in nested forms, not just the last part
+        // Keep the full path for proper matching in nested forms
         filteredInvalidFields.add(field);
       });
 
       console.log("filteredInvalidFields", filteredInvalidFields);
       
       // Pass this.root and filteredInvalidFields as parameters to renderLeaves
-      const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, this.root, invalidFields);
+      const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, this.root, filteredInvalidFields);
 
       // Get the latest data after refresh
       const allData = this.root.getValue();
