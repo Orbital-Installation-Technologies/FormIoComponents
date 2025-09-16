@@ -228,33 +228,7 @@ export default class ReviewButton extends FieldComponent {
 
       this.root.everyComponent(component => {
         if (component.checkValidity) {
-          // Special handling for address components
-          const isAddressComponent = component.component?.type === 'address' || component.type === 'address';
-          
-          let valid = true;
-          if (isAddressComponent && component.component?.validate?.required) {
-            // For address components, check if formattedPlace is empty instead of relying on standard validation
-            const addressValue = component.dataValue?.formattedPlace;
-            const isAddressEmpty = !addressValue || addressValue.trim() === '';
-            
-            if (isAddressEmpty) {
-              valid = false;
-              // Create validation error for empty required address
-              if (!component.errors) component.errors = [];
-              const addressError = `${component.component?.label || component.key} is required.`;
-              if (!component.errors.includes(addressError)) {
-                component.errors.push(addressError);
-              }
-              setTimeout(() => {
-                component.setCustomValidity(component.errors, true);
-                component.redraw();
-              }, 5000);
-            } else {
-              valid = component.checkValidity();
-            }
-          } else {
-            valid = component.checkValidity();
-          }
+          const valid = component.checkValidity(component.data, true);
           
           if (!valid) {
             isValid = false;
@@ -3078,7 +3052,7 @@ export default class ReviewButton extends FieldComponent {
       };
       // Collect errors from the root component tree
       collectComponentErrors(this.root);
-
+      console.log("invalidFields", invalidFields);
       // Filter out container types and fields ending with ']'
       const filteredInvalidFields = new Set();
       invalidFields.forEach(field => {
@@ -3092,6 +3066,8 @@ export default class ReviewButton extends FieldComponent {
         
         filteredInvalidFields.add(lastPart);
       });
+
+      console.log("filteredInvalidFields", filteredInvalidFields);
       
       // Pass this.root and invalidFields as parameters to renderLeaves
       const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, this.root, invalidFields);
