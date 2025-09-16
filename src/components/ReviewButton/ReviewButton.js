@@ -3097,12 +3097,44 @@ export default class ReviewButton extends FieldComponent {
       
       // Filter out container types and fields ending with ']' from paths
       const filteredInvalidFields = new Set();
+      const invalidFieldsArray = Array.from(invalidFields);
+      
       invalidFields.forEach(field => {
         const fieldParts = field.split('.');
         const lastPart = fieldParts[fieldParts.length - 1];
 
         // Skip container types and array indices
         if (isContainerType(lastPart.toLowerCase()) || lastPart.endsWith(']')) {
+          return;
+        }
+        
+        // Check if this field is a container that has nested children also in the list
+        // If another field starts with this field + '.', then this is a parent container
+        const isParentContainer = invalidFieldsArray.some(otherField => 
+          otherField !== field && otherField.startsWith(field + '.')
+        );
+        
+        // Skip parent containers when their children are already in the list
+        if (isParentContainer) {
+          console.log(`Hiding container field "${field}" because nested children exist`);
+          return;
+        }
+        
+        // Check if this field is a longer/more specific version of another field
+        // Remove longer paths when shorter, simpler paths exist
+        const hasShorterVersion = invalidFieldsArray.some(otherField => {
+          if (otherField === field || !field.includes('.')) return false;
+          
+          // Check if this field ends with another shorter field as a path segment
+          // Example: "panel1.fieldSet.textField3" ends with ".textField3" (otherField could be "textField3")
+          return field.endsWith('.' + otherField) || 
+                 (field.includes('.') && field === `form.data.${otherField}`) ||
+                 (field.includes('.') && field === `data.${otherField}`);
+        });
+        
+        // Skip longer paths when shorter versions exist
+        if (hasShorterVersion) {
+          console.log(`Hiding longer field "${field}" because shorter version exists`);
           return;
         }
         
