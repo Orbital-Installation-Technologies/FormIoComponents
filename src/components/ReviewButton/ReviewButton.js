@@ -228,7 +228,78 @@ export default class ReviewButton extends FieldComponent {
 
       this.root.everyComponent(component => {
         if (component.checkValidity) {
-          const valid = component.checkValidity(component.data, true);
+          let valid = true;
+          
+          // Special handling for file components in nested forms
+          const componentType = component.type || component.component?.type;
+          
+          if (componentType === 'file') {
+            // Enhanced file validation for nested forms
+            const isRequired = component.component?.validate?.required || component.validate?.required;
+            if (isRequired) {
+              let hasValue = false;
+              
+              // Quick check of main data sources
+              const dataValue = component.dataValue;
+              const componentData = component.data;
+              const rootData = this.root?.data;
+              const submissionData = this.root?.submission?.data;
+              const componentKey = component.key || component.component?.key;
+              
+              // Helper function to check if a value represents actual file data
+              const hasActualFileData = (value) => {
+                if (!value) return false;
+                
+                if (Array.isArray(value)) {
+                  return value.length > 0 && value.some(item => 
+                    item && (item.name || item.filename || item.originalName || item.url || item.data)
+                  );
+                }
+                
+                if (typeof value === 'object') {
+                  return !!(value.name || value.filename || value.originalName || value.url || 
+                           value.data || value.storage || value.size || 
+                           (value.file && (value.file.name || value.file.url)));
+                }
+                
+                if (typeof value === 'string') {
+                  const trimmed = value.trim();
+                  return trimmed.length > 0 && (
+                    trimmed.startsWith('data:') || trimmed.startsWith('http') ||  
+                    trimmed.startsWith('/') || trimmed.includes('.')
+                  );
+                }
+                
+                return false;
+              };
+              
+              // Check primary data sources for actual file content
+              if (hasActualFileData(dataValue)) {
+                hasValue = true;
+              }
+              
+              if (!hasValue && hasActualFileData(componentData)) {
+                hasValue = true;
+              }
+              
+              if (!hasValue && rootData && componentKey && hasActualFileData(rootData[componentKey])) {
+                hasValue = true;
+              }
+              
+              if (!hasValue && submissionData && componentKey && hasActualFileData(submissionData[componentKey])) {
+                hasValue = true;
+              }
+              
+              if (!hasValue && component.files && Array.isArray(component.files) && component.files.length > 0) {
+                hasValue = true;
+              }
+              
+              valid = hasValue;
+            }
+          } else {
+            // Standard validation for non-file components
+            valid = component.checkValidity(component.data, true);
+          }
           
           if (!valid) {
             isValid = false;
@@ -532,9 +603,79 @@ export default class ReviewButton extends FieldComponent {
                   isValid = false;
                 }
               } else {
-                // Standard validation for non-address components
-                if (!c.checkValidity()) {
-                  isValid = false;
+                // Special handling for file components in nested forms
+                const componentType = c.type || c.component?.type;
+                
+                if (componentType === 'file') {
+                  // Enhanced file validation for nested forms (simplified version for isFormValid)
+                  const isRequired = c.component?.validate?.required || c.validate?.required;
+                  if (isRequired) {
+                    let hasValue = false;
+                    
+                    // Quick check of main data sources
+                    const dataValue = c.dataValue;
+                    const componentData = c.data;
+                    const rootData = this.root?.data;
+                    const submissionData = this.root?.submission?.data;
+                    const componentKey = c.key || c.component?.key;
+                    
+                    // Helper function to check if a value represents actual file data
+                    const hasActualFileData = (value) => {
+                      if (!value) return false;
+                      
+                      if (Array.isArray(value)) {
+                        return value.length > 0 && value.some(item => 
+                          item && (item.name || item.filename || item.originalName || item.url || item.data)
+                        );
+                      }
+                      
+                      if (typeof value === 'object') {
+                        return !!(value.name || value.filename || value.originalName || value.url || 
+                                 value.data || value.storage || value.size || 
+                                 (value.file && (value.file.name || value.file.url)));
+                      }
+                      
+                      if (typeof value === 'string') {
+                        const trimmed = value.trim();
+                        return trimmed.length > 0 && (
+                          trimmed.startsWith('data:') || trimmed.startsWith('http') ||  
+                          trimmed.startsWith('/') || trimmed.includes('.')
+                        );
+                      }
+                      
+                      return false;
+                    };
+                    
+                    // Check primary data sources for actual file content
+                    if (hasActualFileData(dataValue)) {
+                      hasValue = true;
+                    }
+                    
+                    if (!hasValue && hasActualFileData(componentData)) {
+                      hasValue = true;
+                    }
+                    
+                    if (!hasValue && rootData && componentKey && hasActualFileData(rootData[componentKey])) {
+                      hasValue = true;
+                    }
+                    
+                    if (!hasValue && submissionData && componentKey && hasActualFileData(submissionData[componentKey])) {
+                      hasValue = true;
+                    }
+                    
+                    if (!hasValue && c.files && Array.isArray(c.files) && c.files.length > 0) {
+                      hasValue = true;
+                    }
+                    
+                    if (!hasValue) {
+                      isValid = false;
+                    }
+                  }
+                } else {
+                  // Standard validation for non-address, non-file components
+                  if (!c.checkValidity()) {
+                    isValid = false;
+                  }
                 }
               }
             }
@@ -650,8 +791,176 @@ export default class ReviewButton extends FieldComponent {
               }
             }
           } else {
-            // Standard validation for non-address components
-            const isValid = component.checkValidity();
+            // Special handling for file components in nested forms
+            const componentType = component.type || component.component?.type;
+            let isValid = true;
+            
+            if (componentType === 'file') {
+              // Enhanced file validation for nested forms
+              const isRequired = component.component?.validate?.required || component.validate?.required;
+              let hasValue = false;
+              
+              // Check all possible file data sources (same logic as in collectComponentErrors)
+              const dataValue = component.dataValue;
+              const componentData = component.data;
+              const getValue = component.getValue && component.getValue();
+              const getValueAsString = component.getValueAsString && component.getValueAsString();
+              const nestedData = component.component?.data;
+              const privateData = component._data;
+              
+              // Additional checks for nested forms and submission data
+              const rootData = this.root?.data;
+              const submissionData = this.root?.submission?.data;
+              const componentKey = component.key || component.component?.key;
+              const rootComponentData = rootData && componentKey ? rootData[componentKey] : null;
+              const submissionComponentData = submissionData && componentKey ? submissionData[componentKey] : null;
+              
+              // Check for nested path data (e.g., panel.subform.fileComponent)
+              const componentPath = component.path || component.key;
+              let nestedPathData = null;
+              if (componentPath && rootData) {
+                const pathParts = componentPath.split('.');
+                let currentData = rootData;
+                for (const part of pathParts) {
+                  if (currentData && typeof currentData === 'object' && part in currentData) {
+                    currentData = currentData[part];
+                  } else {
+                    currentData = null;
+                    break;
+                  }
+                }
+                nestedPathData = currentData;
+              }
+              
+              // Check for nested submission path data
+              let nestedSubmissionPathData = null;
+              if (componentPath && submissionData) {
+                const pathParts = componentPath.split('.');
+                let currentData = submissionData;
+                for (const part of pathParts) {
+                  if (currentData && typeof currentData === 'object' && part in currentData) {
+                    currentData = currentData[part];
+                  } else {
+                    currentData = null;
+                    break;
+                  }
+                }
+                nestedSubmissionPathData = currentData;
+              }
+              
+              // Helper function to check if a value represents actual file data
+              const hasActualFileData = (value) => {
+                if (!value) return false;
+                
+                if (Array.isArray(value)) {
+                  return value.length > 0 && value.some(item => 
+                    item && (item.name || item.filename || item.originalName || item.url || item.data)
+                  );
+                }
+                
+                if (typeof value === 'object') {
+                  // Check for common file object properties
+                  return !!(value.name || value.filename || value.originalName || value.url || 
+                           value.data || value.storage || value.size || 
+                           (value.file && (value.file.name || value.file.url)));
+                }
+                
+                if (typeof value === 'string') {
+                  // String should represent a file URL, path, or base64 data - not just any string
+                  const trimmed = value.trim();
+                  return trimmed.length > 0 && (
+                    trimmed.startsWith('data:') || // base64 data URL
+                    trimmed.startsWith('http') ||  // HTTP URL
+                    trimmed.startsWith('/') ||     // file path
+                    trimmed.includes('.') // has file extension
+                  );
+                }
+                
+                return false;
+              };
+              
+              // Check all data sources for actual file content
+              if (!hasValue && hasActualFileData(dataValue)) {
+                hasValue = true;
+              }
+              
+              if (!hasValue && hasActualFileData(componentData)) {
+                hasValue = true;
+              }
+              
+              if (!hasValue && hasActualFileData(getValue)) {
+                hasValue = true;
+              }
+              
+              if (!hasValue && getValueAsString && hasActualFileData(getValueAsString)) {
+                hasValue = true;
+              }
+              
+              if (!hasValue && hasActualFileData(nestedData)) {
+                hasValue = true;
+              }
+              
+              if (!hasValue && hasActualFileData(privateData)) {
+                hasValue = true;
+              }
+              
+              if (!hasValue && hasActualFileData(rootComponentData)) {
+                hasValue = true;
+              }
+              
+              if (!hasValue && hasActualFileData(submissionComponentData)) {
+                hasValue = true;
+              }
+              
+              if (!hasValue && hasActualFileData(nestedPathData)) {
+                hasValue = true;
+              }
+              
+              if (!hasValue && hasActualFileData(nestedSubmissionPathData)) {
+                hasValue = true;
+              }
+              
+              // Additional file-specific checks
+              if (!hasValue && component.files && Array.isArray(component.files) && component.files.length > 0) {
+                hasValue = true;
+              }
+              
+              if (!hasValue && component.element) {
+                const fileInputs = component.element.querySelectorAll('input[type="file"]');
+                for (const input of fileInputs) {
+                  if (input.files && input.files.length > 0) {
+                    hasValue = true;
+                    break;
+                  }
+                }
+              }
+              
+              if (!hasValue && component.fileService && component.fileService.files) {
+                const files = component.fileService.files;
+                if (Array.isArray(files) && files.length > 0) hasValue = true;
+              }
+              
+              // File is invalid if required and has no value
+              isValid = !isRequired || hasValue;
+              
+              // Debug logging for main validation path
+              console.log(`[MAIN VALIDATION] File component "${componentPath}" check:`, {
+                isValid: isValid,
+                isRequired: isRequired,
+                hasValue: hasValue,
+                componentKey: componentKey,
+                dataValue: !!dataValue,
+                componentData: !!componentData,
+                rootComponentData: !!rootComponentData,
+                submissionComponentData: !!submissionComponentData,
+                nestedPathData: !!nestedPathData,
+                nestedSubmissionPathData: !!nestedSubmissionPathData
+              });
+            } else {
+              // Standard validation for non-address, non-file components
+              isValid = component.checkValidity();
+            }
+            
             if (!isValid) {
               this.processComponentErrors(component, errorMap, results, opts.showErrors);
             }
@@ -1997,78 +2306,103 @@ export default class ReviewButton extends FieldComponent {
             return true;
           }
 
-          // Removed _errors check as it can cause stale error states to persist
-          // The invalidFields set should already contain only actually invalid fields
-
-          // Try to match nested form paths
-          // If fieldPath is like "dataGrid[0].fieldName", also check for "form.data.dataGrid[0].fieldName"
-          if (fieldPath && !fieldPath.startsWith('form.')) {
-            const nestedPath = `form.data.${fieldPath}`;
-            if (invalidFields.has(nestedPath)) {
-              return true;
-            }
-
-            // Also try other common nested patterns
-            const altNestedPath = `data.${fieldPath}`;
-            if (invalidFields.has(altNestedPath)) {
-              return true;
-            }
-          }
-
-          // If fieldPath starts with form., try without the form. prefix
-          if (fieldPath && fieldPath.startsWith('form.data.')) {
-            const simplifiedPath = fieldPath.replace('form.data.', '');
-            if (invalidFields.has(simplifiedPath)) {
-              return true;
-            }
-          }
-
-          // Debug: log when no match is found
+          // Enhanced path matching for better datagrid and container support
           if (fieldPath) {
+            // Try to match nested form paths
+            // If fieldPath is like "dataGrid[0].fieldName", also check for "form.data.dataGrid[0].fieldName"
+            if (!fieldPath.startsWith('form.')) {
+              const nestedPath = `form.data.${fieldPath}`;
+              if (invalidFields.has(nestedPath)) {
+                return true;
+              }
+
+              // Also try other common nested patterns
+              const altNestedPath = `data.${fieldPath}`;
+              if (invalidFields.has(altNestedPath)) {
+                return true;
+              }
+            }
+
+            // If fieldPath starts with form., try without the form. prefix
+            if (fieldPath.startsWith('form.data.')) {
+              const simplifiedPath = fieldPath.replace('form.data.', '');
+              if (invalidFields.has(simplifiedPath)) {
+                return true;
+              }
+            }
+
+            // Enhanced matching for containers and datagrids
+            // Check if any invalid field ends with this field name (for nested components)
+            const fieldName = fieldPath.split('.').pop();
+            for (const invalidField of invalidFields) {
+              // Match if the invalid field ends with our field name
+              if (invalidField.endsWith('.' + fieldName) || invalidField === fieldName) {
+                return true;
+              }
+              
+              // Match datagrid patterns: dataGrid[0].fieldName vs fieldName
+              if (invalidField.includes('[') && invalidField.includes(']')) {
+                const invalidFieldName = invalidField.split('.').pop();
+                if (invalidFieldName === fieldName || invalidFieldName === fieldPath) {
+                  return true;
+                }
+              }
+            }
           }
 
           return false;
         }
 
-        const getInvalidStyle = (comp, path, basePath = '') => {
-          // Try different path combinations for better matching
-          const pathsToTry = [];
+         const getInvalidStyle = (comp, path, basePath = '') => {
+           // Try different path combinations for better matching
+           const pathsToTry = [];
 
-          if (basePath) {
-            pathsToTry.push(`${basePath}.${path}`); // basePath.path
-            pathsToTry.push(`${basePath}[${path}]`); // basePath[path] for array access
+           if (basePath) {
+             pathsToTry.push(`${basePath}.${path}`); // basePath.path
+             pathsToTry.push(`${basePath}[${path}]`); // basePath[path] for array access
 
-            // Try with form.data. prefix for nested forms
-            pathsToTry.push(`form.data.${basePath}.${path}`);
-            pathsToTry.push(`form.${basePath}.${path}`);
+             // Try with form.data. prefix for nested forms
+             pathsToTry.push(`form.data.${basePath}.${path}`);
+             pathsToTry.push(`form.${basePath}.${path}`);
 
-            // Try with just data. prefix
-            pathsToTry.push(`data.${basePath}.${path}`);
-          }
+             // Try with just data. prefix
+             pathsToTry.push(`data.${basePath}.${path}`);
+           }
 
-          pathsToTry.push(path); // just the path itself
+           pathsToTry.push(path); // just the path itself
 
-          // Try with form.data. prefix for direct paths
-          if (!path.includes('.')) {
-            pathsToTry.push(`form.data.${path}`);
-            pathsToTry.push(`data.${path}`);
-          }
+           // Try with form.data. prefix for direct paths
+           if (!path.includes('.')) {
+             pathsToTry.push(`form.data.${path}`);
+             pathsToTry.push(`data.${path}`);
+           }
 
-          // More precise path matching - only try without indices if there's a specific reason
-          // Removing this broad array index removal as it causes cross-contamination between fields
-          // if (path.includes('[')) {
-          //   pathsToTry.push(path.replace(/\[.*?\]/g, '')); // remove array indices
-          // }
+           // Debug logging for file components being styled
+           const componentType = comp?.type || comp?.component?.type;
+           if (componentType === 'file') {
+             console.log(`🎨 Styling file component "${path}" (basePath: "${basePath}"):`, {
+               pathsToTry,
+               invalidFields: Array.from(invalidFields),
+               comp: comp
+             });
+           }
 
-          // Try to find any match
-          for (const testPath of pathsToTry) {
-            if (isFieldInvalid(comp, testPath)) {
-              return 'background-color:rgb(255 123 123); border-radius: 3px;';
-            }
-          }
+           // Try to find any match
+           for (const testPath of pathsToTry) {
+             if (isFieldInvalid(comp, testPath)) {
+               if (componentType === 'file') {
+                 console.log(`❌ File component "${path}" matched invalid path: "${testPath}"`);
+               }
+               return 'background-color:rgb(255 123 123); border-radius: 3px;';
+             }
+           }
 
-          return '';
-        };
+           if (componentType === 'file') {
+             console.log(`✅ File component "${path}" has no invalid styling`);
+           }
+
+           return '';
+         };
 
         // Helper functions for datagrid highlighting
         const isRowInvalidRecursive = (node, currentPath) => {
@@ -3047,20 +3381,220 @@ export default class ReviewButton extends FieldComponent {
           uniqueIdToPathMap.set(uniqueId, componentPath);
         }
 
-        // Only collect errors from visible form fields that are actually invalid
-        if (isVisibleFormField(component) && component.checkValidity) {
-          if (uniqueId && !isContainerType(component.type)) {
-            // Check if component is actually invalid using checkValidity() instead of relying on _errors
-            // This fixes issues with stale error states, especially in file components in nested forms
-            if (!component.checkValidity()) {
-              uniqueInvalidComponents.add(uniqueId);
-              // Also add the path to invalidFields for renderLeaves compatibility
-              if (componentPath) {
-                invalidFields.add(componentPath);
-              }
-            }
-          }
-        }
+         // Only collect errors from visible form fields that are actually invalid
+         if (isVisibleFormField(component) && component.checkValidity) {
+           if (uniqueId && !isContainerType(component.type)) {
+             let isActuallyInvalid = false;
+             
+             // Enhanced validation check with special handling for file components
+             const componentType = component.type || component.component?.type;
+             
+             if (componentType === 'file') {
+               // For file components, check multiple validation indicators
+               // File components can have stale checkValidity() results in nested forms
+               const hasErrors = component.errors && component.errors.length > 0;
+               const hasCheckValidity = component.checkValidity && !component.checkValidity();
+               const isRequired = component.component?.validate?.required || component.validate?.required;
+               
+               // Check for actual file data more comprehensively
+               let hasValue = false;
+               
+               // Check multiple possible file data locations
+               const dataValue = component.dataValue;
+               const componentData = component.data;
+               const getValue = component.getValue && component.getValue();
+               const getValueAsString = component.getValueAsString && component.getValueAsString();
+               const nestedData = component.component?.data;
+               const privateData = component._data;
+               
+               // Additional checks for nested forms and submission data
+               const rootData = this.root?.data;
+               const submissionData = this.root?.submission?.data;
+               const componentKey = component.key || component.component?.key;
+               const rootComponentData = rootData && componentKey ? rootData[componentKey] : null;
+               const submissionComponentData = submissionData && componentKey ? submissionData[componentKey] : null;
+               
+               // Check for nested path data (e.g., panel.subform.fileComponent)
+               let nestedPathData = null;
+               if (componentPath && rootData) {
+                 const pathParts = componentPath.split('.');
+                 let currentData = rootData;
+                 for (const part of pathParts) {
+                   if (currentData && typeof currentData === 'object' && part in currentData) {
+                     currentData = currentData[part];
+                   } else {
+                     currentData = null;
+                     break;
+                   }
+                 }
+                 nestedPathData = currentData;
+               }
+               
+               // Check for nested submission path data
+               let nestedSubmissionPathData = null;
+               if (componentPath && submissionData) {
+                 const pathParts = componentPath.split('.');
+                 let currentData = submissionData;
+                 for (const part of pathParts) {
+                   if (currentData && typeof currentData === 'object' && part in currentData) {
+                     currentData = currentData[part];
+                   } else {
+                     currentData = null;
+                     break;
+                   }
+                 }
+                 nestedSubmissionPathData = currentData;
+               }
+               
+               // Helper function to check if a value represents actual file data
+               const hasActualFileData = (value) => {
+                 if (!value) return false;
+                 
+                 if (Array.isArray(value)) {
+                   return value.length > 0 && value.some(item => 
+                     item && (item.name || item.filename || item.originalName || item.url || item.data)
+                   );
+                 }
+                 
+                 if (typeof value === 'object') {
+                   return !!(value.name || value.filename || value.originalName || value.url || 
+                            value.data || value.storage || value.size || 
+                            (value.file && (value.file.name || value.file.url)));
+                 }
+                 
+                 if (typeof value === 'string') {
+                   const trimmed = value.trim();
+                   return trimmed.length > 0 && (
+                     trimmed.startsWith('data:') || trimmed.startsWith('http') ||  
+                     trimmed.startsWith('/') || trimmed.includes('.')
+                   );
+                 }
+                 
+                 return false;
+               };
+               
+               // Check all data sources for actual file content
+               if (!hasValue && hasActualFileData(dataValue)) {
+                 hasValue = true;
+               }
+               
+               if (!hasValue && hasActualFileData(componentData)) {
+                 hasValue = true;
+               }
+               
+               if (!hasValue && hasActualFileData(getValue)) {
+                 hasValue = true;
+               }
+               
+               if (!hasValue && getValueAsString && hasActualFileData(getValueAsString)) {
+                 hasValue = true;
+               }
+               
+               if (!hasValue && hasActualFileData(nestedData)) {
+                 hasValue = true;
+               }
+               
+               if (!hasValue && hasActualFileData(privateData)) {
+                 hasValue = true;
+               }
+               
+               if (!hasValue && hasActualFileData(rootComponentData)) {
+                 hasValue = true;
+               }
+               
+               if (!hasValue && hasActualFileData(submissionComponentData)) {
+                 hasValue = true;
+               }
+               
+               if (!hasValue && hasActualFileData(nestedPathData)) {
+                 hasValue = true;
+               }
+               
+               if (!hasValue && hasActualFileData(nestedSubmissionPathData)) {
+                 hasValue = true;
+               }
+               
+               // Additional check for file component specific properties
+               if (!hasValue && component.files && Array.isArray(component.files) && component.files.length > 0) {
+                 hasValue = true;
+               }
+               
+               // Check if there are any uploaded files in the DOM element
+               if (!hasValue && component.element) {
+                 const fileInputs = component.element.querySelectorAll('input[type="file"]');
+                 for (const input of fileInputs) {
+                   if (input.files && input.files.length > 0) {
+                     hasValue = true;
+                     break;
+                   }
+                 }
+               }
+               
+               // Check the component's internal file list
+               if (!hasValue && component.fileService && component.fileService.files) {
+                 const files = component.fileService.files;
+                 if (Array.isArray(files) && files.length > 0) hasValue = true;
+               }
+               
+               // File component is invalid if:
+               // 1. It's required and has no value, OR  
+               // 2. checkValidity says it's invalid AND it actually has no valid data
+               // Note: We ignore hasErrors for file components because they often have stale errors
+               // even when valid files are uploaded. We rely on hasValue as the primary indicator.
+               isActuallyInvalid = (isRequired && !hasValue) ||
+                                  (hasCheckValidity && !hasValue);
+                                  
+               // Debug logging for file components
+               console.log(`File component "${componentPath}" validation check:`, {
+                 isActuallyInvalid: isActuallyInvalid,
+                 hasErrors: hasErrors,
+                 hasCheckValidity: hasCheckValidity,
+                 isRequired: isRequired,
+                 hasValue: hasValue,
+                 dataValue: component.dataValue,
+                 data: component.data,
+                 getValue: getValue,
+                 getValueAsString: getValueAsString,
+                 componentData: component.component?.data,
+                 privateData: component._data,
+                 files: component.files,
+                 errors: component.errors,
+                 element: !!component.element,
+                 fileService: !!component.fileService,
+                 // New nested form data sources
+                 rootData: !!rootData,
+                 submissionData: !!submissionData,
+                 componentKey: componentKey,
+                 rootComponentData: rootComponentData,
+                 submissionComponentData: submissionComponentData,
+                 nestedPathData: nestedPathData,
+                 nestedSubmissionPathData: nestedSubmissionPathData
+               });
+               
+               if (isActuallyInvalid) {
+                 console.log(`❌ File component "${componentPath}" marked as INVALID`);
+               } else {
+                 console.log(`✅ File component "${componentPath}" marked as VALID`);
+               }
+             } else {
+               // For non-file components, use checkValidity if available
+               if (component.checkValidity) {
+                 isActuallyInvalid = !component.checkValidity();
+               } else {
+                 // Fallback: check for errors array
+                 isActuallyInvalid = component.errors && component.errors.length > 0;
+               }
+             }
+             
+             if (isActuallyInvalid) {
+               uniqueInvalidComponents.add(uniqueId);
+               // Also add the path to invalidFields for renderLeaves compatibility
+               if (componentPath) {
+                 invalidFields.add(componentPath);
+               }
+             }
+           }
+         }
 
         // Recursively check child components
         if (component.components && Array.isArray(component.components)) {
@@ -3122,17 +3656,31 @@ export default class ReviewButton extends FieldComponent {
         
         // Check if this field is a longer/more specific version of another field
         // Remove longer paths when shorter, simpler paths exist
+        // BUT preserve datagrid and array paths which are needed for proper highlighting
         const hasShorterVersion = invalidFieldsArray.some(otherField => {
           if (otherField === field || !field.includes('.')) return false;
           
+          // Don't remove datagrid/array paths - they're unique and needed for highlighting
+          if (field.includes('[') && field.includes(']')) {
+            return false;
+          }
+          
+          // Don't remove if this is a container path that might be needed for nested highlighting
+          if (field.includes('panel') || field.includes('fieldset') || field.includes('well') || field.includes('container')) {
+            // Only remove if the other field is exactly the last segment and not in an array
+            const lastSegment = field.split('.').pop();
+            return otherField === lastSegment && !otherField.includes('[');
+          }
+          
           // Check if this field ends with another shorter field as a path segment
           // Example: "panel1.fieldSet.textField3" ends with ".textField3" (otherField could be "textField3")
-          return field.endsWith('.' + otherField) || 
-                 (field.includes('.') && field === `form.data.${otherField}`) ||
-                 (field.includes('.') && field === `data.${otherField}`);
+          return (field.endsWith('.' + otherField) || 
+                  (field.includes('.') && field === `form.data.${otherField}`) ||
+                  (field.includes('.') && field === `data.${otherField}`)) &&
+                 !otherField.includes('['); // Don't match array indices
         });
         
-        // Skip longer paths when shorter versions exist
+        // Skip longer paths when shorter versions exist (but preserve datagrid/container paths)
         if (hasShorterVersion) {
           console.log(`Hiding longer field "${field}" because shorter version exists`);
           return;
@@ -3169,7 +3717,7 @@ export default class ReviewButton extends FieldComponent {
             ${reviewHtml}
           </div>
           ${hasErrors ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-            <p class="text-red-700 font-medium">⚠️ Fix the ${fieldErrorCount} error${fieldErrorCount === 1 ? '' : 's'} in the form before submitting</p>
+             <p class="text-red-700 font-medium">⚠️ Fix the ${fieldErrorCount} error${fieldErrorCount === 1 ? '' : 's'} in the form before submitting</p>
           </div>` : ''}
           ${!hasErrors ? `
           <div class="flex space-x-4 mb-4">
