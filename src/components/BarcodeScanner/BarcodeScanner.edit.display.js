@@ -7,7 +7,7 @@ export default [
     weight: 999,
     tooltip: "If checked, this field will appear in the Review modal summary.",
   },
-  // Standard simple conditional
+
   {
     type: 'panel',
     title: 'Simple Conditional',
@@ -50,7 +50,7 @@ export default [
       }
     ]
   },
-  // Advanced conditional
+
   {
     type: 'panel',
     title: 'Advanced Conditional',

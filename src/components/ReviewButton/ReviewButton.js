@@ -3,15 +3,35 @@ import editForm from "./ReviewButton.form";
 
 const FieldComponent = Components.components.field;
 
+const CONTAINER_TYPES = new Set(['panel', 'columns', 'well', 'fieldset', 'datamap', 'editgrid', 'table', 'tabs', 'row', 'column', 'content', 'htmlelement']);
+
 const isContainerType = (t, exclude = []) => {
-  const containerTypes = ['panel', 'columns', 'well', 'fieldset', 'datamap', 'editgrid', 'table', 'tabs', 'row', 'column', 'content', 'htmlelement'];
-  const allowedTypes = containerTypes.filter(type => !exclude.includes(type));
-  return Array.isArray(t) ? t.some(type => type && allowedTypes.includes(type)) : allowedTypes.includes(t);
+  if (!t) return false; // Early exit if no type
+
+  if (!exclude || exclude.length === 0) {
+    return Array.isArray(t)
+      ? t.some(x => x && CONTAINER_TYPES.has(x))
+      : CONTAINER_TYPES.has(t);
+  }
+
+  const excluded = new Set(exclude);
+  const allowed = new Set([...CONTAINER_TYPES].filter(x => !excluded.has(x)));
+
+  return Array.isArray(t)
+    ? t.some(x => x && allowed.has(x))
+    : allowed.has(t);
 };
 
+const FLATTEN_TYPES = new Set(['columns', 'fieldset', 'tabs', 'tagpad', 'survey', 'panel', 'well', 'container', 'datagrid', 'datatable']);
+
 const shouldFlattenContainer = (t) => {
-  const flattenTypes = ['columns', 'fieldset', 'tabs', 'tagpad', 'survey', 'panel', 'well', 'container', 'datagrid', 'datatable'];
-  return Array.isArray(t) ? t.some(type => type && flattenTypes.includes(type?.toLowerCase())) : flattenTypes.includes(t?.toLowerCase());
+  if (!t) return false; // Early exit if no type
+
+  if (Array.isArray(t)) {
+    return t.some(type => type && FLATTEN_TYPES.has(type.toLowerCase()));
+  }
+
+  return FLATTEN_TYPES.has(t.toLowerCase());
 };
 
 const hasActualFileData = (value) => {
@@ -29,39 +49,41 @@ const hasActualFileData = (value) => {
   return false;
 };
 
-function findComponentByKey(root, targetKey, currentPath = '') {
+function findComponentByKey(root, targetKey, currentPath = '', parent = null) {
   if (!root || !targetKey) return null;
 
   const currentKey = root.key || root.component?.key;
   if (currentKey === targetKey) {
-    return { component: root, path: currentPath, parent: null };
+    return { component: root, path: currentPath, parent };
   }
 
+  const buildPath = (base, keyOrIndex) => base ? `${base}.${keyOrIndex}` : `${keyOrIndex}`;
+
   if (Array.isArray(root.components)) {
-    for (let i = 0; i < root.components.length; i++) {
-      const child = root.components[i];
+    for (const child of root.components) {
       if (child) {
-        const childPath = currentPath ? `${currentPath}.${child.key || child.component?.key || i}` : (child.key || child.component?.key || i);
-        const found = findComponentByKey(child, targetKey, childPath);
+        const path = buildPath(currentPath, child.key || child.component?.key || root.components.indexOf(child));
+        const found = findComponentByKey(child, targetKey, path, root);
         if (found) return found;
       }
     }
   }
 
   if (root.subForm && typeof root.subForm === 'object') {
-    const subFormPath = currentPath ? `${currentPath}.subForm` : 'subForm';
-    const found = findComponentByKey(root.subForm, targetKey, subFormPath);
+    const path = buildPath(currentPath, 'subForm');
+    const found = findComponentByKey(root.subForm, targetKey, path, root);
     if (found) return found;
   }
+
   if (Array.isArray(root.editRows)) {
     for (let i = 0; i < root.editRows.length; i++) {
       const row = root.editRows[i];
-      if (row?.components) {
+      if (row && Array.isArray(row.components)) {
         for (let j = 0; j < row.components.length; j++) {
           const child = row.components[j];
           if (child) {
-            const rowPath = currentPath ? `${currentPath}[${i}].${child.key || child.component?.key || j}` : `[${i}].${child.key || child.component?.key || j}`;
-            const found = findComponentByKey(child, targetKey, rowPath);
+            const path = buildPath(currentPath, `[${i}].${child.key || child.component?.key || j}`);
+            const found = findComponentByKey(child, targetKey, path, row);
             if (found) return found;
           }
         }
@@ -73,8 +95,8 @@ function findComponentByKey(root, targetKey, currentPath = '') {
     for (let i = 0; i < root.editForms.length; i++) {
       const form = root.editForms[i];
       if (form) {
-        const formPath = currentPath ? `${currentPath}[${i}]` : `[${i}]`;
-        const found = findComponentByKey(form, targetKey, formPath);
+        const path = buildPath(currentPath, `[${i}]`);
+        const found = findComponentByKey(form, targetKey, path, root);
         if (found) return found;
       }
     }
@@ -148,41 +170,67 @@ export default class ReviewButton extends FieldComponent {
     try {
       let isValid = true;
 
-      this.root.everyComponent(component => {
-        if (!component.visible || component.disabled || component._visible === false || component.component?.hidden) return;
-        
-        if (component.checkValidity) {
-          let valid = true;
-          
-          const componentType = component.type || component.component?.type;
-          
-          if (componentType === 'file') {
-            const isRequired = component.component?.validate?.required || component.validate?.required;
-            if (isRequired) {
-              let hasValue = false;
-              
-              const dataValue = component.dataValue;
-              const componentData = component.data;
-              const rootData = this.root?.data;
-              const submissionData = this.root?.submission?.data;
-              const componentKey = component.key || component.component?.key;
-              
-              hasValue = hasActualFileData(dataValue) || hasActualFileData(componentData) || 
+      const handleAddressValidation = (component) => {
+        const addressValue = component.dataValue?.formattedPlace;
+        const isEmpty = !addressValue || !addressValue.trim();
+
+        if (isEmpty) {
+          if (!component.errors) component.errors = [];
+          const errorMessage = `${component.component?.label || component.key} is required.`;
+          if (!component.errors.includes(errorMessage)) {
+            component.errors.push(errorMessage);
+          }
+
+          setTimeout(() => {
+            component.setCustomValidity(component.errors, true);
+            component.redraw();
+          }, 5000);
+
+          return false;
+        }
+
+        return component.checkValidity();
+      };
+
+      const handleFileValidation = (component) => {
+        const isRequired = component.component?.validate?.required || component.validate?.required;
+        if (!isRequired) return component.checkValidity(component.data, true);
+
+        const dataValue = component.dataValue;
+        const componentData = component.data;
+        const rootData = this.root?.data;
+        const submissionData = this.root?.submission?.data;
+        const componentKey = component.key || component.component?.key;
+
+        const hasValue = hasActualFileData(dataValue) || hasActualFileData(componentData) ||
                         (rootData && componentKey && hasActualFileData(rootData[componentKey])) ||
                         (submissionData && componentKey && hasActualFileData(submissionData[componentKey])) ||
                         (component.files && Array.isArray(component.files) && component.files.length > 0);
-              
-              valid = hasValue;
-            }
-          } else {
-            valid = component.checkValidity(component.data, true);
-          }
-          
-          if (!valid) {
-            isValid = false;
-            component.setCustomValidity(component.errors, true);
-          }
+
+        return hasValue;
+      };
+
+      this.root.everyComponent((component) => {
+        if (!component.visible || component.disabled || component._visible === false || component.component?.hidden) return true; // skip hidden/disabled
+
+        if (!component.checkValidity) return true; // skip components without validation
+
+        const componentType = component.type || component.component?.type;
+        const isAddressComponent = componentType === 'address';
+        const isFileComponent = componentType === 'file';
+
+        const valid = isAddressComponent && component.component?.validate?.required
+          ? handleAddressValidation(component)
+          : isFileComponent
+          ? handleFileValidation(component)
+          : component.checkValidity(component.data, true);
+
+        if (!valid) {
+          isValid = false;
+          component.setCustomValidity(component.errors, true);
         }
+
+        return true; // continue iteration
       });
 
       this.root.redraw();

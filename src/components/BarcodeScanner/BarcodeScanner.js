@@ -65,7 +65,7 @@ export default class BarcodeScanner extends FieldComponent {
     this._usingBatch = false;
     this._dataCaptureView = null;
     this._drawingPending = false;
-    // Use env var if available, fallback to hardcoded key, and avoid ReferenceError if process is undefined
+
     let envKey;
     if (typeof process !== 'undefined' && process?.env && process.env.NEXT_PUBLIC_SCANDIT_KEY) {
       envKey = process?.env?.NEXT_PUBLIC_SCANDIT_KEY;
@@ -229,19 +229,17 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
 
-  // processImageFile removed
-
   _showImageInModal(image) {
     this._openModal();
-    // Remove any previous image
+
     if (this._uploadedImageElement && this._uploadedImageElement.parentNode) {
       this._uploadedImageElement.parentNode.removeChild(this._uploadedImageElement);
       this._uploadedImageElement = null;
     }
-    // Remove video if present (for switching from camera to image)
-    //const video = this.refs.scanditContainer.querySelector('video');
-    //if (video) video.style.display = 'none';
-    // Add image
+
+
+
+
     this._uploadedImageElement = image;
     image.style.maxWidth = '100%';
     image.style.maxHeight = '100%';
@@ -250,26 +248,26 @@ export default class BarcodeScanner extends FieldComponent {
     image.style.left = '0';
     image.style.zIndex = '10';
     image.style.objectFit = 'contain';
-    // Ensure the image is not hidden
+
     image.style.display = 'block';
-    // Remove any previous image from scanditContainer before appending
+
     Array.from(this.refs.scanditContainer.querySelectorAll('img')).forEach(img => {
       if (img !== image) img.parentNode.removeChild(img);
     });
     this.refs.scanditContainer.appendChild(image);
-    // Ensure bounding box overlay is above image
+
     if (this._boundingBoxCanvas) {
       this._boundingBoxCanvas.style.zIndex = '20';
     }
-    // Set up scale factors for image
+
     this._cachedScaleFactors = null;
-    // Always set onload before checking .complete
+
     image.onload = () => {
       console.log('Image onload fired');
       this._resizeBoundingBoxCanvas();
     };
     if (image.complete) {
-      // If already loaded, manually trigger onload
+
       image.onload();
     }
     console.log('Image shown in modal:', image);
@@ -280,12 +278,11 @@ export default class BarcodeScanner extends FieldComponent {
     this._lastCodes = [];
     this._isVideoFrozen = false;
 
-    // Remove uploaded image if present
     if (this._uploadedImageElement && this._uploadedImageElement.parentNode) {
       this._uploadedImageElement.parentNode.removeChild(this._uploadedImageElement);
       this._uploadedImageElement = null;
     }
-    // Restore video if present
+
     const video = this.refs.scanditContainer.querySelector('video');
     if (video) video.style.display = '';
 
@@ -328,7 +325,7 @@ export default class BarcodeScanner extends FieldComponent {
         }
         this._cachedScaleFactors = null;
       }
-      // Set scale factors for image or video
+
       const videoElement = container.querySelector('video');
       const imageElement = this._uploadedImageElement;
       if (imageElement && imageElement.naturalWidth && imageElement.naturalHeight) {
@@ -361,7 +358,6 @@ export default class BarcodeScanner extends FieldComponent {
         this._dataCaptureContext = await DataCaptureContext.create();
         console.log("DataCaptureContext initialized:", this._dataCaptureContext);
 
-        // Use BarcodeBatchSettings for multi-barcode scanning
         let settings = new BarcodeBatchSettings();
         const allSymbologies = [
             Symbology.Code128, Symbology.Code39, Symbology.Code93, Symbology.Code11, Symbology.Codabar,
@@ -395,22 +391,20 @@ export default class BarcodeScanner extends FieldComponent {
             throw new Error("DataCaptureContext is null - cannot create BarcodeCapture");
         }
 
-        // Create BarcodeBatch for multi-barcode scanning
         this._barcodeBatch = await BarcodeBatch.forContext(this._dataCaptureContext, settings);
         console.log("BarcodeBatch initialized:", this._barcodeBatch);
 
         await this._barcodeBatch.setEnabled(true);
         this._usingBatch = true;
 
-        // Listen for tracked barcodes
         this._trackedBarcodes = {};
         this._barcodeBatch.addListener({
             didUpdateSession: (barcodeBatchMode, session) => {
                 this._trackedBarcodes = session.trackedBarcodes || {};
-                // Always update the tracked barcodes for the animation loop
+
                 const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
                 this._currentBarcodes = barcodes;
-                // Force a redraw immediately to ensure overlays appear as soon as barcodes are detected
+
                 this._drawBoundingBoxes(this._currentBarcodes);
             }
         });
@@ -418,13 +412,12 @@ export default class BarcodeScanner extends FieldComponent {
         this._dataCaptureView = await DataCaptureView.forContext(this._dataCaptureContext);
         this._dataCaptureView.connectToElement(this.refs.scanditContainer);
 
-        // Add batch overlay for visual feedback, but hide default blue boxes with CSS
         await BarcodeBatchBasicOverlay.withBarcodeBatchForViewWithStyle(
             this._barcodeBatch,
             this._dataCaptureView,
             BarcodeBatchBasicOverlayStyle.Frame // Use Frame for real-time tracking
         );
-        // Inject CSS to hide Scandit blue overlay frames
+
         if (!document.getElementById('hide-scandit-blue-frames')) {
             const style = document.createElement('style');
             style.id = 'hide-scandit-blue-frames';
@@ -442,7 +435,6 @@ export default class BarcodeScanner extends FieldComponent {
         this._createBoundingBoxOverlay();
         this._startLiveScanningMode();
 
-        // Start the animation frame loop for overlays after everything is initialized
         this._currentBarcodes = [];
         this._drawBoundingBoxes(this._currentBarcodes);
     } catch (error) {
@@ -453,7 +445,7 @@ export default class BarcodeScanner extends FieldComponent {
 
   async _setupCamera() {
     try {
-        // Use BarcodeBatch recommended settings for multi-barcode scanning
+
         const cameraSettings = BarcodeBatch.recommendedCameraSettings;
 
         this._camera = Camera.default;
@@ -493,7 +485,6 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
-  // When freezing or confirming, collect all tracked barcodes
   _toggleFreezeVideo() {
     try {
       this._isVideoFrozen = !this._isVideoFrozen;
@@ -503,7 +494,7 @@ export default class BarcodeScanner extends FieldComponent {
         if (this._camera) {
           this._camera.switchToDesiredState(FrameSourceState.Off);
         }
-        // Collect all tracked barcodes and update value
+
         if (this._usingBatch && this._trackedBarcodes) {
           const allCodes = Object.values(this._trackedBarcodes)
             .map(tb => tb.barcode.data)
@@ -751,7 +742,7 @@ export default class BarcodeScanner extends FieldComponent {
 
         this._cachedScaleFactors = null;
       }
-      // Set scale factors for image or video
+
       const videoElement = container.querySelector('video');
       const imageElement = this._uploadedImageElement;
       if (imageElement && imageElement.naturalWidth && imageElement.naturalHeight) {
@@ -783,7 +774,7 @@ export default class BarcodeScanner extends FieldComponent {
 
       const draw = () => {
         try {
-          // Use trackedBarcodes for real-time anchor positions
+
           let trackedBarcodes = this._trackedBarcodes || {};
           const barcodeEntries = Object.entries(trackedBarcodes);
 
@@ -828,7 +819,7 @@ export default class BarcodeScanner extends FieldComponent {
           this._clickableRegions = [];
 
           for (const [id, trackedBarcode] of barcodeEntries) {
-            // Prefer _anchorPositions, fallback to _location, fallback to barcode.location
+
             let anchor = trackedBarcode._anchorPositions || trackedBarcode._location || (trackedBarcode.barcode && trackedBarcode.barcode.location);
             if (!anchor || !anchor.topLeft) continue;
             const { topLeft, topRight, bottomRight, bottomLeft } = anchor;
@@ -841,7 +832,6 @@ export default class BarcodeScanner extends FieldComponent {
             const x4 = bottomLeft.x * scaleX;
             const y4 = bottomLeft.y * scaleY;
 
-            // Draw custom blue bounding box if frozen
             if (this._isVideoFrozen) {
               this._boundingBoxContext.save();
               this._boundingBoxContext.strokeStyle = 'rgba(1, 255, 255, 1';
@@ -857,7 +847,6 @@ export default class BarcodeScanner extends FieldComponent {
               this._boundingBoxContext.restore();
             }
 
-            // Draw the text label directly above the top left corner
             const text = `${trackedBarcode.barcode?.symbology || ''}: ${trackedBarcode.barcode?.data || ''}`;
             const textMetrics = this._boundingBoxContext.measureText(text);
             const textX = x1;
@@ -1077,12 +1066,11 @@ export default class BarcodeScanner extends FieldComponent {
       clearInterval(this._liveScanInterval);
     }
 
-    // Minimal cleanup - let didUpdateSession handle most of the work
     this._liveScanInterval = setInterval(() => {
       if (!this._isVideoFrozen && this._boundingBoxContext) {
-        // Only clear if no barcode activity for a very short time
+
         if (!this._lastBarcodeTime || Date.now() - this._lastBarcodeTime > 100) {
-          // Don't clear immediately - let the session callbacks handle it
+
         }
       }
     }, 50); // Very frequent checks for responsiveness
@@ -1097,18 +1085,15 @@ export default class BarcodeScanner extends FieldComponent {
 
 
   detach() {
-    // Stop live scanning mode
+
     this._stopLiveScanningMode();
 
-
-    // Clean up resize handler
     if (this._resizeHandler) {
       window.removeEventListener('resize', this._resizeHandler);
       window.removeEventListener('orientationchange', this._resizeHandler);
       this._resizeHandler = null;
     }
 
-    // Clean up bounding box canvas
     if (this._boundingBoxCanvas && this._boundingBoxCanvas.parentNode) {
       this._boundingBoxCanvas.parentNode.removeChild(this._boundingBoxCanvas);
       this._boundingBoxCanvas = null;
@@ -1119,7 +1104,7 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   destroy() {
-    // Clean up Scandit resources
+
     if (this._barcodeBatch) {
       this._barcodeBatch.removeFromContext();
     }
@@ -1133,7 +1118,6 @@ export default class BarcodeScanner extends FieldComponent {
       this._dataCaptureContext = null;
     }
 
-    // Clean up resize observers
     if (this._cameraResizeObserver) {
       this._cameraResizeObserver.disconnect();
       this._cameraResizeObserver = null;
@@ -1144,7 +1128,6 @@ export default class BarcodeScanner extends FieldComponent {
       this._resizeTimeout = null;
     }
 
-    // Clean up intervals
     if (this._continuousTrackingInterval) {
       clearInterval(this._continuousTrackingInterval);
       this._continuousTrackingInterval = null;
@@ -1173,6 +1156,5 @@ export default class BarcodeScanner extends FieldComponent {
     return BarcodeScanner.schema();
   }
 
-  // _fileToImageData removed
 
 }

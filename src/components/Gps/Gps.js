@@ -95,7 +95,6 @@ export default class Gps extends FieldComponent {
       gpsButton: "single",
     });
 
-    // Restore value from Formio data model
     const value = this.getValue();
     if (this.refs.latitude && this.refs.longitude && value) {
       const [latitude, longitude] = value.split(",");
@@ -191,16 +190,14 @@ export default class Gps extends FieldComponent {
 
   setValue(value, flags = {}) {
     if (this.dataValue !== value) {
-      // Ensure the value is set in Formio's data model
+
       super.setValue(value, flags);
-      
-      // Only trigger change if not noUpdateEvent
+
       if (!flags.noUpdateEvent) {
         this.triggerChange();
       }
     }
-    
-    // Always update input fields even with noUpdateEvent flag
+
     if (this.refs && this.refs.latitude && this.refs.longitude) {
       const [latitude, longitude] = value ? value.split(",") : ["", ""];
       this.refs.latitude.value = latitude;
@@ -210,20 +207,19 @@ export default class Gps extends FieldComponent {
 
   updateValue(value, flags = {}) {
     if (this.dataValue !== value) {
-      // Always ensure modified and touched are set, even with noUpdateEvent
+
       const updatedFlags = { 
         ...flags, 
         modified: true, 
         touched: true
       };
       super.updateValue(value, updatedFlags);
-      
-      // Only trigger change if not noUpdateEvent
+
       if (!flags.noUpdateEvent) {
         this.triggerChange(updatedFlags);
       }
     }
-    // Rely on Formio's built-in validation and redraw
+
     this.redraw();
   }
 
