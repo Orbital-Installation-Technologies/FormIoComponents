@@ -5,7 +5,6 @@ setTimeout(() => {
     return;
   }
 
-  // 1. Inject "reviewVisible" checkbox into all components' editForm
   Object.entries(Components.components).forEach(([name, Component]) => {
     if (typeof Component?.editForm === "function") {
       const originalEditForm = Component.editForm;
