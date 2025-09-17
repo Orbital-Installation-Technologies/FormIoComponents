@@ -8,14 +8,12 @@ const CONTAINER_TYPES = new Set(['panel', 'columns', 'well', 'fieldset', 'datama
 const isContainerType = (t, exclude = []) => {
   if (!t) return false; // Early exit if no type
 
-  // Use base set if no exclusions
   if (!exclude || exclude.length === 0) {
     return Array.isArray(t)
       ? t.some(x => x && CONTAINER_TYPES.has(x))
       : CONTAINER_TYPES.has(t);
   }
 
-  // Build a filtered set only when needed
   const excluded = new Set(exclude);
   const allowed = new Set([...CONTAINER_TYPES].filter(x => !excluded.has(x)));
 
@@ -59,10 +57,8 @@ function findComponentByKey(root, targetKey, currentPath = '', parent = null) {
     return { component: root, path: currentPath, parent };
   }
 
-  // Helper to build path
   const buildPath = (base, keyOrIndex) => base ? `${base}.${keyOrIndex}` : `${keyOrIndex}`;
 
-  // Search nested components
   if (Array.isArray(root.components)) {
     for (const child of root.components) {
       if (child) {
@@ -73,14 +69,12 @@ function findComponentByKey(root, targetKey, currentPath = '', parent = null) {
     }
   }
 
-  // Search subForm
   if (root.subForm && typeof root.subForm === 'object') {
     const path = buildPath(currentPath, 'subForm');
     const found = findComponentByKey(root.subForm, targetKey, path, root);
     if (found) return found;
   }
 
-  // Search editRows (editgrid)
   if (Array.isArray(root.editRows)) {
     for (let i = 0; i < root.editRows.length; i++) {
       const row = root.editRows[i];
@@ -97,7 +91,6 @@ function findComponentByKey(root, targetKey, currentPath = '', parent = null) {
     }
   }
 
-  // Search editForms (tagpad)
   if (Array.isArray(root.editForms)) {
     for (let i = 0; i < root.editForms.length; i++) {
       const form = root.editForms[i];
@@ -188,7 +181,6 @@ export default class ReviewButton extends FieldComponent {
             component.errors.push(errorMessage);
           }
 
-          // Delay for UI update
           setTimeout(() => {
             component.setCustomValidity(component.errors, true);
             component.redraw();
