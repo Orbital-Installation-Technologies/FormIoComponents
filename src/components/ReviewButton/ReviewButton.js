@@ -1191,36 +1191,39 @@ export default class ReviewButton extends FieldComponent {
                     Array.isArray(component._data?.[key]) ? component._data[key] : [];
           }
 
+          // Transpose: Each field becomes a row, each data row becomes a column
           const tableRows = [];
-          const processedFields = new Map();
+          
+          colDefs.forEach((col, colIdx) => {
+            const colKey = col.key || col.component?.key;
+            const colLabel = columnLabels[colIdx] || colKey;
 
-          dataRows.forEach((rowObj, rIdx) => {
-            if (!processedFields.has(rIdx)) processedFields.set(rIdx, new Set());
-            const rowDone = processedFields.get(rIdx);
+            if (!colKey) return;
+
             const rowData = [];
-
-            colDefs.forEach((col, i) => {
-              const colKey = col.key || col.component?.key;
-              const colLabel = columnLabels[i] || colKey;
-
-              if (!colKey || rowDone.has(colKey)) return;
-
+            
+            // For each data row, create a column entry containing the field value
+            dataRows.forEach((rowObj, dataRowIdx) => {
               const val = typeof rowObj === 'object' ? rowObj[colKey] : '';
               rowData.push({
                 _children: {
-                  _label: colLabel,
-                  _key: colKey,
+                  _label: `Row ${dataRowIdx + 1}`, // Label for the data row
+                  _key: `${colKey}_row_${dataRowIdx}`,
                   _type: col.type || col.component?.type,
                   _leaf: true,
                   _value: val
                 }
               });
-
-              rowDone.add(colKey);
             });
 
-            tableRows.push({ _row: rowData });
+            // Create a table row for this field
+            tableRows.push({ 
+              _row: rowData,
+              _fieldLabel: colLabel, // Store the field label for potential use
+              _fieldKey: colKey
+            });
           });
+          
           return {
             _label: label,
             _key: key,
@@ -2156,11 +2159,10 @@ export default class ReviewButton extends FieldComponent {
         };
 
         function formatValue(value, comp) {
-          if (value && value._type === 'table' && Array.isArray(comp.table)) {
+          if (value && (value._type === 'table' || value._type === 'datatable') && (Array.isArray(comp.table) || Array.isArray(comp.dataValue) || Array.isArray(comp.rows))) {
             const customTableForReview = (component, data = {}) => {
               var label = component.label;
               var key = component.key;
-              var rows = component.table || component.components || component.columns;
               var customTable = null;
               var customPanel = null;
               var customColumn = null;
@@ -2168,38 +2170,141 @@ export default class ReviewButton extends FieldComponent {
               var value = {};
               var column = [];
               var finalTable = [];
-              rows.map((row) => {
-                if (Array.isArray(row)) {
-                  rowData = [];
-                  row.map((col) => {
-                    column = [];
-                    if (col && col.length > 0) {
-                      col.map(field => {
-                        const fieldComp = field.component
-                        value = {};
-                        value._label = fieldComp.label;
-                        value._key = fieldComp.key;
-                        value._type = fieldComp.type;
-                        value._leaf = true;
-                        value._value = data[fieldComp.key];
-                        column.push({ _children: value });
-                      });
-                    }
-                    if (column.length > 0) {
-                      rowData.push({ _row: column });
-                    }
-                    else{
-                      rowData.push({  });
-                    }
-                  });
-                  if (rowData.length > 0) {
-                    if (customTable === null) {
-                      customTable = [];
-                    }
-                    customTable.push({ _row: rowData });
+              
+              // Handle both regular tables and data tables
+              var rows = component.table || component.components || component.columns;
+              var dataRows = [];
+              
+              // For data tables, get the actual data
+              if (component._type === 'datatable' || component.type === 'datatable') {
+                dataRows = Array.isArray(component.dataValue) ? component.dataValue :
+                          Array.isArray(component.rows) ? component.rows :
+                          Array.isArray(component.data) ? component.data :
+                          Array.isArray(data[key]) ? data[key] : [];
+                          
+                // If we have data but no column definitions, create them from data keys
+                if (dataRows.length > 0 && (!rows || rows.length === 0)) {
+                  const firstRow = dataRows[0];
+                  if (typeof firstRow === 'object') {
+                    rows = Object.keys(firstRow).map(k => ({ component: { key: k, label: k, type: 'textfield' } }));
                   }
                 }
-              });
+              }
+              
+              // First, collect all the original data structure
+              var originalRows = [];
+              
+              // Handle data tables differently from regular tables
+              if (component._type === 'datatable' || component.type === 'datatable') {
+                // For data tables, use traditional table layout: columns=fields, rows=data records
+                // Don't transpose - just create the structure directly
+                customTable = [];
+                
+                // Deduplicate rows based on key to avoid duplicate columns
+                const uniqueRows = [];
+                const seenKeys = new Set();
+                rows.forEach(colDef => {
+                  const fieldComp = colDef.component || colDef;
+                  const key = fieldComp.key;
+                  if (!seenKeys.has(key)) {
+                    seenKeys.add(key);
+                    uniqueRows.push(colDef);
+                  }
+                });
+                
+                const columnLabels = uniqueRows.map(colDef => {
+                  const fieldComp = colDef.component || colDef;
+                  return fieldComp.label || fieldComp.key || 'Unnamed';
+                });
+                
+                // Create each data row using deduplicated columns
+                dataRows.forEach((rowDataObj, rowIndex) => {
+                  rowData = [];
+                  if (uniqueRows && Array.isArray(uniqueRows)) {
+                    uniqueRows.forEach(colDef => {
+                      const fieldComp = colDef.component || colDef;
+                      const colKey = fieldComp.key;
+                      const cellValue = typeof rowDataObj === 'object' ? rowDataObj[colKey] : '';
+                      
+                      value = {};
+                      value._label = fieldComp.label || colKey;
+                      value._key = colKey;
+                      value._type = fieldComp.type || 'textfield';
+                      value._leaf = true;
+                      value._value = cellValue;
+                      column = [{ _children: value }];
+                      rowData.push({ _row: column });
+                    });
+                  }
+                  if (rowData.length > 0) {
+                    customTable.push({ _row: rowData });
+                  }
+                });
+                
+                // Store column labels for header generation
+                finalTable = {
+                  _label: label,
+                  _key: key,
+                  _row: customTable,
+                  _columnLabels: columnLabels,
+                  _isDataTable: true
+                };
+                return finalTable;
+              } else {
+                // Regular table processing
+                rows.map((row) => {
+                  if (Array.isArray(row)) {
+                    rowData = [];
+                    row.map((col) => {
+                      column = [];
+                      if (col && col.length > 0) {
+                        col.map(field => {
+                          const fieldComp = field.component
+                          value = {};
+                          value._label = fieldComp.label;
+                          value._key = fieldComp.key;
+                          value._type = fieldComp.type;
+                          value._leaf = true;
+                          value._value = data[fieldComp.key];
+                          column.push({ _children: value });
+                        });
+                      }
+                      if (column.length > 0) {
+                        rowData.push({ _row: column });
+                      }
+                      else{
+                        rowData.push({  });
+                      }
+                    });
+                    if (rowData.length > 0) {
+                      originalRows.push({ _row: rowData });
+                    }
+                  }
+                });
+              }
+              
+              // Now transpose: turn rows into columns
+              if (originalRows.length > 0) {
+                customTable = [];
+                const maxColumns = Math.max(...originalRows.map(row => row._row ? row._row.length : 0));
+                
+                // For each original column index, create a new row
+                for (let colIndex = 0; colIndex < maxColumns; colIndex++) {
+                  const newRowData = [];
+                  
+                  // For each original row, take the cell at colIndex and make it a column in the new row
+                  originalRows.forEach((originalRow) => {
+                    if (originalRow._row && originalRow._row[colIndex]) {
+                      newRowData.push(originalRow._row[colIndex]);
+                    } else {
+                      newRowData.push({  }); // Empty cell
+                    }
+                  });
+                  
+                  customTable.push({ _row: newRowData });
+                }
+              }
+              
               finalTable = {
                 _label: label,
                 _key: key,
@@ -2210,34 +2315,78 @@ export default class ReviewButton extends FieldComponent {
             const customTable = customTableForReview(comp, comp.data || {});
             let tableHtml = '';
             tableHtml += `<table style="width:100%;border-collapse:collapse;">`;
-            customTable._row.forEach(rowObj => {
+            
+            // Handle data tables with headers
+            if (customTable._isDataTable && customTable._columnLabels) {
+              // Add header row for data tables
+              tableHtml += `<thead style="background-color:#f8f9fa;">`;
               tableHtml += `<tr>`;
-              if (Array.isArray(rowObj._row)) {
-                rowObj._row.forEach(colObj => {
-                  if (Array.isArray(colObj._row)) {
-                    tableHtml += `<td style="border:1px solid #ccc;padding:4px;">`;
-                    colObj._row.forEach(cellObj => {
-                      if (cellObj._children) {
-                        const formattedValue = formatValue(cellObj._children._value, cellObj._children._comp);
-                        if (cellObj && cellObj._children && cellObj._children._type && cellObj._children._type === 'textarea') {
-                          const textareaContent = formattedValue.replace(/__TEXTAREA__/g, '');
-                          tableHtml += `<div style="display: flex; align-items: flex-start;"><strong>${cellObj._children._label}:</strong>${textareaContent}</div>`;
-                        } else {
-                          tableHtml += `<strong>${cellObj._children._label}:</strong> ${formattedValue ?? ''}`;
-                        }
-                      }
-                      if(colObj._row.length > 1){
-                        tableHtml += `<br/>`;
-                      }
-                    });
-                    tableHtml += `</td>`;
-                  } else{
-                    tableHtml += `<td style="border:1px solid #ccc;padding:4px;"></td>`;
-                  }
-                });
-              } 
+              customTable._columnLabels.forEach(label => {
+                tableHtml += `<th style="border:1px solid #ccc;padding:8px;text-align:left;font-weight:bold;">${label}</th>`;
+              });
               tableHtml += `</tr>`;
-            });
+              tableHtml += `</thead>`;
+              
+              // Add data rows
+              tableHtml += `<tbody>`;
+              customTable._row.forEach(rowObj => {
+                tableHtml += `<tr>`;
+                if (Array.isArray(rowObj._row)) {
+                  rowObj._row.forEach(colObj => {
+                    if (Array.isArray(colObj._row)) {
+                      tableHtml += `<td style="border:1px solid #ccc;padding:8px;">`;
+                      colObj._row.forEach(cellObj => {
+                        if (cellObj._children) {
+                          const formattedValue = formatValue(cellObj._children._value, cellObj._children._comp);
+                          if (cellObj && cellObj._children && cellObj._children._type && cellObj._children._type === 'textarea') {
+                            const textareaContent = formattedValue.replace(/__TEXTAREA__/g, '');
+                            tableHtml += `${textareaContent}`;
+                          } else {
+                            tableHtml += `${formattedValue ?? ''}`;
+                          }
+                        }
+                      });
+                      tableHtml += `</td>`;
+                    } else{
+                      tableHtml += `<td style="border:1px solid #ccc;padding:8px;"></td>`;
+                    }
+                  });
+                } 
+                tableHtml += `</tr>`;
+              });
+              tableHtml += `</tbody>`;
+            } else {
+              // Regular table processing (transposed with field labels)
+              customTable._row.forEach(rowObj => {
+                tableHtml += `<tr>`;
+                if (Array.isArray(rowObj._row)) {
+                  rowObj._row.forEach(colObj => {
+                    if (Array.isArray(colObj._row)) {
+                      tableHtml += `<td style="border:1px solid #ccc;padding:4px;">`;
+                      colObj._row.forEach(cellObj => {
+                        if (cellObj._children) {
+                          const formattedValue = formatValue(cellObj._children._value, cellObj._children._comp);
+                          if (cellObj && cellObj._children && cellObj._children._type && cellObj._children._type === 'textarea') {
+                            const textareaContent = formattedValue.replace(/__TEXTAREA__/g, '');
+                            tableHtml += `<div style="display: flex; align-items: flex-start;"><strong>${cellObj._children._label}:</strong>${textareaContent}</div>`;
+                          } else {
+                            tableHtml += `<strong>${cellObj._children._label}:</strong> ${formattedValue ?? ''}`;
+                          }
+                        }
+                        if(colObj._row.length > 1){
+                          tableHtml += `<br/>`;
+                        }
+                      });
+                      tableHtml += `</td>`;
+                    } else{
+                      tableHtml += `<td style="border:1px solid #ccc;padding:4px;"></td>`;
+                    }
+                  });
+                } 
+                tableHtml += `</tr>`;
+              });
+            }
+            
             tableHtml += `</table>`;
             return tableHtml;
           }
@@ -2681,8 +2830,10 @@ export default class ReviewButton extends FieldComponent {
               if (v.__comp?.component?.type === 'editgrid' || v.__comp?.type === 'editgrid') {
               }
               const isDataGridComponent = v.__kind === 'datagrid' || v.__kind === 'datatable' || v.__kind === 'editgrid';
+              const isDataTableComponent = v.__comp?.component?.type === 'datatable' || v.__comp?.type === 'datatable';
+              const isTableComponent = v.__comp?.component?.type === 'table' || v.__comp?.type === 'table';
               const isContainerComponent = 
-                  !isDataGridComponent && // Don't treat data grids as containers
+                  !isDataGridComponent && !isDataTableComponent && !isTableComponent && // Don't treat data grids/tables as containers
                   ((isContainerType([v.__comp?.component?.type, v.__comp?.type, v.__value?._type]) ) || 
                   Array.isArray(v.__value?._row));
               
@@ -2692,6 +2843,23 @@ export default class ReviewButton extends FieldComponent {
               
               let headerStyle = ""
               const header = `<div idx="12" style="${headerStyle}">`;
+
+              // Handle data tables and tables specifically
+              if (isDataTableComponent && v.__comp) {
+                const comp = v.__comp;
+                const mockValue = { _type: 'datatable' };
+                const tableHtml = formatValue(mockValue, comp);
+                
+                return `${header}<div style="margin-bottom:10px;"><strong>${displayLabel}</strong></div>${tableHtml}</div>`;
+              }
+
+              if (isTableComponent && v.__comp) {
+                const comp = v.__comp;
+                const mockValue = { _type: 'table' };
+                const tableHtml = formatValue(mockValue, comp);
+                
+                return `${header}<div style="margin-bottom:10px;"><strong>${displayLabel}</strong></div>${tableHtml}</div>`;
+              }
 
               if (isContainerComponent) {
                 let panelChildrenHtml = '';
