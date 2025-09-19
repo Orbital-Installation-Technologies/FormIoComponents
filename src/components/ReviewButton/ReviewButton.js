@@ -1,53 +1,33 @@
 import { Components } from "@formio/js";
 import editForm from "./ReviewButton.form";
+import {
+  isContainerType,
+  shouldFlattenContainer,
+  hasActualFileData,
+  getNestedValue,
+  isAddressComponent,
+  isDatagridLike,
+  initializeValidationResults,
+  initializeExternalValidationResults,
+  createErrorResults,
+  createExternalErrorResults,
+  markComponentAsDirty,
+  recordComponentValidationResult,
+  processComponentErrors,
+  processComponentWarnings,
+  validateSelectedComponents,
+  validateComponentsAndCollectResults,
+  isFormValid,
+  safelyUpdateComponent,
+  updateDatagridValues,
+  updateFormValues,
+  updateTopLevelComponentValues,
+  generateErrorSummary,
+  findComponentsToValidate
+} from "./validationUtils.js";
 
 const FieldComponent = Components.components.field;
 
-const CONTAINER_TYPES = new Set(['panel', 'columns', 'well', 'fieldset', 'datamap', 'editgrid', 'table', 'tabs', 'row', 'column', 'content', 'htmlelement']);
-
-const isContainerType = (t, exclude = []) => {
-  if (!t) return false; // Early exit if no type
-
-  if (!exclude || exclude.length === 0) {
-    return Array.isArray(t)
-      ? t.some(x => x && CONTAINER_TYPES.has(x))
-      : CONTAINER_TYPES.has(t);
-  }
-
-  const excluded = new Set(exclude);
-  const allowed = new Set([...CONTAINER_TYPES].filter(x => !excluded.has(x)));
-
-  return Array.isArray(t)
-    ? t.some(x => x && allowed.has(x))
-    : allowed.has(t);
-};
-
-const FLATTEN_TYPES = new Set(['columns', 'fieldset', 'tabs', 'tagpad', 'survey', 'panel', 'well', 'container', 'datagrid', 'datatable']);
-
-const shouldFlattenContainer = (t) => {
-  if (!t) return false; // Early exit if no type
-
-  if (Array.isArray(t)) {
-    return t.some(type => type && FLATTEN_TYPES.has(type.toLowerCase()));
-  }
-
-  return FLATTEN_TYPES.has(t.toLowerCase());
-};
-
-const hasActualFileData = (value) => {
-  if (!value) return false;
-  if (Array.isArray(value)) {
-    return value.length > 0 && value.some(item => item && (item.name || item.filename || item.originalName || item.url || item.data));
-  }
-  if (typeof value === 'object') {
-    return !!(value.name || value.filename || value.originalName || value.url || value.data || value.storage || value.size || (value.file && (value.file.name || value.file.url)));
-  }
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    return trimmed.length > 0 && (trimmed.startsWith('data:') || trimmed.startsWith('http') || trimmed.startsWith('/') || trimmed.includes('.'));
-  }
-  return false;
-};
 
 function findComponentByKey(root, targetKey, currentPath = '', parent = null) {
   if (!root || !targetKey) return null;
@@ -314,94 +294,22 @@ export default class ReviewButton extends FieldComponent {
 
   
   initializeValidationResults() {
-    return {
-      isValid: true,
-      fieldResults: {},
-      errors: {},
-      invalidComponents: []
-    };
+    return initializeValidationResults();
   }
 
   
   findComponentsToValidate(keys) {
-    const componentsToValidate = [];
-
-    if (this.root?.everyComponent) {
-      this.root.everyComponent((component) => {
-        try {
-          if (keys.includes(component.key) || keys.includes(component.path)) {
-            componentsToValidate.push(component);
-          }
-        } catch { }
-      });
-    }
-
-    return componentsToValidate;
+    return findComponentsToValidate(keys, this.root);
   }
 
   
   async validateSelectedComponents(components, results, options) {
-    for (const component of components) {
-      const { key, path, type, dataValue, component: componentDefinition} = component;
-      const componentKey = key || path;
-      const componentLabel = componentDefinition?.label || componentKey;
-      const componentPath = path || componentKey;
-      const isAddressComponent = componentDefinition?.type === 'address' || type === 'address';
-
-      this.markComponentAsDirty(component);
-
-      let isValid = true;
-
-      // Normalize invalid address value
-      if (isAddressComponent  && dataValue === '[object Object]') {
-        component.dataValue = {};
-      }
-
-      if (component.checkValidity) {
-        if (isAddressComponent  && componentDefinition?.validate?.required) {
-           const addressValue = dataValue?.formattedPlace;
-           const isAddressEmpty = !addressValue || addressValue.trim() === '';
-          
-
-          if (!isAddressEmpty)  {
-            isValid = false;
-
-            const addressError = `${componentDefinition?.label || key} is required.`;
-            component.errors = Array.isArray(component.errors) ? component.errors : [];
-
-            if (!component.errors.includes(addressError)) component.errors.push(addressError);
-            if (component.setCustomValidity) {
-                  component.setCustomValidity(component.errors, true);
-            }
-
-            if (component.redraw) {
-                  component.redraw();
-            }
-
-          } else {
-            isValid = component.checkValidity();
-          }
-        } else {
-          isValid = component.checkValidity();
-        }
-      }
-
-      this.recordComponentValidationResult(
-        results,
-        component,
-        componentKey,
-        componentLabel,
-        componentPath,
-        isValid,
-        options.showErrors
-      );
-    }
+    return validateSelectedComponents(components, results, options, this);
   }
 
   
   markComponentAsDirty(component) {
-    if (typeof component.setPristine === 'function') component.setPristine(false);
-    if (typeof component.setDirty === 'function') component.setDirty(true);
+    return markComponentAsDirty(component);
   }
 
   
@@ -414,22 +322,15 @@ export default class ReviewButton extends FieldComponent {
     isValid,
     showErrors
   ) {
-    const { fieldResults, errors, invalidComponents } = results;
-    const errs = component.errors ?? [];
-
-    fieldResults[key] = { isValid, errors: errs, label, path };
-
-    // Stop if valid to avoid nesting
-    if (isValid) return;
-
-    results.isValid = false;
-
-    errors[key] = { label, errors: errs.length ? errs : ['Invalid'] };
-    invalidComponents.push({ component, path, label });
-
-    if (showErrors && typeof component.setCustomValidity) {
-      component.setCustomValidity(errs, true);
-    }
+    return recordComponentValidationResult(
+      results,
+      component,
+      key,
+      label,
+      path,
+      isValid,
+      showErrors
+    );
   }
 
   
@@ -448,93 +349,12 @@ export default class ReviewButton extends FieldComponent {
 
   
   createErrorResults() {
-    return {
-      isValid: false,
-      fieldResults: {},
-      errors: { system: { label: 'System', errors: ['Field validation failed'] } },
-      invalidComponents: []
-    };
+    return createErrorResults();
   }
 
   
   async isFormValid() {
-    try {
-      const root = this.root;
-      if (!root || !root.everyComponent) return true;
-      const rootData = this.root?.data;
-      const submissionData = this.root?.submission?.data;
-      let isValid = true;
-
-      const hasActualFileData = (value) => {
-        if (!value) return false;
-        if (Array.isArray(value)) {
-          return  value.length > 0 && value.some(item => item && (item.name || item.filename || item.originalName || item.url || item.data));
-        }
-        if (typeof value === 'object') {
-          return !!(
-            value.name || value.filename || value.originalName || value.url || value.data ||
-            value.storage || value.size || (value.file && (value.file.name || value.file.url))
-          );
-        }
-        if (typeof value === 'string') {
-          const trimmed = value.trim();
-          return trimmed.length > 0 && (
-            trimmed.startsWith('data:') || trimmed.startsWith('http') || 
-            trimmed.startsWith('/') || trimmed.includes('.')
-          );
-        }
-        return false;
-      };
-
-      root.everyComponent((c) => {
-        try {
-          if (!c.checkValidity || c.visible === false || c.disabled) return;
-
-          const comp = c.component;
-          const type = c.type || comp?.type;
-          const componentKey = c.key || comp.key;
-
-          // Address component check
-          const isAddressComponent = type === 'address';
-          if (isAddressComponent  && c.dataValue === '[object Object]') {
-            c.dataValue = {};
-          }
-
-          if (isAddressComponent && comp.validate?.required) {
-            const addressValue = c.dataValue?.formattedPlace;
-            const isAddressEmpty = !addressValue || addressValue.trim() === '';   
-            if (isAddressEmpty) {
-                 isValid = false;
-                 return;
-            }
-          } 
-          // File component check
-          else if (type === 'file' && (comp.validate?.required || c.validate?.required)) {
-            const hasValue = 
-              hasActualFileData(c.dataValue) ||
-              hasActualFileData(c.data) ||
-              (rootData && componentKey && hasActualFileData(rootData[componentKey])) ||
-              (submissionData && componentKey && hasActualFileData(submissionData[componentKey])) ||
-              (c.files && Array.isArray(c.files) && c.files.length > 0);
-
-            if (!hasValue) {
-              isValid = false;
-              return;
-            }
-          } 
-          // Other components
-          else if (!c.checkValidity()) {
-            isValid = false;
-            return;
-          }
-        } catch {  }
-      });
-
-      return isValid;
-    } catch (e) {
-      console.error('isFormValid check error:', e);
-      return false;
-    }
+    return isFormValid(this.root);
   }
 
 
@@ -575,230 +395,27 @@ export default class ReviewButton extends FieldComponent {
 
   
   initializeExternalValidationResults() {
-    return {
-      isValid: true,
-      errorCount: 0,
-      warningCount: 0,
-      errors: {},
-      warnings: {},
-      invalidComponents: [],
-      errorSummary: ''
-    };
+    return initializeExternalValidationResults();
   }
 
   
   async validateComponentsAndCollectResults(errorMap, warningMap, results, opts) {
-    const { includeWarnings, showErrors } = opts || {};
-
-    const isAddressComponent = (component) =>
-      component.component?.type === 'address' || component.type === 'address';
-
-
-    const hasActualFileData = (value) => {
-      if (!value) return false;
-      if (Array.isArray(value)) {
-        return value.length > 0 && value.some(item =>
-          item && (item.name || item.filename || item.originalName || item.url || item.data)
-        );
-      }
-      if (typeof value === 'object') {
-        return !!(
-          value.name || value.filename || value.originalName || value.url ||
-          value.data || value.storage || value.size ||
-          (value.file && (value.file.name || value.file.url))
-        );
-      }
-      if (typeof value === 'string') {
-        const trimmed = value.trim();
-        return (
-          trimmed.length > 0 &&
-          (
-          	trimmed.startsWith('data:') || // base64 data URL
-       	trimmed.startsWith('http') ||  // HTTP URL
-          	trimmed.startsWith('/') ||     // file path
-          	trimmed.includes('.') // has file extension
-          )
-        );
-      }
-      return false;
-    };
-
-
-    const getNestedValue = (obj, path) => {
-      if (!obj || !path) return null;
-      return path.split('.').reduce((acc, p) => (acc && typeof acc === 'object' ? acc[p] : null), obj);
-    };
-
-    this.root.everyComponent((component) => {
-      try {
-        if (!component.visible || component.disabled || !component.checkValidity) return;
-
-        // ---------- Address components ----------
-        if (isAddressComponent(component)) {
-          if (component.dataValue === '[object Object]') component.dataValue = {};
-          if (component.component?.validate?.required) {
-            const addressValue = component.dataValue?.formattedPlace;
-            const isAddressEmpty = !addressValue || addressValue.trim() === '';
-            if (isAddressEmpty) {
-              if (!component.errors) component.errors = [];
-              const addressError = `${component.component?.label || component.key} is required.`;
-              if (!component.errors.includes(addressError)) component.errors.push(addressError);
-              if (component.setCustomValidity) {
-                  component.setCustomValidity(component.errors, true);
-              }
-              if (component.redraw) {
-                  component.redraw();
-              }
-
-              this.processComponentErrors(component, errorMap, results, showErrors);
-              return;
-            }
-          }
-          if (!component.checkValidity()) {
-            this.processComponentErrors(component, errorMap, results, showErrors);
-          }
-          if (includeWarnings && component.warnings?.length) {
-            this.processComponentWarnings(component, warningMap, results);
-          }
-          return;
-        }
-
-        // ---------- File components ----------
-        const componentType = component.type || component.component?.type;
-        if (componentType === 'file') {
-          const isRequired = component.component?.validate?.required || component.validate?.required;
-          let hasValue = false;
-
-          const dataValue = component.dataValue;
-          const componentData = component.data;
-          const getValue =  component.getValue && component.getValue();
-          const getValueAsString = component.getValueAsString && component.getValueAsString();
-          const nestedData = component.component?.data;
-          const privateData = component._data;
-
-          const rootData = this.root?.data;
-          const submissionData = this.root?.submission?.data;
-          const componentKey = component.key || component.component?.key;
-          const rootComponentData = rootData && componentKey ? rootData[componentKey] : null;
-          const submissionComponentData = submissionData && componentKey ? submissionData[componentKey] : null;
-
-          const componentPath = component.path || component.key;
-
-          const nestedPathData = getNestedValue(rootData, componentPath);
-          const nestedSubmissionPathData = getNestedValue(submissionData, componentPath);
-
-          const candidates = [
-            dataValue, componentData, getValue, getValueAsString,
-            nestedData, privateData, rootComponentData, submissionComponentData,
-            nestedPathData, nestedSubmissionPathData
-          ];
-
-          hasValue = candidates.some(hasActualFileData);
-
-          if (!hasValue && component.files && Array.isArray(component.files) && component.files.length > 0) hasValue = true;
-          if (!hasValue && component.element) {
-            const fileInputs = component.element.querySelectorAll('input[type="file"]');
-            for (const input of fileInputs) {
-              if (input.files && input.files.length > 0) {
-                hasValue = true;
-                break;
-              }
-            }
-          }
-          const files = component.fileService.files;
-          if (!hasValue && component.fileService && files && Array.isArray(files) && files.length > 0) {
-            hasValue = true;
-          }
-
-          const isValid = !isRequired || hasValue;
-          if (!isValid) {
-            this.processComponentErrors(component, errorMap, results, showErrors);
-          }
-          if (includeWarnings && component.warnings?.length) {
-            this.processComponentWarnings(component, warningMap, results);
-          }
-          return;
-        }
-
-        // ---------- Other components ----------
-        const isValid = component.checkValidity();
-        if (!isValid) {
-          this.processComponentErrors(component, errorMap, results, showErrors);
-        }
-        if (includeWarnings && component.warnings?.length) {
-          this.processComponentWarnings(component, warningMap, results);
-        }
-      } catch (err) {
-        console.error(`Error validating component ${component.key}:`, err);
-      }
-    });
+    return validateComponentsAndCollectResults(this.root, errorMap, warningMap, results, opts);
   }
 
   
   processComponentErrors(component, errorMap, results, showErrors) {
-    results.isValid = false;
-    results.errorCount++;
-
-    const componentKey = component.key || component.path;
-    const componentLabel = component.component?.label || componentKey;
-    const componentPath = component.path || componentKey;
-
-    const errors = component.errors;
-    if (!errors || !errors.length) return;     // this early check will skip almost all work
-    if (errors && errors.length) {
-      // Get or create the entry once
-      let entry = errorMap.get(componentPath);
-      if (!entry) {
-        entry = { label: componentLabel, errors: [] };
-        errorMap.set(componentPath, entry);
-      }
-      errors.forEach(error => {
-               entry.errors.push(error);
-      });
-    }
-
-    results.invalidComponents.push({
-      component,
-      path: componentPath,
-      label: componentLabel
-    });
-
-    if (showErrors && errors && errors.length) {
-      component.setCustomValidity(errors, true);
-    }
+    return processComponentErrors(component, errorMap, results, showErrors);
   }
 
   
   processComponentWarnings(component, warningMap, results) {
-    results.warningCount += component.warnings.length;
-
-    const componentKey = component.key || component.path;
-    const componentLabel = component.component?.label || componentKey;
-    const componentPath = component.path || componentKey;
-
-    if (!warningMap.has(componentPath)) {
-      warningMap.set(componentPath, {
-        label: componentLabel,
-        warnings: []
-      });
-    }
-
-    component.warnings.forEach(warning => {
-      warningMap.get(componentPath).warnings.push(warning);
-    });
+    return processComponentWarnings(component, warningMap, results);
   }
 
   
   generateErrorSummary(errorMap, results) {
-    const errorSummaryLines = [];
-
-    errorMap.forEach((data, path) => {
-      data.errors.forEach(error => {
-        errorSummaryLines.push(`${data.label}: ${error}`);
-      });
-    });
-
-    results.errorSummary = errorSummaryLines.join('\n');
+    return generateErrorSummary(errorMap, results);
   }
 
   
@@ -818,15 +435,7 @@ export default class ReviewButton extends FieldComponent {
 
   
   createExternalErrorResults() {
-    return {
-      isValid: false,
-      errorCount: 1,
-      warningCount: 0,
-      errors: { system: { label: 'System', errors: ['An unexpected error occurred during validation'] } },
-      warnings: {},
-      invalidComponents: [],
-      errorSummary: 'An unexpected error occurred during validation'
-    };
+    return createExternalErrorResults();
   }
 
   
@@ -920,122 +529,22 @@ export default class ReviewButton extends FieldComponent {
 
   
   async updateFormValues() {
-    try {
-      await Promise.resolve(); // if you don't need exactly to wait for 100ms, this can do the work
-
-      const allDatagrids = [];
-      const isDatagridLike = (comp) =>
-        comp?.component?.type === 'datagrid' || comp?.component?.type === 'datatable';
-
-      if (this.root && typeof this.root.everyComponent === 'function') {
-        try {
-          this.root.everyComponent((comp) => {
-            if (isDatagridLike(comp)) allDatagrids.push(comp);
-          });
-        } catch (e) {
-          console.error("Error collecting datagrids/datatables:", e);
-        }
-      }
-
-      if (allDatagrids.length) {
-        for (const datagrid of allDatagrids) {
-          try {
-            this.updateDatagridValues(datagrid);
-          } catch (e) {
-            console.error("Error updating datagrid/datatable values:", e);
-          }
-        }
-      }
-
-      try {
-        this.updateTopLevelComponentValues();
-      } catch (e) {
-        console.error("Error updating top-level components:", e);
-      }
-    } catch (e) {
-      console.error("Error in updateFormValues:", e);
-    }
+    return updateFormValues(this.root);
   }
 
   
   updateDatagridValues(datagrid) {
-    if (!datagrid) return;
-
-    // --- Update the datagrid's own value ---
-    const hasUpdateValue = datagrid.updateValue && typeof datagrid.updateValue === 'function';
-    if (hasUpdateValue) {
-      try {
-        datagrid.updateValue();
-      } catch (e) {
-        console.error("Error updating datagrid value:", e);
-      }
-    }
-
-   // --- Handle datatable savedRows ---
-    const isDatatable = datagrid.component?.type === 'datatable';
-
-    if (isDatatable && Array.isArray(datagrid.savedRows)) {
-      const savedRows = datagrid.savedRows;
-      savedRows.forEach(row => {
-          if (row && Array.isArray(row.components)) {
-          const rowComponents = row.components;
-            rowComponents.forEach(component => {
-              this.safelyUpdateComponent(component, 'datatable row component');
-            });
-          }
-        });
-      return; // nothing else to do for datatable
-    }
-
-    // --- Handle datagrid rows ---
-    if (Array.isArray(datagrid.rows)) {
-      const rows = datagrid.rows;
-      rows.forEach(row => {
-          if (row && typeof row === 'object') {
-            const values = Object.values(row);
-            values.forEach(component => {
-              this.safelyUpdateComponent(component, 'datagrid row component');
-            });
-          }
-        });
-    }
+    return updateDatagridValues(datagrid);
   }
 
   
   safelyUpdateComponent(component, context) {
-    if (!component) return;
-
-    const componentType = component.type;
-
-    if (componentType === 'select') {
-      const choices = component.choices;
-      if (!Array.isArray(choices)) {
-        console.warn(`Skipping Select component update in ${context} - missing choices array`);
-        return;
-      }
-    }
-
-    const componentUpdateValue = component.updateValue;
-    if (componentUpdateValue  && typeof componentUpdateValue === 'function') {
-      try {
-        if (componentType === 'select' && typeof component.resetValue !== 'function') {
-          console.warn(`Select component in ${context} missing resetValue method - skipping update`);
-          return;
-        }
-        component.updateValue();
-      } catch (e) {
-        console.error(`Error updating component value in ${context}:`, e);
-      }
-    }
+    return safelyUpdateComponent(component, context);
   }
 
   
   updateTopLevelComponentValues() {
-    if (Array.isArray(this.root.components)) {
-      this.root.components.forEach(comp => {
-        this.safelyUpdateComponent(comp, 'top-level component');
-      });
-    }
+    return updateTopLevelComponentValues(this.root);
   }
 
   
