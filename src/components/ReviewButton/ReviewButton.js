@@ -4,24 +4,16 @@ import {
   isContainerType,
   shouldFlattenContainer,
   hasActualFileData,
-  getNestedValue,
   isAddressComponent,
   isDatagridLike,
   initializeValidationResults,
   initializeExternalValidationResults,
   createErrorResults,
   createExternalErrorResults,
-  markComponentAsDirty,
-  recordComponentValidationResult,
-  processComponentErrors,
-  processComponentWarnings,
   validateSelectedComponents,
   validateComponentsAndCollectResults,
   isFormValid,
-  safelyUpdateComponent,
-  updateDatagridValues,
   updateFormValues,
-  updateTopLevelComponentValues,
   generateErrorSummary,
   findComponentsToValidate
 } from "./validationUtils.js";
@@ -278,9 +270,9 @@ export default class ReviewButton extends FieldComponent {
     };
 
     try {
-      const results = this.initializeValidationResults();
-      const componentsToValidate = this.findComponentsToValidate(keys);
-      await this.validateSelectedComponents(componentsToValidate, results, opts);
+      const results = initializeValidationResults();
+      const componentsToValidate = findComponentsToValidate(keys, this.root);
+      await validateSelectedComponents(componentsToValidate, results, opts, this);
 
       if (opts.showErrors) {
         await this.updateUIWithErrors(results, opts.scrollToError);
@@ -288,50 +280,10 @@ export default class ReviewButton extends FieldComponent {
 
       return results;
     } catch (err) {
-      return this.createErrorResults();
+      return createErrorResults();
     }
   }
 
-  
-  initializeValidationResults() {
-    return initializeValidationResults();
-  }
-
-  
-  findComponentsToValidate(keys) {
-    return findComponentsToValidate(keys, this.root);
-  }
-
-  
-  async validateSelectedComponents(components, results, options) {
-    return validateSelectedComponents(components, results, options, this);
-  }
-
-  
-  markComponentAsDirty(component) {
-    return markComponentAsDirty(component);
-  }
-
-  
-  recordComponentValidationResult(
-    results,
-    component,
-    key,
-    label,
-    path,
-    isValid,
-    showErrors
-  ) {
-    return recordComponentValidationResult(
-      results,
-      component,
-      key,
-      label,
-      path,
-      isValid,
-      showErrors
-    );
-  }
 
   
   async updateUIWithErrors(results, scrollToError) {
@@ -347,10 +299,6 @@ export default class ReviewButton extends FieldComponent {
     }
   }
 
-  
-  createErrorResults() {
-    return createErrorResults();
-  }
 
   
   async isFormValid() {
@@ -368,7 +316,7 @@ export default class ReviewButton extends FieldComponent {
     };
 
     try {
-      const results = this.initializeExternalValidationResults();
+      const results = initializeExternalValidationResults();
       this.markAllComponentsAsDirty();
       const data = this.root?.submission?.data ?? this.root?.data ?? {};
 
@@ -376,12 +324,12 @@ export default class ReviewButton extends FieldComponent {
       const warningMap = new Map();
 
       if (this.root?.everyComponent) {
-        await this.validateComponentsAndCollectResults(errorMap, warningMap, results, opts);
+        await validateComponentsAndCollectResults(this.root, errorMap, warningMap, results, opts);
       }
 
       results.errors = Object.fromEntries(errorMap);
       results.warnings = Object.fromEntries(warningMap);
-      this.generateErrorSummary(errorMap, results);
+      generateErrorSummary(errorMap, results);
 
       if (opts.showErrors) {
         await this.handleExternalValidationUIUpdates(results, opts);
@@ -389,34 +337,11 @@ export default class ReviewButton extends FieldComponent {
 
       return results;
     } catch (err) {
-      return this.createExternalErrorResults();
+      return createExternalErrorResults();
     }
   }
 
-  
-  initializeExternalValidationResults() {
-    return initializeExternalValidationResults();
-  }
 
-  
-  async validateComponentsAndCollectResults(errorMap, warningMap, results, opts) {
-    return validateComponentsAndCollectResults(this.root, errorMap, warningMap, results, opts);
-  }
-
-  
-  processComponentErrors(component, errorMap, results, showErrors) {
-    return processComponentErrors(component, errorMap, results, showErrors);
-  }
-
-  
-  processComponentWarnings(component, warningMap, results) {
-    return processComponentWarnings(component, warningMap, results);
-  }
-
-  
-  generateErrorSummary(errorMap, results) {
-    return generateErrorSummary(errorMap, results);
-  }
 
   
   async handleExternalValidationUIUpdates(results, opts) {
@@ -433,10 +358,6 @@ export default class ReviewButton extends FieldComponent {
     }
   }
 
-  
-  createExternalErrorResults() {
-    return createExternalErrorResults();
-  }
 
   
   async triggerValidation(options = {}) {
@@ -527,25 +448,6 @@ export default class ReviewButton extends FieldComponent {
     );
   }
 
-  
-  async updateFormValues() {
-    return updateFormValues(this.root);
-  }
-
-  
-  updateDatagridValues(datagrid) {
-    return updateDatagridValues(datagrid);
-  }
-
-  
-  safelyUpdateComponent(component, context) {
-    return safelyUpdateComponent(component, context);
-  }
-
-  
-  updateTopLevelComponentValues() {
-    return updateTopLevelComponentValues(this.root);
-  }
 
   
   async handleReviewClick() {
@@ -556,7 +458,7 @@ export default class ReviewButton extends FieldComponent {
       });
 
       try {
-        await this.updateFormValues();
+        await updateFormValues(this.root);
       } catch (e) {
         console.error("Error updating form values:", e);
       }
@@ -1539,13 +1441,6 @@ export default class ReviewButton extends FieldComponent {
            }
 
            const componentType = comp?.type || comp?.component?.type;
-           if (componentType === 'file') {
-             console.log(`🎨 Styling file component "${path}" (basePath: "${basePath}"):`, {
-               pathsToTry,
-               invalidFields: Array.from(invalidFields),
-               comp: comp
-             });
-           }
 
            for (const testPath of pathsToTry) {
              if (isFieldInvalid(comp, testPath)) {
@@ -1590,14 +1485,6 @@ export default class ReviewButton extends FieldComponent {
           });
         };
 
-        const isDatagridInvalid = (rows, datagridKey) => {
-          if (!rows) return false;
-          return Object.keys(rows).some(rowIdx => {
-            const row = rows[rowIdx];
-            return isRowInvalid(row, datagridKey, parseInt(rowIdx));
-          });
-        };
-
         const isContainerInvalid = (containerNode, containerKey, containerBasePath) => {
           if (!containerNode) return false;
 
@@ -1631,9 +1518,7 @@ export default class ReviewButton extends FieldComponent {
 
         function formatValue(value, comp) {
           if (value && (value._type === 'table' || value._type === 'datatable') && (Array.isArray(comp.table) || Array.isArray(comp.dataValue) || Array.isArray(comp.rows))) {
-            console.log('formatValue', value, comp);
             const customTableForReview = (component, data = {}) => {
-              console.log('customTableForReview', component, data);
               var label = component.label;
               var key = component.key;
               var customTable = null;
@@ -1669,7 +1554,6 @@ export default class ReviewButton extends FieldComponent {
               
               // Handle data tables differently from regular tables
               if (component._type === 'datatable' || component.type === 'datatable') {
-                console.log('dataTables', dataRows, rows);
                 // For data tables, use traditional table layout: columns=fields, rows=data records
                 // Don't transpose - just create the structure directly
                 customTable = [];
@@ -1804,7 +1688,6 @@ export default class ReviewButton extends FieldComponent {
             const customTable = customTableForReview(comp, comp.data || {});
             let tableHtml = '';
             tableHtml += `<table style="width:100%;border-collapse:collapse;">`;
-            console.log('customTable', customTable, comp);
             // Handle data tables with headers
             if (customTable._isDataTable && customTable._columnLabels) {
               // Add header row for data tables
@@ -3236,4 +3119,3 @@ export default class ReviewButton extends FieldComponent {
     return super.attach(element);
   }
 }
-
