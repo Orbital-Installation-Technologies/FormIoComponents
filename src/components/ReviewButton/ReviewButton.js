@@ -992,7 +992,8 @@ export default class ReviewButton extends FieldComponent {
       try {
         if (this.root && typeof this.root.everyComponent === 'function') {
           this.root.everyComponent(comp => {
-            if (comp && comp.component && comp.component.type === 'datagrid') {
+            if (comp && comp.component &&
+              (comp.component.type === 'datagrid' || comp.component.type === 'datatable')) {
               allDatagrids.push(comp);
             }
           });
@@ -1167,9 +1168,13 @@ export default class ReviewButton extends FieldComponent {
 
         if (componentType === 'table' || componentType === 'datatable') {
           const colDefs = Array.isArray(component.components) ? component.components : [];
+          const columnKeys = colDefs.map(c => c.key || c.path || c.component?.key || '');
+          const columnLabels = colDefs.map(c => c.label || c.component?.label || c.key || '');
 
           let dataRows = [];
+          const componentPath = component.path || component.key || '';
           if (Array.isArray(component.table) && component.table.length > 0 && Array.isArray(component.table[0])) {
+            const colDefs = Array.isArray(component.components) ? component.components : [];
             const columnKeys = colDefs.map(c => c.key || c.path || c.component?.key || '');
             dataRows = component.table.map(rowArr => {
               const rowObj = {};
@@ -1186,38 +1191,39 @@ export default class ReviewButton extends FieldComponent {
                     Array.isArray(component._data?.[key]) ? component._data[key] : [];
           }
 
-          // Reverse dataRows to maintain correct display order
-          dataRows = dataRows.reverse();
+          // Transpose: Each field becomes a row, each data row becomes a column
+          const tableRows = [];
           
-          // Create field rows: Each field becomes a row, each data row becomes a column
-          const tableRows = colDefs.map((col, colIdx) => {
-            const colKey = col.key || col.path || col.component?.key || '';
-            const colLabel = col.label || col.component?.label || colKey || '';
+          colDefs.forEach((col, colIdx) => {
+            const colKey = col.key || col.component?.key;
+            const colLabel = columnLabels[colIdx] || colKey;
 
-            if (!colKey) return null;
+            if (!colKey) return;
 
-            // Collect all values for this field across all data rows
-            const fieldValues = dataRows.map((rowData, rowIdx) => {
-              const cellValue = typeof rowData === 'object' ? rowData[colKey] : '';
-              return {
+            const rowData = [];
+            
+            // For each data row, create a column entry containing the field value
+            dataRows.forEach((rowObj, dataRowIdx) => {
+              const val = typeof rowObj === 'object' ? rowObj[colKey] : '';
+              rowData.push({
                 _children: {
-                  _label: `Row ${rowIdx + 1}`,
-                  _key: `${colKey}_row_${rowIdx}`,
+                  _label: `Row ${dataRowIdx + 1}`, // Label for the data row
+                  _key: `${colKey}_row_${dataRowIdx}`,
                   _type: col.type || col.component?.type,
                   _leaf: true,
-                  _value: cellValue
+                  _value: val
                 }
-              };
+              });
             });
 
-            return {
-              _label: colLabel,
-              _key: `${key}_${colKey}`,
-              _type: 'tableField',
-              _row: fieldValues
-            };
-          }).filter(row => row !== null);
-
+            // Create a table row for this field
+            tableRows.push({ 
+              _row: rowData,
+              _fieldLabel: colLabel, // Store the field label for potential use
+              _fieldKey: colKey
+            });
+          });
+          
           return {
             _label: label,
             _key: key,
@@ -1708,7 +1714,7 @@ export default class ReviewButton extends FieldComponent {
 
           const parent = comp?.parent;
           const parentType = parent?.component?.type;
-          const parentsToBeHandled = [ 'datagrid', 'tagpad', 'datamap', 
+          const parentsToBeHandled = ['datatable', 'datagrid', 'tagpad', 'datamap', 
                                       'panel', 'well', 'table', 'tabs', 'fieldset', 'columns'];
           const parentIsHandled = parentsToBeHandled.includes(parentType) && 
                                   !shouldFlattenContainer(parentType);
@@ -1975,13 +1981,13 @@ export default class ReviewButton extends FieldComponent {
 
         function setNodeMetaForPath(node, containerPath) {
           const m = metaByPath && metaByPath[containerPath];
-          if (containerPath.includes('editGrid') || containerPath.includes('dataGrid')) {
+          if (containerPath.includes('editGrid') || containerPath.includes('dataGrid') || containerPath.includes('dataTable')) {
           }
           if (m) {
             if (!node.__kind) {
               node.__kind = m.kind;
             }
-            if (m.kind === 'editgrid' || m.kind === 'datagrid') {
+            if (m.kind === 'editgrid' || m.kind === 'datagrid' || m.kind === 'datatable') {
               node.__colKeys = m.columnKeys || [];
               node.__colLabels = m.columnLabels || [];
             }
@@ -2170,14 +2176,11 @@ export default class ReviewButton extends FieldComponent {
               var dataRows = [];
               
               // For data tables, get the actual data
-              if (component._type === 'datatable' || component.type === 'datatable' || component._type === 'table' || component.type === 'table') {
+              if (component._type === 'datatable' || component.type === 'datatable') {
                 dataRows = Array.isArray(component.dataValue) ? component.dataValue :
                           Array.isArray(component.rows) ? component.rows :
                           Array.isArray(component.data) ? component.data :
                           Array.isArray(data[key]) ? data[key] : [];
-                          
-                // Reverse dataRows to maintain correct display order (same as customComponentForReview)
-                dataRows = dataRows.reverse();
                           
                 // If we have data but no column definitions, create them from data keys
                 if (dataRows.length > 0 && (!rows || rows.length === 0)) {
@@ -2311,7 +2314,7 @@ export default class ReviewButton extends FieldComponent {
             };
             const customTable = customTableForReview(comp, comp.data || {});
             let tableHtml = '';
-            tableHtml += `<table style="width:100%;border-collapse:collapse; margin-bottom: 0 !important;">`;
+            tableHtml += `<table style="width:100%;border-collapse:collapse;">`;
             
             // Handle data tables with headers
             if (customTable._isDataTable && customTable._columnLabels) {
@@ -2977,8 +2980,8 @@ export default class ReviewButton extends FieldComponent {
                 headerStyle += "border-left:1px dotted #ccc;"
               }
 
-              const conditionMet = (v.__kind === 'datagrid' || v.__kind === 'editgrid') && hasRows;
-              if (v.__kind === 'datagrid') {
+              const conditionMet = (v.__kind === 'datagrid' || v.__kind === 'datatable' || v.__kind === 'editgrid') && hasRows;
+              if (v.__kind === 'datagrid' || v.__kind === 'datatable') {
               }
               
               if (conditionMet) {
@@ -2993,12 +2996,10 @@ export default class ReviewButton extends FieldComponent {
 
                 const labelByKey = new Map(
                   (v.__colKeys || []).map((cKey, i) => [cKey, (v.__colLabels || [])[i] || cKey])
-                ); const rowIdxs = Object.keys(v.__rows).map(n => Number(n));
+                ); const rowIdxs = Object.keys(v.__rows).map(n => Number(n)).sort((a, b) => a - b);
                 let rowsHtml = '';
-                console.log('rowIdxs', rowIdxs);
                 const rowsItems = rowIdxs.map((rowIdx) => {
                   const row = v.__rows[rowIdx];
-                  console.log('row', row);
                   const haveMultiCols = orderedKeys.length > 1;
                   const rowHasErrors = isRowInvalid(row, k, rowIdx);
                   const rowLabelStyle = rowHasErrors ? 'background-color:rgb(255 123 123); border-radius: 3px;' : '';
