@@ -342,38 +342,43 @@ export default class ReviewButton extends FieldComponent {
   
   async validateSelectedComponents(components, results, options) {
     for (const component of components) {
-      const componentKey = component.key || component.path;
-      const componentLabel = component.component?.label || componentKey;
-      const componentPath = component.path || componentKey;
+      const { key, path, type, dataValue, component: componentDefinition} = component;
+      const componentKey = key || path;
+      const componentLabel = componentDefinition?.label || componentKey;
+      const componentPath = path || componentKey;
+      const isAddressComponent = componentDefinition?.type === 'address' || type === 'address';
 
       this.markComponentAsDirty(component);
 
-      const isAddressComponent = component.component?.type === 'address' || component.type === 'address';
       let isValid = true;
-      
-      if (isAddressComponent && component.dataValue === "[object Object]") {
+
+      // Normalize invalid address value
+      if (isAddressComponent  && dataValue === '[object Object]') {
         component.dataValue = {};
       }
-      
+
       if (component.checkValidity) {
-        if (isAddressComponent && component.component?.validate?.required) {
-          const addressValue = component.dataValue?.formattedPlace;
-          const isAddressEmpty = !addressValue || addressValue.trim() === '';
+        if (isAddressComponent  && componentDefinition?.validate?.required) {
+           const addressValue = dataValue?.formattedPlace;
+           const isAddressEmpty = !addressValue || addressValue.trim() === '';
           
-            if (isAddressEmpty) {
-              isValid = false;
-              if (!component.errors) component.errors = [];
-              const addressError = `${component.component?.label || component.key} is required.`;
-              if (!component.errors.includes(addressError)) {
-                component.errors.push(addressError);
-              }
-              if (component.setCustomValidity) {
-                component.setCustomValidity(component.errors, true);
-              }
-              if (component.redraw) {
-                component.redraw();
-              }
-            } else {
+
+          if (!isAddressEmpty)  {
+            isValid = false;
+
+            const addressError = `${componentDefinition?.label || key} is required.`;
+            component.errors = Array.isArray(component.errors) ? component.errors : [];
+
+            if (!component.errors.includes(addressError)) component.errors.push(addressError);
+            if (component.setCustomValidity) {
+                  component.setCustomValidity(component.errors, true);
+            }
+
+            if (component.redraw) {
+                  component.redraw();
+            }
+
+          } else {
             isValid = component.checkValidity();
           }
         } else {
@@ -400,29 +405,30 @@ export default class ReviewButton extends FieldComponent {
   }
 
   
-  recordComponentValidationResult(results, component, key, label, path, isValid, showErrors) {
-    results.fieldResults[key] = {
-      isValid,
-      errors: component.errors || [],
-      label,
-      path
-    };
+  recordComponentValidationResult(
+    results,
+    component,
+    key,
+    label,
+    path,
+    isValid,
+    showErrors
+  ) {
+    const { fieldResults, errors, invalidComponents } = results;
+    const errs = component.errors ?? [];
 
-    if (!isValid) {
-      results.isValid = false;
-      results.errors[key] = {
-        label,
-        errors: component.errors || ['Invalid']
-      };
-      results.invalidComponents.push({
-        component,
-        path,
-        label
-      });
+    fieldResults[key] = { isValid, errors: errs, label, path };
 
-      if (showErrors && component.setCustomValidity) {
-        component.setCustomValidity(component.errors, true);
-      }
+    // Stop if valid to avoid nesting
+    if (isValid) return;
+
+    results.isValid = false;
+
+    errors[key] = { label, errors: errs.length ? errs : ['Invalid'] };
+    invalidComponents.push({ component, path, label });
+
+    if (showErrors && typeof component.setCustomValidity) {
+      component.setCustomValidity(errs, true);
     }
   }
 
@@ -453,102 +459,76 @@ export default class ReviewButton extends FieldComponent {
   
   async isFormValid() {
     try {
-      const data = this.root?.submission?.data ?? this.root?.data ?? {};
+      const root = this.root;
+      if (!root || !root.everyComponent) return true;
+      const rootData = this.root?.data;
+      const submissionData = this.root?.submission?.data;
       let isValid = true;
 
-      if (this.root?.everyComponent) {
-        this.root.everyComponent((c) => {
-          try {
-            const shouldValidate = c.checkValidity && c.visible !== false && !c.disabled;
+      const hasActualFileData = (value) => {
+        if (!value) return false;
+        if (Array.isArray(value)) {
+          return  value.length > 0 && value.some(item => item && (item.name || item.filename || item.originalName || item.url || item.data));
+        }
+        if (typeof value === 'object') {
+          return !!(
+            value.name || value.filename || value.originalName || value.url || value.data ||
+            value.storage || value.size || (value.file && (value.file.name || value.file.url))
+          );
+        }
+        if (typeof value === 'string') {
+          const trimmed = value.trim();
+          return trimmed.length > 0 && (
+            trimmed.startsWith('data:') || trimmed.startsWith('http') || 
+            trimmed.startsWith('/') || trimmed.includes('.')
+          );
+        }
+        return false;
+      };
 
-            if (shouldValidate) {
-              const isAddressComponent = c.component?.type === 'address' || c.type === 'address';
-              
-              if (isAddressComponent && c.dataValue === "[object Object]") {
-                c.dataValue = {};
-              }
-              
-              if (isAddressComponent && c.component?.validate?.required) {
-                const addressValue = c.dataValue?.formattedPlace;
-                const isAddressEmpty = !addressValue || addressValue.trim() === '';
-                
-                if (isAddressEmpty) {
-                  isValid = false;
-                }
-              } else {
-                const componentType = c.type || c.component?.type;
-                
-                if (componentType === 'file') {
-                  const isRequired = c.component?.validate?.required || c.validate?.required;
-                  if (isRequired) {
-                    let hasValue = false;
-                    
-                    const dataValue = c.dataValue;
-                    const componentData = c.data;
-                    const rootData = this.root?.data;
-                    const submissionData = this.root?.submission?.data;
-                    const componentKey = c.key || c.component?.key;
-                    
-                    const hasActualFileData = (value) => {
-                      if (!value) return false;
-                      
-                      if (Array.isArray(value)) {
-                        return value.length > 0 && value.some(item => 
-                          item && (item.name || item.filename || item.originalName || item.url || item.data)
-                        );
-                      }
-                      
-                      if (typeof value === 'object') {
-                        return !!(value.name || value.filename || value.originalName || value.url || 
-                                 value.data || value.storage || value.size || 
-                                 (value.file && (value.file.name || value.file.url)));
-                      }
-                      
-                      if (typeof value === 'string') {
-                        const trimmed = value.trim();
-                        return trimmed.length > 0 && (
-                          trimmed.startsWith('data:') || trimmed.startsWith('http') ||  
-                          trimmed.startsWith('/') || trimmed.includes('.')
-                        );
-                      }
-                      
-                      return false;
-                    };
-                    
-                    if (hasActualFileData(dataValue)) {
-                      hasValue = true;
-                    }
-                    
-                    if (!hasValue && hasActualFileData(componentData)) {
-                      hasValue = true;
-                    }
-                    
-                    if (!hasValue && rootData && componentKey && hasActualFileData(rootData[componentKey])) {
-                      hasValue = true;
-                    }
-                    
-                    if (!hasValue && submissionData && componentKey && hasActualFileData(submissionData[componentKey])) {
-                      hasValue = true;
-                    }
-                    
-                    if (!hasValue && c.files && Array.isArray(c.files) && c.files.length > 0) {
-                      hasValue = true;
-                    }
-                    
-                    if (!hasValue) {
-                      isValid = false;
-                    }
-                  }
-                } else {
-                  if (!c.checkValidity()) {
-                    isValid = false;
-                  }
-                }
-              }
+      root.everyComponent((c) => {
+        try {
+          if (!c.checkValidity || c.visible === false || c.disabled) return;
+
+          const comp = c.component;
+          const type = c.type || comp?.type;
+          const componentKey = c.key || comp.key;
+
+          // Address component check
+          const isAddressComponent = type === 'address';
+          if (isAddressComponent  && c.dataValue === '[object Object]') {
+            c.dataValue = {};
+          }
+
+          if (isAddressComponent && comp.validate?.required) {
+            const addressValue = c.dataValue?.formattedPlace;
+            const isAddressEmpty = !addressValue || addressValue.trim() === '';   
+            if (isAddressEmpty) {
+                 isValid = false;
+                 return;
             }
-          } catch { }
-        });
-      }
+          } 
+          // File component check
+          else if (type === 'file' && (comp.validate?.required || c.validate?.required)) {
+            const hasValue = 
+              hasActualFileData(c.dataValue) ||
+              hasActualFileData(c.data) ||
+              (rootData && componentKey && hasActualFileData(rootData[componentKey])) ||
+              (submissionData && componentKey && hasActualFileData(submissionData[componentKey])) ||
+              (c.files && Array.isArray(c.files) && c.files.length > 0);
+
+            if (!hasValue) {
+              isValid = false;
+              return;
+            }
+          } 
+          // Other components
+          else if (!c.checkValidity()) {
+            isValid = false;
+            return;
+          }
+        } catch {  }
+      });
 
       return isValid;
     } catch (e) {
@@ -608,192 +588,145 @@ export default class ReviewButton extends FieldComponent {
 
   
   async validateComponentsAndCollectResults(errorMap, warningMap, results, opts) {
+    const { includeWarnings, showErrors } = opts || {};
+
+    const isAddressComponent = (component) =>
+      component.component?.type === 'address' || component.type === 'address';
+
+
+    const hasActualFileData = (value) => {
+      if (!value) return false;
+      if (Array.isArray(value)) {
+        return value.length > 0 && value.some(item =>
+          item && (item.name || item.filename || item.originalName || item.url || item.data)
+        );
+      }
+      if (typeof value === 'object') {
+        return !!(
+          value.name || value.filename || value.originalName || value.url ||
+          value.data || value.storage || value.size ||
+          (value.file && (value.file.name || value.file.url))
+        );
+      }
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        return (
+          trimmed.length > 0 &&
+          (
+          	trimmed.startsWith('data:') || // base64 data URL
+       	trimmed.startsWith('http') ||  // HTTP URL
+          	trimmed.startsWith('/') ||     // file path
+          	trimmed.includes('.') // has file extension
+          )
+        );
+      }
+      return false;
+    };
+
+
+    const getNestedValue = (obj, path) => {
+      if (!obj || !path) return null;
+      return path.split('.').reduce((acc, p) => (acc && typeof acc === 'object' ? acc[p] : null), obj);
+    };
+
     this.root.everyComponent((component) => {
       try {
-        if (!component.visible || component.disabled) return;
+        if (!component.visible || component.disabled || !component.checkValidity) return;
 
-        if (component.checkValidity) {
-          const isAddressComponent = component.component?.type === 'address' || component.type === 'address';
-          
-          if (isAddressComponent && component.dataValue === "[object Object]") {
-            component.dataValue = {};
-          }
-          
-          if (isAddressComponent && component.component?.validate?.required) {
+        // ---------- Address components ----------
+        if (isAddressComponent(component)) {
+          if (component.dataValue === '[object Object]') component.dataValue = {};
+          if (component.component?.validate?.required) {
             const addressValue = component.dataValue?.formattedPlace;
             const isAddressEmpty = !addressValue || addressValue.trim() === '';
-            
             if (isAddressEmpty) {
               if (!component.errors) component.errors = [];
               const addressError = `${component.component?.label || component.key} is required.`;
-              if (!component.errors.includes(addressError)) {
-                component.errors.push(addressError);
-              }
+              if (!component.errors.includes(addressError)) component.errors.push(addressError);
               if (component.setCustomValidity) {
-                component.setCustomValidity(component.errors, true);
+                  component.setCustomValidity(component.errors, true);
               }
               if (component.redraw) {
-                component.redraw();
+                  component.redraw();
               }
-              this.processComponentErrors(component, errorMap, results, opts.showErrors);
-            } else {
-              const isValid = component.checkValidity();
-              if (!isValid) {
-                this.processComponentErrors(component, errorMap, results, opts.showErrors);
-              }
-            }
-          } else {
-            const componentType = component.type || component.component?.type;
-            let isValid = true;
-            
-            if (componentType === 'file') {
-              const isRequired = component.component?.validate?.required || component.validate?.required;
-              let hasValue = false;
-              
-              const dataValue = component.dataValue;
-              const componentData = component.data;
-              const getValue = component.getValue && component.getValue();
-              const getValueAsString = component.getValueAsString && component.getValueAsString();
-              const nestedData = component.component?.data;
-              const privateData = component._data;
-              
-              const rootData = this.root?.data;
-              const submissionData = this.root?.submission?.data;
-              const componentKey = component.key || component.component?.key;
-              const rootComponentData = rootData && componentKey ? rootData[componentKey] : null;
-              const submissionComponentData = submissionData && componentKey ? submissionData[componentKey] : null;
-              
-              const componentPath = component.path || component.key;
-              let nestedPathData = null;
-              if (componentPath && rootData) {
-                const pathParts = componentPath.split('.');
-                let currentData = rootData;
-                for (const part of pathParts) {
-                  if (currentData && typeof currentData === 'object' && part in currentData) {
-                    currentData = currentData[part];
-                  } else {
-                    currentData = null;
-                    break;
-                  }
-                }
-                nestedPathData = currentData;
-              }
-              
-              let nestedSubmissionPathData = null;
-              if (componentPath && submissionData) {
-                const pathParts = componentPath.split('.');
-                let currentData = submissionData;
-                for (const part of pathParts) {
-                  if (currentData && typeof currentData === 'object' && part in currentData) {
-                    currentData = currentData[part];
-                  } else {
-                    currentData = null;
-                    break;
-                  }
-                }
-                nestedSubmissionPathData = currentData;
-              }
-              
-              const hasActualFileData = (value) => {
-                if (!value) return false;
-                
-                if (Array.isArray(value)) {
-                  return value.length > 0 && value.some(item => 
-                    item && (item.name || item.filename || item.originalName || item.url || item.data)
-                  );
-                }
-                
-                if (typeof value === 'object') {
-                  return !!(value.name || value.filename || value.originalName || value.url || 
-                           value.data || value.storage || value.size || 
-                           (value.file && (value.file.name || value.file.url)));
-                }
-                
-                if (typeof value === 'string') {
-                  const trimmed = value.trim();
-                  return trimmed.length > 0 && (
-                    trimmed.startsWith('data:') || // base64 data URL
-                    trimmed.startsWith('http') ||  // HTTP URL
-                    trimmed.startsWith('/') ||     // file path
-                    trimmed.includes('.') // has file extension
-                  );
-                }
-                
-                return false;
-              };
-              
-              if (!hasValue && hasActualFileData(dataValue)) {
-                hasValue = true;
-              }
-              
-              if (!hasValue && hasActualFileData(componentData)) {
-                hasValue = true;
-              }
-              
-              if (!hasValue && hasActualFileData(getValue)) {
-                hasValue = true;
-              }
-              
-              if (!hasValue && getValueAsString && hasActualFileData(getValueAsString)) {
-                hasValue = true;
-              }
-              
-              if (!hasValue && hasActualFileData(nestedData)) {
-                hasValue = true;
-              }
-              
-              if (!hasValue && hasActualFileData(privateData)) {
-                hasValue = true;
-              }
-              
-              if (!hasValue && hasActualFileData(rootComponentData)) {
-                hasValue = true;
-              }
-              
-              if (!hasValue && hasActualFileData(submissionComponentData)) {
-                hasValue = true;
-              }
-              
-              if (!hasValue && hasActualFileData(nestedPathData)) {
-                hasValue = true;
-              }
-              
-              if (!hasValue && hasActualFileData(nestedSubmissionPathData)) {
-                hasValue = true;
-              }
-              
-              if (!hasValue && component.files && Array.isArray(component.files) && component.files.length > 0) {
-                hasValue = true;
-              }
-              
-              if (!hasValue && component.element) {
-                const fileInputs = component.element.querySelectorAll('input[type="file"]');
-                for (const input of fileInputs) {
-                  if (input.files && input.files.length > 0) {
-                    hasValue = true;
-                    break;
-                  }
-                }
-              }
-              
-              if (!hasValue && component.fileService && component.fileService.files) {
-                const files = component.fileService.files;
-                if (Array.isArray(files) && files.length > 0) hasValue = true;
-              }
-              
-              isValid = !isRequired || hasValue;
-            } else {
-              isValid = component.checkValidity();
-            }
-            
-            if (!isValid) {
-              this.processComponentErrors(component, errorMap, results, opts.showErrors);
+
+              this.processComponentErrors(component, errorMap, results, showErrors);
+              return;
             }
           }
-
-          if (opts.includeWarnings && component.warnings && component.warnings.length) {
+          if (!component.checkValidity()) {
+            this.processComponentErrors(component, errorMap, results, showErrors);
+          }
+          if (includeWarnings && component.warnings?.length) {
             this.processComponentWarnings(component, warningMap, results);
           }
+          return;
+        }
+
+        // ---------- File components ----------
+        const componentType = component.type || component.component?.type;
+        if (componentType === 'file') {
+          const isRequired = component.component?.validate?.required || component.validate?.required;
+          let hasValue = false;
+
+          const dataValue = component.dataValue;
+          const componentData = component.data;
+          const getValue =  component.getValue && component.getValue();
+          const getValueAsString = component.getValueAsString && component.getValueAsString();
+          const nestedData = component.component?.data;
+          const privateData = component._data;
+
+          const rootData = this.root?.data;
+          const submissionData = this.root?.submission?.data;
+          const componentKey = component.key || component.component?.key;
+          const rootComponentData = rootData && componentKey ? rootData[componentKey] : null;
+          const submissionComponentData = submissionData && componentKey ? submissionData[componentKey] : null;
+
+          const componentPath = component.path || component.key;
+
+          const nestedPathData = getNestedValue(rootData, componentPath);
+          const nestedSubmissionPathData = getNestedValue(submissionData, componentPath);
+
+          const candidates = [
+            dataValue, componentData, getValue, getValueAsString,
+            nestedData, privateData, rootComponentData, submissionComponentData,
+            nestedPathData, nestedSubmissionPathData
+          ];
+
+          hasValue = candidates.some(hasActualFileData);
+
+          if (!hasValue && component.files && Array.isArray(component.files) && component.files.length > 0) hasValue = true;
+          if (!hasValue && component.element) {
+            const fileInputs = component.element.querySelectorAll('input[type="file"]');
+            for (const input of fileInputs) {
+              if (input.files && input.files.length > 0) {
+                hasValue = true;
+                break;
+              }
+            }
+          }
+          const files = component.fileService.files;
+          if (!hasValue && component.fileService && files && Array.isArray(files) && files.length > 0) {
+            hasValue = true;
+          }
+
+          const isValid = !isRequired || hasValue;
+          if (!isValid) {
+            this.processComponentErrors(component, errorMap, results, showErrors);
+          }
+          if (includeWarnings && component.warnings?.length) {
+            this.processComponentWarnings(component, warningMap, results);
+          }
+          return;
+        }
+
+        // ---------- Other components ----------
+        const isValid = component.checkValidity();
+        if (!isValid) {
+          this.processComponentErrors(component, errorMap, results, showErrors);
+        }
+        if (includeWarnings && component.warnings?.length) {
+          this.processComponentWarnings(component, warningMap, results);
         }
       } catch (err) {
         console.error(`Error validating component ${component.key}:`, err);
@@ -810,15 +743,17 @@ export default class ReviewButton extends FieldComponent {
     const componentLabel = component.component?.label || componentKey;
     const componentPath = component.path || componentKey;
 
-    if (component.errors && component.errors.length) {
-      component.errors.forEach(error => {
-        if (!errorMap.has(componentPath)) {
-          errorMap.set(componentPath, {
-            label: componentLabel,
-            errors: []
-          });
-        }
-        errorMap.get(componentPath).errors.push(error);
+    const errors = component.errors;
+    if (!errors || !errors.length) return;     // this early check will skip almost all work
+    if (errors && errors.length) {
+      // Get or create the entry once
+      let entry = errorMap.get(componentPath);
+      if (!entry) {
+        entry = { label: componentLabel, errors: [] };
+        errorMap.set(componentPath, entry);
+      }
+      errors.forEach(error => {
+               entry.errors.push(error);
       });
     }
 
@@ -828,8 +763,8 @@ export default class ReviewButton extends FieldComponent {
       label: componentLabel
     });
 
-    if (showErrors) {
-      component.setCustomValidity(component.errors, true);
+    if (showErrors && errors && errors.length) {
+      component.setCustomValidity(errors, true);
     }
   }
 
@@ -986,35 +921,37 @@ export default class ReviewButton extends FieldComponent {
   
   async updateFormValues() {
     try {
-          await new Promise(resolve => setTimeout(resolve, 100));
+      await Promise.resolve(); // if you don't need exactly to wait for 100ms, this can do the work
 
-    const allDatagrids = [];
-      try {
-        if (this.root && typeof this.root.everyComponent === 'function') {
-          this.root.everyComponent(comp => {
-            if (comp && comp.component &&
-              (comp.component.type === 'datagrid' || comp.component.type === 'datatable')) {
-              allDatagrids.push(comp);
-            }
-          });
-        }
-      } catch (e) {
-        console.error("Error collecting datagrids/datatables:", e);
-      }
+      const allDatagrids = [];
+      const isDatagridLike = (comp) =>
+        comp?.component?.type === 'datagrid' || comp?.component?.type === 'datatable';
 
-          for (const datagrid of allDatagrids) {
+      if (this.root && typeof this.root.everyComponent === 'function') {
         try {
-          this.updateDatagridValues(datagrid);
+          this.root.everyComponent((comp) => {
+            if (isDatagridLike(comp)) allDatagrids.push(comp);
+          });
         } catch (e) {
-          console.error("Error updating datagrid/datatable values:", e);
+          console.error("Error collecting datagrids/datatables:", e);
         }
       }
 
+      if (allDatagrids.length) {
+        for (const datagrid of allDatagrids) {
           try {
-      this.updateTopLevelComponentValues();
-    } catch (e) {
-      console.error("Error updating top-level components:", e);
-    }
+            this.updateDatagridValues(datagrid);
+          } catch (e) {
+            console.error("Error updating datagrid/datatable values:", e);
+          }
+        }
+      }
+
+      try {
+        this.updateTopLevelComponentValues();
+      } catch (e) {
+        console.error("Error updating top-level components:", e);
+      }
     } catch (e) {
       console.error("Error in updateFormValues:", e);
     }
@@ -1022,7 +959,11 @@ export default class ReviewButton extends FieldComponent {
 
   
   updateDatagridValues(datagrid) {
-    if (datagrid && datagrid.updateValue && typeof datagrid.updateValue === 'function') {
+    if (!datagrid) return;
+
+    // --- Update the datagrid's own value ---
+    const hasUpdateValue = datagrid.updateValue && typeof datagrid.updateValue === 'function';
+    if (hasUpdateValue) {
       try {
         datagrid.updateValue();
       } catch (e) {
@@ -1030,23 +971,33 @@ export default class ReviewButton extends FieldComponent {
       }
     }
 
-    if (datagrid && datagrid.component?.type === 'datatable' && Array.isArray(datagrid.savedRows)) {
-      datagrid.savedRows.forEach(row => {
-        if (row && Array.isArray(row.components)) {
-          row.components.forEach(component => {
-            this.safelyUpdateComponent(component, 'datatable row component');
-          });
-        }
-      });
+   // --- Handle datatable savedRows ---
+    const isDatatable = datagrid.component?.type === 'datatable';
+
+    if (isDatatable && Array.isArray(datagrid.savedRows)) {
+      const savedRows = datagrid.savedRows;
+      savedRows.forEach(row => {
+          if (row && Array.isArray(row.components)) {
+          const rowComponents = row.components;
+            rowComponents.forEach(component => {
+              this.safelyUpdateComponent(component, 'datatable row component');
+            });
+          }
+        });
+      return; // nothing else to do for datatable
     }
-    else if (datagrid && Array.isArray(datagrid.rows)) {
-      datagrid.rows.forEach(row => {
-        if (row && typeof row === 'object') {
-          Object.values(row).forEach(component => {
-            this.safelyUpdateComponent(component, 'datagrid row component');
-          });
-        }
-      });
+
+    // --- Handle datagrid rows ---
+    if (Array.isArray(datagrid.rows)) {
+      const rows = datagrid.rows;
+      rows.forEach(row => {
+          if (row && typeof row === 'object') {
+            const values = Object.values(row);
+            values.forEach(component => {
+              this.safelyUpdateComponent(component, 'datagrid row component');
+            });
+          }
+        });
     }
   }
 
@@ -1054,18 +1005,23 @@ export default class ReviewButton extends FieldComponent {
   safelyUpdateComponent(component, context) {
     if (!component) return;
 
-    if (component.type === 'select' && (!component.choices || !Array.isArray(component.choices))) {
-      console.warn(`Skipping Select component update in ${context} - missing choices array`);
-      return;
+    const componentType = component.type;
+
+    if (componentType === 'select') {
+      const choices = component.choices;
+      if (!Array.isArray(choices)) {
+        console.warn(`Skipping Select component update in ${context} - missing choices array`);
+        return;
+      }
     }
 
-    if (component.updateValue && typeof component.updateValue === 'function') {
+    const componentUpdateValue = component.updateValue;
+    if (componentUpdateValue  && typeof componentUpdateValue === 'function') {
       try {
-        if (component.type === 'select' && typeof component.resetValue !== 'function') {
+        if (componentType === 'select' && typeof component.resetValue !== 'function') {
           console.warn(`Select component in ${context} missing resetValue method - skipping update`);
           return;
         }
-
         component.updateValue();
       } catch (e) {
         console.error(`Error updating component value in ${context}:`, e);
@@ -1112,12 +1068,13 @@ export default class ReviewButton extends FieldComponent {
 
 
       try {
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await Promise.resolve();
 
         const allDatagrids = [];
         this.root.everyComponent(comp => {
-          if (comp.component?.type === 'well' || comp.type === 'well' ||
-            comp.component?.type === 'table' || comp.type === 'table') {
+          const componentType = comp.component?.type || comp.type;
+          
+          if (componentType  === 'well' || componentType === 'table') {
             allDatagrids.push(comp);
           }
         });
@@ -1127,9 +1084,11 @@ export default class ReviewButton extends FieldComponent {
               datagrid.updateValue();
             }
             if (datagrid.component?.type === 'datatable' && datagrid.savedRows) {
-              datagrid.savedRows.forEach(row => {
+	   const savedRows = datagrid.savedRows;
+               savedRows.forEach(row => {
                 if (row.components) {
-                  row.components.forEach(component => {
+                  const rowComponents = row.components;
+                  rowComponents.forEach(component => {
                     if (component && component.updateValue) {
                       component.updateValue();
                     }
@@ -1137,8 +1096,10 @@ export default class ReviewButton extends FieldComponent {
                 }
               });
             } else if (datagrid.rows) {
-              datagrid.rows.forEach(row => {
-                Object.values(row).forEach(component => {
+              const datagridRows = datagrid.rows;
+              datagridRows.forEach(row => {
+                const values = Object.values(row);
+                values.forEach(component => {
                   if (component && component.updateValue) {
                     component.updateValue();
                   }
@@ -1149,7 +1110,8 @@ export default class ReviewButton extends FieldComponent {
             console.error("Error updating datagrid/datatable values:", e);
           }
         }
-        this.root.components.forEach(comp => {
+        const rootComponents = this.root.components;
+        rootComponents.forEach(comp => {
           if (comp.updateValue && typeof comp.updateValue === 'function') {
             try {
               comp.updateValue();
@@ -1160,6 +1122,8 @@ export default class ReviewButton extends FieldComponent {
 
       
       const customComponentForReview = (component) => {
+        if (!component) return null; // at the beginning of the function
+        
         const label = component.component?.label || component.label || component.key || 'Unnamed';
         const key = component.component?.key || component.key;
         const componentType = component.component?.type || component.type;
@@ -1174,8 +1138,6 @@ export default class ReviewButton extends FieldComponent {
           let dataRows = [];
           const componentPath = component.path || component.key || '';
           if (Array.isArray(component.table) && component.table.length > 0 && Array.isArray(component.table[0])) {
-            const colDefs = Array.isArray(component.components) ? component.components : [];
-            const columnKeys = colDefs.map(c => c.key || c.path || c.component?.key || '');
             dataRows = component.table.map(rowArr => {
               const rowObj = {};
               columnKeys.forEach((colKey, idx) => {
