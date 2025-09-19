@@ -85,8 +85,15 @@ export function validateModalForm(modal, screenshotComp, formData = null) {
     supportNumberElement.classList.remove("invalid-field");
   }
 
-  if (selectedVerificationType === "App" || selectedVerificationType === "Support") {
+  // Only validate screenshot if it's visible and required
+  const screenshotWrapper = modal.querySelector("#screenshotWrapper");
+  const isScreenshotVisible = screenshotWrapper && screenshotWrapper.style.display !== "none";
+  
+  if ((selectedVerificationType === "App" || selectedVerificationType === "Support") && isScreenshotVisible) {
     const uploadedFiles = screenshotComp ? (screenshotComp.getValue() || []) : [];
+    console.log('Screenshot validation - uploadedFiles:', uploadedFiles);
+    console.log('Screenshot validation - screenshotComp:', !!screenshotComp);
+    console.log('Screenshot validation - getValue result:', screenshotComp ? screenshotComp.getValue() : 'no component');
 
     if (uploadedFiles.length === 0) {
       const screenshotContainer = modal.querySelector("#screenshotContainer");
@@ -96,6 +103,19 @@ export function validateModalForm(modal, screenshotComp, formData = null) {
       }
     } else if (modal.querySelector("#screenshotContainer")) {
       modal.querySelector("#screenshotContainer").style.border = "";
+    }
+  } else {
+    // Clear screenshot validation when not required
+    const screenshotContainer = modal.querySelector("#screenshotContainer");
+    if (screenshotContainer) {
+      screenshotContainer.style.border = "";
+      screenshotContainer.classList.remove("invalid-field");
+      // Also clear any validation on child elements
+      const childElements = screenshotContainer.querySelectorAll("*");
+      childElements.forEach(el => {
+        el.style.border = "";
+        el.classList.remove("invalid-field");
+      });
     }
   }
 
@@ -108,6 +128,7 @@ export function validateModalForm(modal, screenshotComp, formData = null) {
     } else if (notesRequiredElement) {
       notesRequiredElement.style.border = "";
       notesRequiredElement.classList.remove("invalid-field");
+
     }
   }
 
@@ -175,6 +196,14 @@ export function setupScreenshotComponent(modal, screenshotComp, validateModalFor
   modal.querySelector("#screenshotContainer").appendChild(compEl);
   screenshotComp.attach(compEl);
 
+  // Ensure the screenshot component is initially visible
+  screenshotComp.component.hidden = false;
+  if (typeof screenshotComp.setVisible === "function") {
+    screenshotComp.setVisible(true);
+  } else {
+    screenshotComp.visible = true;
+  }
+
   if (screenshotComp && typeof screenshotComp.on === 'function') {
     screenshotComp.on('change', () => validateModalForm(modal, screenshotComp, formData));
   }
@@ -214,14 +243,9 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
       const value = verifiedSelect.value;
       const needShot = value === "App" || value === "Support";
       
-      console.log('Verification type changed to:', value, 'needShot:', needShot);
-      console.log('screenshotWrapper found:', !!screenshotWrapper);
-      console.log('hideScreenshot function:', typeof hideScreenshot);
-      
       // Show/hide wrapper divs
       if (screenshotWrapper) {
         screenshotWrapper.style.display = needShot ? "block" : "none";
-        console.log('screenshotWrapper display set to:', screenshotWrapper.style.display);
       }
       if (notesOptionalWrapper) {
         notesOptionalWrapper.style.display = needShot ? "block" : "none";
@@ -231,19 +255,30 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
       }
       
       // Show/hide screenshot component itself
+      console.log('needShot:', needShot, 'hideScreenshot:', !!hideScreenshot, 'show function:', hideScreenshot && typeof hideScreenshot.show === 'function');
       if (needShot && hideScreenshot && typeof hideScreenshot.show === 'function') {
         hideScreenshot.show();
         console.log('Screenshot component shown');
       } else if (!needShot && hideScreenshot && typeof hideScreenshot.hide === 'function') {
         hideScreenshot.hide();
         console.log('Screenshot component hidden');
+        // Clear any validation styling when hiding
+        const screenshotContainer = modal.querySelector("#screenshotContainer");
+        if (screenshotContainer) {
+          screenshotContainer.style.border = "";
+          screenshotContainer.classList.remove("invalid-field");
+          // Also clear any validation on child elements
+          const childElements = screenshotContainer.querySelectorAll("*");
+          childElements.forEach(el => {
+            el.style.border = "";
+            el.classList.remove("invalid-field");
+          });
+        }
       }
       
       // Trigger validation to update submit button state
       validateModalForm(modal, screenshotComp, formData);
     };
-  } else {
-    console.error('verifiedSelect element not found');
   }
 
   // Cancel button handler
@@ -265,11 +300,12 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
       const notesOptional = modal.querySelector("#notesOptional")?.value || "";
       const supportNumber = modal.querySelector("#supportNumber")?.value || "Unavailable";
 
-      const modalScreenshotComp = modal.screenshotComp;
       let uploadedFiles = [];
-      if (modalScreenshotComp) {
-        uploadedFiles = modalScreenshotComp.getValue() || [];
+      if (screenshotComp) {
+        uploadedFiles = screenshotComp.getValue() || [];
       }
+      console.log('Submit button - uploadedFiles:', uploadedFiles);
+      console.log('Submit button - screenshotComp:', !!screenshotComp);
 
       // Final validation checks
       if (selectedVerificationType === "Not Verified" && !notesRequired.trim()) {

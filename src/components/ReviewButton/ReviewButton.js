@@ -513,7 +513,9 @@ export default class ReviewButton extends FieldComponent {
         const { allData: formData } = collectFormDataForReview(this.root);
 
         // Setup screenshot component if needed
+        console.log('Setting up screenshot component:', !!screenshotComp);
         const screenshotControls = setupScreenshotComponent(modal, screenshotComp, validateModalForm, formData);
+        console.log('Screenshot controls:', !!screenshotControls);
 
         // Setup modal event handlers
         setupModalEventHandlers(modal, screenshotComp, screenshotControls?.hide, validateModalForm, async (modalData) => {
@@ -527,14 +529,14 @@ export default class ReviewButton extends FieldComponent {
         // Add modal to DOM
         document.body.appendChild(modal);
 
-        // Trigger initial change event to set correct visibility state
+        // Initial validation to set submit button state
+        validateModalForm(modal, screenshotComp, formData);
+
+        // Trigger initial change event to set correct visibility state (after screenshot setup)
         const verifiedSelect = modal.querySelector("#verified");
         if (verifiedSelect) {
           verifiedSelect.dispatchEvent(new Event("change"));
         }
-
-        // Initial validation to set submit button state
-        validateModalForm(modal, screenshotComp, formData);
 
       } catch (e) {
         console.error("Error in review button click handler:", e);
