@@ -327,7 +327,7 @@ export async function collectReviewLeavesAndLabels(root) {
   }
 
   // Process remaining components
-  processRemainingComponents(root, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer);
+  processRemainingComponents(root, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer, leaves);
 
   const labelByPath = {};
   labelByPathMap.forEach((value, key) => {
@@ -757,7 +757,7 @@ function handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathM
   }
 }
 
-function processRemainingComponents(root, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer) {
+function processRemainingComponents(root, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer, leaves) {
   if (Array.isArray(root?.components)) {
     root.components.forEach(comp => {
       const containerType = comp.component?.type || comp.type;
