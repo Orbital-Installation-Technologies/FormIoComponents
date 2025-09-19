@@ -509,20 +509,32 @@ export default class ReviewButton extends FieldComponent {
           }
         });
 
+        // Get form data for validation
+        const { allData: formData } = collectFormDataForReview(this.root);
+
         // Setup screenshot component if needed
-        const screenshotControls = setupScreenshotComponent(modal, screenshotComp, validateModalForm);
+        const screenshotControls = setupScreenshotComponent(modal, screenshotComp, validateModalForm, formData);
 
         // Setup modal event handlers
         setupModalEventHandlers(modal, screenshotComp, screenshotControls?.hide, validateModalForm, async (modalData) => {
           // Handle form submission
           await this.handleFormSubmission(modalData);
-        });
+        }, formData);
 
         // Restore cached values if any
         restoreCachedValues(modal, this.component._reviewModalCache);
 
         // Add modal to DOM
         document.body.appendChild(modal);
+
+        // Trigger initial change event to set correct visibility state
+        const verifiedSelect = modal.querySelector("#verified");
+        if (verifiedSelect) {
+          verifiedSelect.dispatchEvent(new Event("change"));
+        }
+
+        // Initial validation to set submit button state
+        validateModalForm(modal, screenshotComp, formData);
 
       } catch (e) {
         console.error("Error in review button click handler:", e);

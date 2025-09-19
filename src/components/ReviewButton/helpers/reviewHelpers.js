@@ -60,7 +60,7 @@ export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, suppor
 /**
  * Validates the modal form fields
  */
-export function validateModalForm(modal, screenshotComp) {
+export function validateModalForm(modal, screenshotComp, formData = null) {
   let hasErrors = false;
 
   const verifiedElement = modal.querySelector("#verified");
@@ -111,9 +111,15 @@ export function validateModalForm(modal, screenshotComp) {
     }
   }
 
+  // Check if form has meaningful data
+  let hasFormData = true;
+  if (formData) {
+    hasFormData = checkFormHasData(formData);
+  }
+
   const submitButton = modal.querySelector("#submitModal");
   if (submitButton && submitButton.style != null) {
-    if (hasErrors) {
+    if (hasErrors || !hasFormData) {
       submitButton.style.backgroundColor = "gray";
       submitButton.style.cursor = "not-allowed";
       submitButton.disabled = true;
@@ -128,9 +134,38 @@ export function validateModalForm(modal, screenshotComp) {
 }
 
 /**
+ * Checks if the form has meaningful data
+ */
+function checkFormHasData(formData) {
+  if (!formData || typeof formData !== 'object') {
+    return false;
+  }
+
+  // Check if there's actual data in the form
+  const hasData = Object.values(formData).some(value => {
+    if (value === null || value === undefined || value === '') {
+      return false;
+    }
+    if (Array.isArray(value)) {
+      return value.length > 0 && value.some(item => 
+        item !== null && item !== undefined && item !== ''
+      );
+    }
+    if (typeof value === 'object') {
+      return Object.keys(value).length > 0 && Object.values(value).some(v => 
+        v !== null && v !== undefined && v !== ''
+      );
+    }
+    return true;
+  });
+
+  return hasData;
+}
+
+/**
  * Sets up screenshot component in the modal
  */
-export function setupScreenshotComponent(modal, screenshotComp, validateModalForm) {
+export function setupScreenshotComponent(modal, screenshotComp, validateModalForm, formData = null) {
   if (!screenshotComp) return null;
 
   const html = screenshotComp.render();
@@ -141,7 +176,7 @@ export function setupScreenshotComponent(modal, screenshotComp, validateModalFor
   screenshotComp.attach(compEl);
 
   if (screenshotComp && typeof screenshotComp.on === 'function') {
-    screenshotComp.on('change', validateModalForm);
+    screenshotComp.on('change', () => validateModalForm(modal, screenshotComp, formData));
   }
 
   return {
@@ -167,7 +202,7 @@ export function setupScreenshotComponent(modal, screenshotComp, validateModalFor
 /**
  * Sets up modal event handlers
  */
-export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, validateModalForm, onSubmit) {
+export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, validateModalForm, onSubmit, formData = null) {
   const verifiedSelect = modal.querySelector("#verified");
   const screenshotWrapper = modal.querySelector("#screenshotWrapper");
   const notesOptionalWrapper = modal.querySelector("#notesOptionalWrapper");
@@ -178,10 +213,37 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
     verifiedSelect.onchange = () => {
       const value = verifiedSelect.value;
       const needShot = value === "App" || value === "Support";
-      screenshotWrapper.style.display = needShot ? "block" : "none";
-      notesOptionalWrapper.style.display = needShot ? "block" : "none";
-      notesRequiredWrapper.style.display = value === "Not Verified" ? "block" : "none";
+      
+      console.log('Verification type changed to:', value, 'needShot:', needShot);
+      console.log('screenshotWrapper found:', !!screenshotWrapper);
+      console.log('hideScreenshot function:', typeof hideScreenshot);
+      
+      // Show/hide wrapper divs
+      if (screenshotWrapper) {
+        screenshotWrapper.style.display = needShot ? "block" : "none";
+        console.log('screenshotWrapper display set to:', screenshotWrapper.style.display);
+      }
+      if (notesOptionalWrapper) {
+        notesOptionalWrapper.style.display = needShot ? "block" : "none";
+      }
+      if (notesRequiredWrapper) {
+        notesRequiredWrapper.style.display = value === "Not Verified" ? "block" : "none";
+      }
+      
+      // Show/hide screenshot component itself
+      if (needShot && hideScreenshot && typeof hideScreenshot.show === 'function') {
+        hideScreenshot.show();
+        console.log('Screenshot component shown');
+      } else if (!needShot && hideScreenshot && typeof hideScreenshot.hide === 'function') {
+        hideScreenshot.hide();
+        console.log('Screenshot component hidden');
+      }
+      
+      // Trigger validation to update submit button state
+      validateModalForm(modal, screenshotComp, formData);
     };
+  } else {
+    console.error('verifiedSelect element not found');
   }
 
   // Cancel button handler
@@ -194,7 +256,7 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
   const submitButton = modal.querySelector("#submitModal");
   if (submitButton) {
     submitButton.onclick = async () => {
-      const hasErrors = validateModalForm(modal, screenshotComp);
+      const hasErrors = validateModalForm(modal, screenshotComp, formData);
       if (hasErrors) return;
 
       const verifiedElement = modal.querySelector("#verified");
@@ -203,10 +265,10 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
       const notesOptional = modal.querySelector("#notesOptional")?.value || "";
       const supportNumber = modal.querySelector("#supportNumber")?.value || "Unavailable";
 
-      const screenshotComp = modal.screenshotComp;
+      const modalScreenshotComp = modal.screenshotComp;
       let uploadedFiles = [];
-      if (screenshotComp) {
-        uploadedFiles = screenshotComp.getValue() || [];
+      if (modalScreenshotComp) {
+        uploadedFiles = modalScreenshotComp.getValue() || [];
       }
 
       // Final validation checks
@@ -238,8 +300,8 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
 
     const inputs = element.querySelectorAll('input, textarea, select');
     inputs.forEach(input => {
-      input.addEventListener('input', validateModalForm);
-      input.addEventListener('change', validateModalForm);
+      input.addEventListener('input', () => validateModalForm(modal, screenshotComp, formData));
+      input.addEventListener('change', () => validateModalForm(modal, screenshotComp, formData));
     });
   };
 
