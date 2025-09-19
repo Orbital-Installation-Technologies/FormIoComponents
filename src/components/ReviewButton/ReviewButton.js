@@ -2160,7 +2160,9 @@ export default class ReviewButton extends FieldComponent {
 
         function formatValue(value, comp) {
           if (value && (value._type === 'table' || value._type === 'datatable') && (Array.isArray(comp.table) || Array.isArray(comp.dataValue) || Array.isArray(comp.rows))) {
+            console.log('formatValue', value, comp);
             const customTableForReview = (component, data = {}) => {
+              console.log('customTableForReview', component, data);
               var label = component.label;
               var key = component.key;
               var customTable = null;
@@ -2196,40 +2198,53 @@ export default class ReviewButton extends FieldComponent {
               
               // Handle data tables differently from regular tables
               if (component._type === 'datatable' || component.type === 'datatable') {
+                console.log('dataTables', dataRows, rows);
                 // For data tables, use traditional table layout: columns=fields, rows=data records
                 // Don't transpose - just create the structure directly
                 customTable = [];
                 
-                // Deduplicate rows based on key to avoid duplicate columns
-                const uniqueRows = [];
-                const seenKeys = new Set();
-                rows.forEach(colDef => {
-                  const fieldComp = colDef.component || colDef;
-                  const key = fieldComp.key;
-                  if (!seenKeys.has(key)) {
-                    seenKeys.add(key);
-                    uniqueRows.push(colDef);
+                // Use the order from dataRows keys, not from rows configuration
+                const dataRowKeys = dataRows.length > 0 ? Object.keys(dataRows[0]) : [];
+                
+                // Create column definitions based on dataRowKeys order
+                const orderedColumns = dataRowKeys.map(key => {
+                  // Find the corresponding component definition
+                  const colDef = rows.find(col => {
+                    const fieldComp = col.component || col;
+                    return fieldComp.key === key;
+                  });
+                  
+                  if (colDef) {
+                    const fieldComp = colDef.component || colDef;
+                    return {
+                      key: key,
+                      label: fieldComp.label || fieldComp.key || key,
+                      type: fieldComp.type || 'textfield'
+                    };
+                  } else {
+                    // Fallback if no component definition found
+                    return {
+                      key: key,
+                      label: key,
+                      type: 'textfield'
+                    };
                   }
                 });
                 
-                const columnLabels = uniqueRows.map(colDef => {
-                  const fieldComp = colDef.component || colDef;
-                  return fieldComp.label || fieldComp.key || 'Unnamed';
-                });
+                const columnLabels = orderedColumns.map(col => col.label);
                 
-                // Create each data row using deduplicated columns
-                dataRows.reverse().forEach((rowDataObj, rowIndex) => {
+                // Create each data row using ordered columns
+                dataRows.forEach((rowDataObj, rowIndex) => {
                   rowData = [];
-                  if (uniqueRows && Array.isArray(uniqueRows)) {
-                    uniqueRows.forEach(colDef => {
-                      const fieldComp = colDef.component || colDef;
-                      const colKey = fieldComp.key;
+                  if (orderedColumns && Array.isArray(orderedColumns)) {
+                    orderedColumns.forEach(col => {
+                      const colKey = col.key;
                       const cellValue = typeof rowDataObj === 'object' ? rowDataObj[colKey] : '';
                       
                       value = {};
-                      value._label = fieldComp.label || colKey;
+                      value._label = col.label;
                       value._key = colKey;
-                      value._type = fieldComp.type || 'textfield';
+                      value._type = col.type;
                       value._leaf = true;
                       value._value = cellValue;
                       column = [{ _children: value }];
@@ -2249,13 +2264,14 @@ export default class ReviewButton extends FieldComponent {
                   _columnLabels: columnLabels,
                   _isDataTable: true
                 };
+                
                 return finalTable;
               } else {
                 // Regular table processing
-                rows.reverse().map((row) => {
+                [...rows].reverse().map((row) => {
                   if (Array.isArray(row)) {
                     rowData = [];
-                    row.reverse().map((col) => {
+                    [...row].reverse().map((col) => {
                       column = [];
                       if (col && col.length > 0) {
                         col.map(field => {
@@ -2304,6 +2320,8 @@ export default class ReviewButton extends FieldComponent {
                   customTable.push({ _row: newRowData });
                 }
               }
+
+              
               
               finalTable = {
                 _label: label,
@@ -2315,7 +2333,7 @@ export default class ReviewButton extends FieldComponent {
             const customTable = customTableForReview(comp, comp.data || {});
             let tableHtml = '';
             tableHtml += `<table style="width:100%;border-collapse:collapse;">`;
-            
+            console.log('customTable', customTable, comp);
             // Handle data tables with headers
             if (customTable._isDataTable && customTable._columnLabels) {
               // Add header row for data tables
