@@ -28,7 +28,6 @@ export {
   validateModalForm,
   setupScreenshotComponent,
   setupModalEventHandlers,
-  restoreCachedValues,
   updateFormWithModalData,
   collectFormDataForReview,
   updateFormValuesBeforeReview

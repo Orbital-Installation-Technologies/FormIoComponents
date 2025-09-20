@@ -20,7 +20,6 @@ import {
   validateModalForm,
   setupScreenshotComponent,
   setupModalEventHandlers,
-  restoreCachedValues,
   updateFormWithModalData,
   collectFormDataForReview,
   updateFormValuesBeforeReview,
@@ -136,7 +135,15 @@ export default class ReviewButton extends FieldComponent {
       };
 
       this.root.everyComponent((component) => {
-        if (!component.visible || component.disabled || component._visible === false || component.component?.hidden) return true;
+        // Skip validation for hidden components
+        if (component.component?.hidden === true || component.hidden === true) return true;
+        
+        // Skip validation for disabled components unless they're marked review visible
+        if (component.disabled === true || component.component?.disabled === true) {
+          if (component.component?.reviewVisible !== true) return true;
+        }
+        
+        if (!component.visible || component._visible === false) return true;
 
         if (!component.checkValidity) return true;
 
@@ -428,11 +435,7 @@ export default class ReviewButton extends FieldComponent {
         // Update form values before review
         await updateFormValuesBeforeReview(this.root);
 
-        // Collect form data for review
-        const { leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath } =
-          await collectReviewLeavesAndLabels(this.root);
-
-        // Get invalid fields
+        // Get invalid fields first
         const invalidFields = new Set();
         const validation = await this.validateFormExternal({
           showErrors: false,
@@ -447,6 +450,10 @@ export default class ReviewButton extends FieldComponent {
             }
           });
         }
+
+        // Collect form data for review with invalid fields information
+        const { leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath } =
+          await collectReviewLeavesAndLabels(this.root, invalidFields);
 
         // Filter invalid fields
         const filteredInvalidFields = new Set();
@@ -523,8 +530,7 @@ export default class ReviewButton extends FieldComponent {
           await this.handleFormSubmission(modalData);
         }, formData);
 
-        // Restore cached values if any
-        restoreCachedValues(modal, this.component._reviewModalCache);
+        // No caching - always start fresh
 
         // Add modal to DOM
         document.body.appendChild(modal);

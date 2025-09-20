@@ -30,8 +30,34 @@ function renderNode(node, depth = 0, rootInstance = null, invalidFields = new Se
   return sortedEntries.map(([k, v], index) => {
     const isAddressComponentRender = v.__comp?.component?.type === 'address' || v.__comp?.type === 'address';
 
-    if (v.__comp?._visible == false || v.__comp?.type === 'datasource' ||
-       (v.__comp?.component.reviewVisible == false && !v.__comp?.component.validate.required && !isAddressComponentRender)) {
+    // Apply new visibility logic in rendering
+    if (v.__comp?._visible == false || v.__comp?.type === 'datasource') {
+      return '';
+    }
+    
+    // Don't show hidden components
+    if (v.__comp?.component?.hidden === true || v.__comp?.hidden === true) {
+      return '';
+    }
+    
+    // If disabled, only show if marked review visible
+    if (v.__comp?.disabled === true || v.__comp?.component?.disabled === true) {
+      if (v.__comp?.component?.reviewVisible !== true) {
+        return '';
+      }
+    }
+    
+    // For non-disabled components, show if required (and invalid) or review visible
+    const isRequired = v.__comp?.component?.validate?.required === true;
+    const isReviewVisible = v.__comp?.component?.reviewVisible === true;
+    const isInvalid = isFieldInvalid(v.__comp, k, invalidFields);
+    
+    // Show required fields only if they are invalid or marked review visible
+    if (isRequired && !isInvalid && !isReviewVisible) {
+      return '';
+    }
+    
+    if (!isRequired && !isReviewVisible && !isAddressComponentRender) {
       return '';
     }
 
@@ -356,8 +382,34 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
     return sortedEntries.map(([k, v], index) => {
       const isAddressComponentRender = v.__comp?.component?.type === 'address' || v.__comp?.type === 'address';
 
-      if (v.__comp?._visible == false || v.__comp?.type === 'datasource' ||
-         (v.__comp?.component.reviewVisible == false && !v.__comp?.component.validate.required && !isAddressComponentRender)) {
+      // Apply new visibility logic in rendering
+      if (v.__comp?._visible == false || v.__comp?.type === 'datasource') {
+        return '';
+      }
+      
+      // Don't show hidden components
+      if (v.__comp?.component?.hidden === true || v.__comp?.hidden === true) {
+        return '';
+      }
+      
+      // If disabled, only show if marked review visible
+      if (v.__comp?.disabled === true || v.__comp?.component?.disabled === true) {
+        if (v.__comp?.component?.reviewVisible !== true) {
+          return '';
+        }
+      }
+      
+      // For non-disabled components, show if required (and invalid) or review visible
+      const isRequired = v.__comp?.component?.validate?.required === true;
+      const isReviewVisible = v.__comp?.component?.reviewVisible === true;
+      const isInvalid = isFieldInvalid(v.__comp, k, invalidFields);
+      
+      // Show required fields only if they are invalid or marked review visible
+      if (isRequired && !isInvalid && !isReviewVisible) {
+        return '';
+      }
+      
+      if (!isRequired && !isReviewVisible && !isAddressComponentRender) {
         return '';
       }
 

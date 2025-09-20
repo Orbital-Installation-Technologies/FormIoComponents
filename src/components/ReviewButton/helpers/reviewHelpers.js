@@ -344,33 +344,7 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
   addInputListeners(modal);
 }
 
-/**
- * Restores cached modal values
- */
-export function restoreCachedValues(modal, cached) {
-  if (!cached) return;
-
-  const verifiedElement = modal.querySelector("#verified");
-  if (verifiedElement) {
-    verifiedElement.value = cached.verifiedSelect || "";
-    verifiedElement.dispatchEvent(new Event("change"));
-  }
-
-  const notesRequiredElement = modal.querySelector("#notesRequired");
-  if (notesRequiredElement) {
-    notesRequiredElement.value = cached.notesRequired || "";
-  }
-
-  const notesOptionalElement = modal.querySelector("#notesOptional");
-  if (notesOptionalElement) {
-    notesOptionalElement.value = cached.notesOptional || "";
-  }
-
-  const supportNumberElement = modal.querySelector("#supportNumber");
-  if (supportNumberElement) {
-    supportNumberElement.value = cached.supportNumber || "Unavailable";
-  }
-}
+// Caching removed - always start fresh
 
 /**
  * Updates form values with modal data

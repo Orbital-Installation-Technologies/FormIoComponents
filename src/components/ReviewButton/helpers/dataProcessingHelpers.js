@@ -6,6 +6,65 @@
 import { isContainerType, shouldFlattenContainer } from "./validationUtils.js";
 
 /**
+ * Checks if a component is invalid based on the invalid fields set
+ */
+function isComponentInvalid(comp, invalidFields) {
+  if (!invalidFields || invalidFields.size === 0) return false;
+  
+  const componentPath = comp.path || comp.key || comp.component?.key;
+  if (!componentPath) return false;
+  
+  // Check exact path match
+  if (invalidFields.has(componentPath)) return true;
+  
+  // Check various path formats
+  const pathsToCheck = [
+    componentPath,
+    `form.data.${componentPath}`,
+    `data.${componentPath}`,
+    `form.${componentPath}`,
+    componentPath.replace('form.data.', ''),
+    componentPath.replace('data.', ''),
+    componentPath.replace('form.', '')
+  ];
+  
+  for (const path of pathsToCheck) {
+    if (invalidFields.has(path)) return true;
+  }
+  
+  // For array fields, check if any invalid field matches the same array index and field name
+  if (componentPath.includes('[') && componentPath.includes(']')) {
+    const fieldName = componentPath.split('.').pop();
+    const arrayMatch = componentPath.match(/(\w+\[\d+\])/);
+    
+    if (arrayMatch) {
+      const arrayPart = arrayMatch[1];
+      
+      for (const invalidField of invalidFields) {
+        if (invalidField.includes(arrayPart) && 
+            (invalidField.endsWith('.' + fieldName) || invalidField === fieldName)) {
+          return true;
+        }
+      }
+    }
+  } else {
+    // For non-array fields, check if any invalid field ends with this field name
+    const fieldName = componentPath.split('.').pop();
+    
+    for (const invalidField of invalidFields) {
+      // Only match if the invalid field doesn't contain array notation
+      if (!invalidField.includes('[') && !invalidField.includes(']')) {
+        if (invalidField.endsWith('.' + fieldName) || invalidField === fieldName) {
+          return true;
+        }
+      }
+    }
+  }
+  
+  return false;
+}
+
+/**
  * Finds a component by its key in the form hierarchy
  */
 export function findComponentByKey(root, targetKey, currentPath = '', parent = null) {
@@ -67,7 +126,7 @@ export function findComponentByKey(root, targetKey, currentPath = '', parent = n
 /**
  * Creates a custom component structure for review display
  */
-export function createCustomComponentForReview(component) {
+export function createCustomComponentForReview(component, invalidFields = new Set()) {
   if (!component) return null;
   
   const label = component.component?.label || component.label || component.key || 'Unnamed';
@@ -143,7 +202,27 @@ export function createCustomComponentForReview(component) {
     
     if (shouldFlattenContainer(componentType)) {
       const childItems = children.filter(child => {
-        return child.component?.reviewVisible || child?.component.validate.required;
+        // Apply same visibility logic for container children
+        if (child?.component?.hidden === true || child?.hidden === true) {
+          return false; // Don't show hidden components
+        }
+        
+        if (child?.disabled === true || child?.component?.disabled === true) {
+          // If disabled, only show if marked review visible
+          return child?.component?.reviewVisible === true;
+        }
+        
+        // For non-disabled components, show if required (and invalid) or review visible
+        const isRequired = child?.component?.validate?.required === true;
+        const isReviewVisible = child?.component?.reviewVisible === true;
+        const isInvalid = isComponentInvalid(child, invalidFields);
+        
+        // Show required fields only if they are invalid or marked review visible
+        if (isRequired && !isInvalid && !isReviewVisible) {
+          return false;
+        }
+        
+        return isReviewVisible || isRequired;
       })
       .map(child => {
         const childKey = child.key || child.path || '';
@@ -161,7 +240,27 @@ export function createCustomComponentForReview(component) {
     }
     
     const containerItems = children.filter(child => {
-      return child.component?.reviewVisible || child?.component.validate.required;
+      // Apply same visibility logic for container children
+      if (child?.component?.hidden === true || child?.hidden === true) {
+        return false; // Don't show hidden components
+      }
+      
+      if (child?.disabled === true || child?.component?.disabled === true) {
+        // If disabled, only show if marked review visible
+        return child?.component?.reviewVisible === true;
+      }
+      
+      // For non-disabled components, show if required (and invalid) or review visible
+      const isRequired = child?.component?.validate?.required === true;
+      const isReviewVisible = child?.component?.reviewVisible === true;
+      const isInvalid = isComponentInvalid(child, invalidFields);
+      
+      // Show required fields only if they are invalid or marked review visible
+      if (isRequired && !isInvalid && !isReviewVisible) {
+        return false;
+      }
+      
+      return isReviewVisible || isRequired;
     }) 
     .map(child => {
       const childKey = child.key || child.path || '';
@@ -195,7 +294,7 @@ export function createCustomComponentForReview(component) {
 /**
  * Collects all review leaves and labels from the form
  */
-export async function collectReviewLeavesAndLabels(root) {
+export async function collectReviewLeavesAndLabels(root, invalidFields = new Set()) {
   const stats = {
     leafComponents: 0,
     containers: 0
@@ -281,7 +380,37 @@ export async function collectReviewLeavesAndLabels(root) {
     const isAddressComponentEarly = comp.component?.type === 'address' || comp.type === 'address';
     const isEditGridComponentEarly = comp.component?.type === 'editgrid' || comp.type === 'editgrid';
     
-    if (comp?._visible == false || ((!comp?.component.reviewVisible && !comp?.component.validate.required) && !isAddressComponentEarly && !isEditGridComponentEarly)) continue;
+    // New visibility logic:
+    // 1. If component is hidden, don't show it
+    // 2. If component is disabled, only show if marked review visible
+    // 3. If component is required, show it (will be filtered later based on validity)
+    // 4. If component is marked review visible, show it
+    // 5. Otherwise, don't show it
+    
+    if (comp?.component?.hidden === true || comp?.hidden === true) {
+      continue; // Don't show hidden components
+    }
+    
+    if (comp?.disabled === true || comp?.component?.disabled === true) {
+      // If disabled, only show if marked review visible
+      if (comp?.component?.reviewVisible !== true) {
+        continue;
+      }
+    }
+    
+    // For non-disabled components, show if required (and invalid) or review visible
+    const isRequired = comp?.component?.validate?.required === true;
+    const isReviewVisible = comp?.component?.reviewVisible === true;
+    const isInvalid = isComponentInvalid(comp, invalidFields);
+    
+    // Show required fields only if they are invalid or marked review visible
+    if (isRequired && !isInvalid && !isReviewVisible) {
+      continue;
+    }
+    
+    if (!isRequired && !isReviewVisible && !isAddressComponentEarly && !isEditGridComponentEarly) {
+      continue;
+    }
 
     if (comp.type === 'button' || comp.component?.type === 'button') continue;
 
@@ -307,7 +436,7 @@ export async function collectReviewLeavesAndLabels(root) {
     }
 
     if (comp.component?.type === 'table') {
-      handleTableComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathMap, createCustomComponentForReview, pushedPaths, canon);
+      handleTableComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathMap, createCustomComponentForReview, pushedPaths, canon, invalidFields);
       continue;
     }
 
@@ -323,11 +452,11 @@ export async function collectReviewLeavesAndLabels(root) {
     }
 
     // Handle leaf components
-    handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer, createCustomComponentForReview);
+    handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer, createCustomComponentForReview, invalidFields);
   }
 
   // Process remaining components
-  processRemainingComponents(root, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer, leaves);
+  processRemainingComponents(root, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer, leaves, invalidFields);
 
   const labelByPath = {};
   labelByPathMap.forEach((value, key) => {
@@ -539,7 +668,7 @@ function handleDataGridComponent(comp, safePath, topIndexFor, pushLeaf, indexByP
   }
 }
 
-function handleTableComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathMap, createCustomComponentForReview, pushedPaths, canon) {
+function handleTableComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathMap, createCustomComponentForReview, pushedPaths, canon, invalidFields) {
   const tablePath = safePath(comp) || comp.key;
   indexByPathMap.set(tablePath, topIndexFor(comp));
 
@@ -548,7 +677,7 @@ function handleTableComponent(comp, safePath, topIndexFor, pushLeaf, indexByPath
       comp: comp,
       path: tablePath,
       label: comp.component?.label || comp.label || comp.key || 'Table',
-      value: createCustomComponentForReview(comp),
+      value: createCustomComponentForReview(comp, invalidFields),
       formIndex: topIndexFor(comp)
     });
   }
@@ -649,7 +778,7 @@ function handleContainerComponent(comp, safePath, topIndexFor, indexByPathMap, q
   comp.components.forEach((ch) => queue.push(ch));
 }
 
-function handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer, createCustomComponentForReview) {
+function handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer, createCustomComponentForReview, invalidFields) {
   const parent = comp?.parent;
   const parentType = parent?.component?.type;
   const parentsToBeHandled = ['datatable', 'datagrid', 'tagpad', 'datamap', 
@@ -700,7 +829,7 @@ function handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathM
 
   if (comp.component?.type === 'well' || comp.type === 'well' ||
     comp.component?.type === 'table' || comp.type === 'table') {
-    createCustomComponentForReview(comp);
+    createCustomComponentForReview(comp, invalidFields);
   }
   
   if (isPanelComponent || isContainerComponent) {
@@ -708,7 +837,7 @@ function handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathM
     comp.component.reviewVisible = true;
 
     if (comp.components && comp.components.length > 0) {
-      const processedContainer = createCustomComponentForReview(comp);
+      const processedContainer = createCustomComponentForReview(comp, invalidFields);
       
       if (processedContainer) {
         leaves.push(processedContainer);
@@ -729,13 +858,24 @@ function handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathM
     !isContentComponent &&
     !isGridChild &&
     comp.visible !== false &&
-    (comp.component?.reviewVisible === true || comp?.component.validate?.required || isTagpadComponent || isFormComponent || isPanelComponent || isContainerComponent || isAddressComponentMain)
+    // Apply new visibility logic
+    !(comp?.component?.hidden === true || comp?.hidden === true) && // Don't show hidden components
+    (
+      // Show if review visible
+      comp.component?.reviewVisible === true ||
+      // Show if required and invalid (or review visible)
+      (comp?.component.validate?.required === true && isComponentInvalid(comp, invalidFields)) ||
+      // Show special component types
+      isTagpadComponent || isFormComponent || isPanelComponent || isContainerComponent || isAddressComponentMain ||
+      // Show disabled components only if review visible
+      (comp?.disabled === true && comp?.component?.reviewVisible === true)
+    )
   ) {
     let componentValue;
     if (isFormComponent) {
       componentValue = comp.data || comp.submission?.data || comp.dataValue || {};
     } else if (isPanelComponent || isContainerComponent) {
-      const customStructure = createCustomComponentForReview(comp);
+      const customStructure = createCustomComponentForReview(comp, invalidFields);
       componentValue = customStructure;
     } else {
       componentValue = ('getValue' in comp) ? comp.getValue() : comp.dataValue;
@@ -757,7 +897,7 @@ function handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathM
   }
 }
 
-function processRemainingComponents(root, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer, leaves) {
+function processRemainingComponents(root, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer, leaves, invalidFields) {
   if (Array.isArray(root?.components)) {
     root.components.forEach(comp => {
       const containerType = comp.component?.type || comp.type;

@@ -256,7 +256,7 @@ export const validateSelectedComponents = async (components, results, options, c
          const isAddressEmpty = !addressValue || addressValue.trim() === '';
           
 
-        if (!isAddressEmpty)  {
+        if (isAddressEmpty)  {
           isValid = false;
 
           const addressError = `${componentDefinition?.label || key} is required.`;
@@ -300,7 +300,15 @@ export const validateComponentsAndCollectResults = async (root, errorMap, warnin
 
   root.everyComponent((component) => {
     try {
-      if (!component.visible || component.disabled || !component.checkValidity) return;
+      // Skip validation for hidden components
+      if (component.component?.hidden === true || component.hidden === true) return;
+      
+      // Skip validation for disabled components unless they're marked review visible
+      if (component.disabled === true || component.component?.disabled === true) {
+        if (component.component?.reviewVisible !== true) return;
+      }
+      
+      if (!component.visible || !component.checkValidity) return;
 
       // ---------- Address components ----------
       if (isAddressComponent(component)) {
@@ -398,7 +406,15 @@ export const isFormValid = async (root) => {
 
     root.everyComponent((c) => {
       try {
-        if (!c.checkValidity || c.visible === false || c.disabled) return;
+        // Skip validation for hidden components
+        if (c.component?.hidden === true || c.hidden === true) return;
+        
+        // Skip validation for disabled components unless they're marked review visible
+        if (c.disabled === true || c.component?.disabled === true) {
+          if (c.component?.reviewVisible !== true) return;
+        }
+        
+        if (!c.checkValidity || c.visible === false) return;
 
         const comp = c.component;
         const type = c.type || comp?.type;

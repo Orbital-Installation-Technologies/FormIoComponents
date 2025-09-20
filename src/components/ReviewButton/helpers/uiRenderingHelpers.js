@@ -488,55 +488,55 @@ export function isFieldInvalid(comp, path, invalidFields) {
   if (!invalidFields || invalidFields.size === 0) return false;
 
   const fieldPath = path || comp?.path || comp?.key || comp?.component?.key;
+  
+  if (!fieldPath) return false;
 
+  // Direct path match
   if (invalidFields.has(fieldPath)) {
     return true;
   }
 
-  if (fieldPath) {
-    // Check exact path matches first
-    if (!fieldPath.startsWith('form.')) {
-      const nestedPath = `form.data.${fieldPath}`;
-      if (invalidFields.has(nestedPath)) {
-        return true;
-      }
+  // Try various path variations
+  const pathVariations = [
+    fieldPath,
+    `form.data.${fieldPath}`,
+    `data.${fieldPath}`,
+    `form.${fieldPath}`,
+    fieldPath.replace('form.data.', ''),
+    fieldPath.replace('data.', ''),
+    fieldPath.replace('form.', '')
+  ];
 
-      const altNestedPath = `data.${fieldPath}`;
-      if (invalidFields.has(altNestedPath)) {
-        return true;
-      }
+  for (const variation of pathVariations) {
+    if (invalidFields.has(variation)) {
+      return true;
     }
+  }
 
-    if (fieldPath.startsWith('form.data.')) {
-      const simplifiedPath = fieldPath.replace('form.data.', '');
-      if (invalidFields.has(simplifiedPath)) {
-        return true;
-      }
-    }
-
-    // For field name matching, be more precise to avoid cross-row contamination
+  // For array fields, check if any invalid field matches the same array index and field name
+  if (fieldPath.includes('[') && fieldPath.includes(']')) {
     const fieldName = fieldPath.split('.').pop();
-    for (const invalidField of invalidFields) {
-      // If the field path contains array notation, only match if the invalid field has the same array index
-      if (fieldPath.includes('[') && fieldPath.includes(']')) {
-        if (invalidField.includes('[') && invalidField.includes(']')) {
-          // Extract the array part (e.g., "dataGrid[0]" from "form.data.dataGrid[0].picOfSn4")
-          const fieldArrayMatch = fieldPath.match(/(\w+\[\d+\])/);
-          const invalidArrayMatch = invalidField.match(/(\w+\[\d+\])/);
-          
-          if (fieldArrayMatch && invalidArrayMatch && fieldArrayMatch[1] === invalidArrayMatch[1]) {
-            // Same array and index, check if field name matches
-            if (invalidField.endsWith('.' + fieldName) || invalidField === fieldName) {
-              return true;
-            }
-          }
+    const arrayMatch = fieldPath.match(/(\w+\[\d+\])/);
+    
+    if (arrayMatch) {
+      const arrayPart = arrayMatch[1];
+      
+      for (const invalidField of invalidFields) {
+        if (invalidField.includes(arrayPart) && 
+            (invalidField.endsWith('.' + fieldName) || invalidField === fieldName)) {
+          return true;
         }
-      } else {
-        // For non-array paths, only match if the invalid field doesn't contain array notation
-        if (!invalidField.includes('[') && !invalidField.includes(']')) {
-          if (invalidField.endsWith('.' + fieldName) || invalidField === fieldName) {
-            return true;
-          }
+      }
+    }
+  } else {
+    // For non-array fields, check if any invalid field ends with this field name
+    const fieldName = fieldPath.split('.').pop();
+    
+    for (const invalidField of invalidFields) {
+      // Only match if the invalid field doesn't contain array notation
+      if (!invalidField.includes('[') && !invalidField.includes(']')) {
+        if (invalidField.endsWith('.' + fieldName) || invalidField === fieldName) {
+          return true;
         }
       }
     }
@@ -549,28 +549,17 @@ export function isFieldInvalid(comp, path, invalidFields) {
  * Gets invalid styling for a field
  */
 export function getInvalidStyle(comp, path, basePath = '', invalidFields) {
-  const pathsToTry = [];
-
-  if (basePath) {
-    pathsToTry.push(`${basePath}.${path}`); // basePath.path
-    pathsToTry.push(`${basePath}[${path}]`); // basePath[path] for array access
-
-    pathsToTry.push(`form.data.${basePath}.${path}`);
-    pathsToTry.push(`form.${basePath}.${path}`);
-
-    pathsToTry.push(`data.${basePath}.${path}`);
-  }
-
-  pathsToTry.push(path); // just the path itself
-
-  if (!path.includes('.')) {
-    pathsToTry.push(`form.data.${path}`);
-    pathsToTry.push(`data.${path}`);
-  }
+  if (!invalidFields || invalidFields.size === 0) return '';
 
   // Use the improved isFieldInvalid function for more precise matching
-  for (const testPath of pathsToTry) {
-    if (isFieldInvalid(comp, testPath, invalidFields)) {
+  if (isFieldInvalid(comp, path, invalidFields)) {
+    return 'background-color:rgb(255 123 123); border-radius: 3px;';
+  }
+
+  // Also check with basePath if provided
+  if (basePath) {
+    const fullPath = `${basePath}.${path}`;
+    if (isFieldInvalid(comp, fullPath, invalidFields)) {
       return 'background-color:rgb(255 123 123); border-radius: 3px;';
     }
   }
