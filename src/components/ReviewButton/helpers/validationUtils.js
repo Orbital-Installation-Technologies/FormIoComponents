@@ -174,7 +174,14 @@ export const recordComponentValidationResult = (
  * Process component errors
  */
 export const processComponentErrors = (component, errorMap, results, showErrors) => {
-  console.log("processComponentErrors", component, errorMap, results, showErrors);
+  console.log("processComponentErrors", {
+    componentKey: component.key,
+    componentPath: component.path,
+    componentLabel: component.component?.label,
+    errors: component.errors,
+    showErrors
+  });
+  
   results.isValid = false;
   results.errorCount++;
 
@@ -183,8 +190,13 @@ export const processComponentErrors = (component, errorMap, results, showErrors)
   const componentPath = component.path || componentKey;
 
   const errors = component.errors;
-  if (!errors || !errors.length) return;     // this early check will skip almost all work
+  if (!errors || !errors.length) {
+    console.log("No errors found for component:", componentKey);
+    return;     // this early check will skip almost all work
+  }
+  
   if (errors && errors.length) {
+    console.log("Processing errors for component:", componentKey, "errors:", errors);
     // Get or create the entry once
     let entry = errorMap.get(componentPath);
     if (!entry) {
@@ -202,8 +214,14 @@ export const processComponentErrors = (component, errorMap, results, showErrors)
     label: componentLabel
   });
 
+  console.log("Added invalid component:", {
+    path: componentPath,
+    label: componentLabel,
+    totalInvalidComponents: results.invalidComponents.length
+  });
+
   if (showErrors && errors && errors.length) {
-    console.log("errors", errors);
+    console.log("Setting custom validity for component:", componentKey, "errors:", errors);
     component.setCustomValidity(errors, true);
   }
 };
@@ -295,10 +313,18 @@ export const validateSelectedComponents = async (components, results, options, c
  * Validate components and collect results
  */
 export const validateComponentsAndCollectResults = async (root, errorMap, warningMap, results, opts) => {
-  console.log("validateComponentsAndCollectResults", root, errorMap, warningMap, results, opts);
+  console.log("validateComponentsAndCollectResults called with:", {
+    includeWarnings: opts?.includeWarnings,
+    showErrors: opts?.showErrors,
+    errorMapSize: errorMap.size
+  });
   const { includeWarnings, showErrors } = opts || {};
 
+  let componentCount = 0;
+  let invalidCount = 0;
+
   root.everyComponent((component) => {
+    componentCount++;
     try {
       // Skip validation for hidden components
       if (component.component?.hidden === true || component.hidden === true) return;
@@ -313,9 +339,17 @@ export const validateComponentsAndCollectResults = async (root, errorMap, warnin
       // ---------- Address components ----------
       if (isAddressComponent(component)) {
         if (component.dataValue === '[object Object]') component.dataValue = {};
-        if (!component.checkValidity()) {
-          console.log("component.checkValidity() is false", component);
+        const isValid = component.checkValidity();
+        console.log('Address component validation:', {
+          key: component.key,
+          path: component.path,
+          isValid,
+          dataValue: component.dataValue
+        });
+        if (!isValid) {
+          console.log("Address component is invalid:", component.key, component.path);
           processComponentErrors(component, errorMap, results, showErrors);
+          invalidCount++;
         }
         if (includeWarnings && component.warnings?.length) {
           //processComponentWarnings(component, warningMap, results);
@@ -382,8 +416,17 @@ export const validateComponentsAndCollectResults = async (root, errorMap, warnin
 
       // ---------- Other components ----------
       const isValid = component.checkValidity();
+      console.log('Component validation:', {
+        key: component.key,
+        path: component.path,
+        type: component.type || component.component?.type,
+        isValid,
+        required: component.component?.validate?.required
+      });
       if (!isValid) {
+        console.log("Component is invalid:", component.key, component.path);
         processComponentErrors(component, errorMap, results, showErrors);
+        invalidCount++;
       }
       if (includeWarnings && component.warnings?.length) {
         processComponentWarnings(component, warningMap, results);
@@ -391,6 +434,12 @@ export const validateComponentsAndCollectResults = async (root, errorMap, warnin
     } catch (err) {
       console.error(`Error validating component ${component.key}:`, err);
     }
+  });
+  
+  console.log('Validation summary:', {
+    totalComponents: componentCount,
+    invalidComponents: invalidCount,
+    errorMapSize: errorMap.size
   });
 };
 

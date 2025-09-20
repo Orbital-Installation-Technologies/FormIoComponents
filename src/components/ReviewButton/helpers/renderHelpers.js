@@ -10,7 +10,7 @@ import { formatValue, firstLeafVal, getInvalidStyle, isFieldInvalid } from "./ui
 /**
  * Main renderNode function - renders a node and its children
  */
-function renderNode(node, depth = 0, rootInstance = null, invalidFields = new Set(), basePath = '') {
+function renderNode(node, depth = 0, rootInstance = null, invalidFields = new Set(), basePath = '', invalidComponents = new Set()) {
   let pad = `padding-left:10px; border-left:1px dotted #ccc;`;
 
   const sortedEntries = Object.entries(node).sort((a, b) => {
@@ -50,7 +50,7 @@ function renderNode(node, depth = 0, rootInstance = null, invalidFields = new Se
     // For non-disabled components, show if required (and invalid) or review visible
     const isRequired = v.__comp?.component?.validate?.required === true;
     const isReviewVisible = v.__comp?.component?.reviewVisible === true;
-    const isInvalid = isFieldInvalid(v.__comp, k, invalidFields);
+      const isInvalid = isFieldInvalid(v.__comp, k, invalidFields) || invalidComponents.has(v.__comp);
     
     // Show required fields only if they are invalid or marked review visible
     if (isRequired && !isInvalid && !isReviewVisible) {
@@ -78,15 +78,15 @@ function renderNode(node, depth = 0, rootInstance = null, invalidFields = new Se
     }
 
     if (/^\d+\]$/.test(k) || v?.__comp == undefined) {
-      return v && typeof v === 'object' ? renderNode(v.__children || {}, depth, rootInstance, invalidFields, basePath) : '';
+        return v && typeof v === 'object' ? renderNode(v.__children || {}, depth, rootInstance, invalidFields, basePath, invalidComponents) : '';
     }
 
     if (v && v.__leaf) {
-      return renderLeafNode(v, k, depth, basePath, invalidFields);
+      return renderLeafNode(v, k, depth, basePath, invalidFields, invalidComponents);
     }
 
     if (v && typeof v === 'object') {
-      return renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath, pad);
+        return renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath, pad, invalidComponents);
     }
     return '';
   }).join('');
@@ -95,7 +95,7 @@ function renderNode(node, depth = 0, rootInstance = null, invalidFields = new Se
 /**
  * Main function to render leaves into HTML
  */
-export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, rootInstance, invalidFields = new Set()) {
+export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, rootInstance, invalidFields = new Set(), invalidComponents = new Set()) {
   const sortedLeaves = [...leaves].sort((a, b) => {
     const isPanelA = a.comp?.component?.type === 'panel' || a.comp?.type === 'panel';
     const isPanelB = b.comp?.component?.type === 'panel' || b.comp?.type === 'panel';
@@ -362,7 +362,7 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
     }
   }
 
-  function renderNode(node, depth = 0, rootInstance = null, invalidFields = new Set(), basePath = '') {
+  function renderNode(node, depth = 0, rootInstance = null, invalidFields = new Set(), basePath = '', invalidComponents = new Set()) {
     let pad = `padding-left:10px; border-left:1px dotted #ccc;`;
 
     const sortedEntries = Object.entries(node).sort((a, b) => {
@@ -402,7 +402,7 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
       // For non-disabled components, show if required (and invalid) or review visible
       const isRequired = v.__comp?.component?.validate?.required === true;
       const isReviewVisible = v.__comp?.component?.reviewVisible === true;
-      const isInvalid = isFieldInvalid(v.__comp, k, invalidFields);
+      const isInvalid = isFieldInvalid(v.__comp, k, invalidFields) || invalidComponents.has(v.__comp);
       
       // Show required fields only if they are invalid or marked review visible
       if (isRequired && !isInvalid && !isReviewVisible) {
@@ -430,50 +430,50 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
       }
 
       if (/^\d+\]$/.test(k) || v?.__comp == undefined) {
-        return v && typeof v === 'object' ? renderNode(v.__children || {}, depth, rootInstance, invalidFields, basePath) : '';
+        return v && typeof v === 'object' ? renderNode(v.__children || {}, depth, rootInstance, invalidFields, basePath, invalidComponents) : '';
       }
 
       if (v && v.__leaf) {
-        return renderLeafNode(v, k, depth, basePath, invalidFields);
+        return renderLeafNode(v, k, depth, basePath, invalidFields, invalidComponents);
       }
 
       if (v && typeof v === 'object') {
-        return renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath, pad);
+        return renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath, pad, invalidComponents);
       }
       return '';
     }).join('');
   }
 
-  return renderNode(root, 0, rootInstance, invalidFields, '');
+  return renderNode(root, 0, rootInstance, invalidFields, '', invalidComponents);
 }
 
 /**
  * Renders a leaf node
  */
-function renderLeafNode(v, k, depth, basePath, invalidFields) {
+function renderLeafNode(v, k, depth, basePath, invalidFields, invalidComponents = new Set()) {
   const isFormComponent = v.__comp?.type === 'form' || v.__comp?.component?.type === 'form';
   const val = firstLeafVal(v);
   const isTagpadDot = (v.__comp?.type === 'tagpad') || (v.__comp?.parent?.type === 'tagpad');
 
   if (isFormComponent) {
-    return renderFormComponent(v, k, depth, basePath, invalidFields);
+    return renderFormComponent(v, k, depth, basePath, invalidFields, invalidComponents);
   } else if (isTagpadDot) {
-    return `<div idx="5" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields)}">${v.__label || k}:</strong> ${val}</div>`;
+    return `<div idx="5" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields, invalidComponents)}">${v.__label || k}:</strong> ${val}</div>`;
   } else if (val && typeof val === 'string' && val.includes('__TEXTAREA__')) {
     const textareaContent = val.replace(/__TEXTAREA__/g, '');
     return `<div idx="6" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc; display: flex; align-items: flex-start;">
-              <strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields)}">${v.__label || k}:</strong>
+              <strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields, invalidComponents)}">${v.__label || k}:</strong>
               ${textareaContent}
             </div>`;
   } else {
-    return `<div idx="6" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields)}">${v.__label || k}:</strong> ${val}</div>`;
+    return `<div idx="6" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields, invalidComponents)}">${v.__label || k}:</strong> ${val}</div>`;
   }
 }
 
 /**
  * Renders a form component
  */
-function renderFormComponent(v, k, depth, basePath, invalidFields) {
+function renderFormComponent(v, k, depth, basePath, invalidFields, invalidComponents = new Set()) {
   const formValue = v.__value || {};
   let formContentHtml = '<div idx="10" depth="${depth}" style="padding-left: 10px;">';
 
@@ -485,7 +485,7 @@ function renderFormComponent(v, k, depth, basePath, invalidFields) {
           ? JSON.stringify(fieldVal)
           : String(fieldVal);
         const fieldPath = `${k}.${fieldKey}`;
-        return `<div idx="2" depth="${depth}" style="margin-left:10px; padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(v.__comp, fieldPath, basePath, invalidFields)}">${fieldKey}:</strong> ${displayVal}</div>`;
+        return `<div idx="2" depth="${depth}" style="margin-left:10px; padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(v.__comp, fieldPath, basePath, invalidFields, invalidComponents)}">${fieldKey}:</strong> ${displayVal}</div>`;
       })
       .join('');
     formContentHtml += contentItems;
@@ -494,7 +494,7 @@ function renderFormComponent(v, k, depth, basePath, invalidFields) {
   formContentHtml += '</div>';
 
   return `
-    <div idx="1" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields)}">${v.__label || k}:</strong></div>
+    <div idx="1" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields, invalidComponents)}">${v.__label || k}:</strong></div>
     ${formContentHtml || `<div idx="3" style="padding-left: 10px;"><div idx="4" style="padding-left:10px; border-left:1px dotted #ccc;">(No data)</div></div>`}
   `;
 }
@@ -502,7 +502,7 @@ function renderFormComponent(v, k, depth, basePath, invalidFields) {
 /**
  * Renders a container node
  */
-function renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath, pad) {
+function renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath, pad, invalidComponents = new Set()) {
   if (!v.__label) {
     const foundComponent = findComponentByKey(rootInstance, k);
     if (foundComponent) {
@@ -553,7 +553,7 @@ function renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath,
   const conditionMet = (v.__kind === 'datagrid' || v.__kind === 'datatable' || v.__kind === 'editgrid') && hasRows;
   
   if (conditionMet) {
-    return renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, header);
+    return renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, header, invalidComponents);
   }
 
   const childrenHtml = [
@@ -566,12 +566,12 @@ function renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath,
             v.__comp?.type === 'tagpad';
           const rowLabel = isTagpad ? `Tag ${Number(i) + 1}` : `Row ${Number(i) + 1}`;
 
-          const rowHasErrors = isRowInvalid(r, k, parseInt(i), invalidFields);
+          const rowHasErrors = isRowInvalid(r, k, parseInt(i), invalidFields, invalidComponents);
           const rowLabelStyle = rowHasErrors ? 'background-color:rgb(255 123 123); border-radius: 3px;' : '';
 
           const hasChildren = r.__children && Object.keys(r.__children).length;
           const content = hasChildren
-            ? renderNode(r.__children, depth + 1, rootInstance, invalidFields, `${basePath ? basePath + '.' : ''}${k}[${i}]`)
+            ? renderNode(r.__children, depth + 1, rootInstance, invalidFields, `${basePath ? basePath + '.' : ''}${k}[${i}]`, invalidComponents)
             : ``;
 
           const rowClass = isTagpad ? 'tagpad-row' : 'data-row';
@@ -579,7 +579,7 @@ function renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath,
           return `<li class="${rowClass}" style="margin-left:0 !important; padding-left: 0 !important;"><strong style="${rowLabelStyle}">${rowLabel}:</strong>${content}</li>`;
         }).join('');
       })()}</ul>` : '',
-    hasChildren ? renderNode(v.__children, depth + 1, rootInstance, invalidFields, basePath ? `${basePath}.${k}` : k) : ''
+    hasChildren ? renderNode(v.__children, depth + 1, rootInstance, invalidFields, basePath ? `${basePath}.${k}` : k, invalidComponents) : ''
   ].join('');
   return `${header}${childrenHtml}</div>`;
 }
@@ -592,7 +592,7 @@ function renderContainerComponent(v, k, depth, rootInstance, invalidFields, base
 
   if (hasChildren) {
     const containerPath = basePath ? `${basePath}.${k}` : k;
-    panelChildrenHtml = renderNode(v.__children, depth + 1, rootInstance, invalidFields, containerPath);
+    panelChildrenHtml = renderNode(v.__children, depth + 1, rootInstance, invalidFields, containerPath, invalidComponents);
   } else if (v.__comp && Array.isArray(v.__comp.components) && v.__comp.components.length > 0) {
     const artificialChildren = {};
     v.__comp.components.forEach((comp, index) => {
@@ -648,9 +648,9 @@ function renderContainerComponent(v, k, depth, rootInstance, invalidFields, base
         }
       });
       
-      panelChildrenHtml = renderNode(transformedEditRows, depth + 1, rootInstance, invalidFields, containerPath);
+      panelChildrenHtml = renderNode(transformedEditRows, depth + 1, rootInstance, invalidFields, containerPath, invalidComponents);
     } else {
-      panelChildrenHtml = renderNode(artificialChildren, depth + 1, rootInstance, invalidFields, containerPath);
+      panelChildrenHtml = renderNode(artificialChildren, depth + 1, rootInstance, invalidFields, containerPath, invalidComponents);
     }
   }
 
@@ -666,14 +666,14 @@ function renderContainerComponent(v, k, depth, rootInstance, invalidFields, base
           const childLabel = item._children._label || '';
           const childValue = item._children._value || '';
           const childPath = item._children._key || childLabel;
-          return `<div idx="13" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(item._children, childPath, basePath, invalidFields)}">${childLabel}:</strong> ${childValue}</div>`;
+          return `<div idx="13" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(item._children, childPath, basePath, invalidFields, invalidComponents)}">${childLabel}:</strong> ${childValue}</div>`;
         } else if (item._row && Array.isArray(item._row)) {
           return item._row.map(cell => {
             if (cell._children) {
               const cellLabel = cell._children._label || '';
               const cellValue = cell._children._value || '';
               const cellPath = cell._children._key || cellLabel;
-              return `<div idx="14" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(cell._children, cellPath, basePath, invalidFields)}">${cellLabel}:</strong> ${cellValue}</div>`;
+              return `<div idx="14" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(cell._children, cellPath, basePath, invalidFields, invalidComponents)}">${cellLabel}:</strong> ${cellValue}</div>`;
             }
             return '';
           }).join('');
@@ -684,7 +684,7 @@ function renderContainerComponent(v, k, depth, rootInstance, invalidFields, base
 
     return `
       <div idx="15" style="padding-left:10px; margin-left:0px; border-left:1px dotted #ccc;">
-        <strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields)}">${containerLabel}</strong>
+        <strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields, invalidComponents)}">${containerLabel}</strong>
         <div idx="16" style="padding-left: 10px;">
           ${customChildrenHtml || panelChildrenHtml}
         </div>
@@ -705,7 +705,7 @@ function renderContainerComponent(v, k, depth, rootInstance, invalidFields, base
 /**
  * Renders data grid rows
  */
-function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, header) {
+function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, header, invalidComponents = new Set()) {
   const presentKeys = new Set();
   Object.values(v.__rows).forEach(r => {
     Object.keys(r.__children || {}).forEach(cKey => presentKeys.add(cKey));
@@ -724,7 +724,7 @@ function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, 
   const rowsItems = rowIdxs.map((rowIdx) => {
     const row = v.__rows[rowIdx];
     const haveMultiCols = orderedKeys.length > 1;
-    const rowHasErrors = isRowInvalid(row, k, rowIdx, invalidFields);
+    const rowHasErrors = isRowInvalid(row, k, rowIdx, invalidFields, invalidComponents);
     const rowLabelStyle = rowHasErrors ? 'background-color:rgb(255 123 123); border-radius: 3px;' : '';
 
     const padRow = `padding-left:10px; border-left:1px dotted #ccc;`;
@@ -749,18 +749,18 @@ function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, 
           if (val && typeof val === 'string' && val.includes('__TEXTAREA__')) {
             const textareaContent = val.replace(/__TEXTAREA__/g, '');
             cellContent = `<div idx="20" style="${padCol}">
-                            <strong style="${getInvalidStyle(cell.__comp, colKey, `${k}[${rowIdx}]`, invalidFields)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong><br/>
+                            <strong style="${getInvalidStyle(cell.__comp, colKey, `${k}[${rowIdx}]`, invalidFields, invalidComponents)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong><br/>
                             ${textareaContent}
                           </div>`;
           } else {
-            cellContent = `<div idx="21" style="${padCol}"><strong style="${getInvalidStyle(cell.__comp, colKey, `${k}[${rowIdx}]`, invalidFields)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${val}</div>`;
+            cellContent = `<div idx="21" style="${padCol}"><strong style="${getInvalidStyle(cell.__comp, colKey, `${k}[${rowIdx}]`, invalidFields, invalidComponents)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${val}</div>`;
           }
         } else {
           const hasChildren = cell?.__children && Object.keys(cell.__children).length > 0;
           let nestedHtml = '';
           
           if (hasChildren) {
-            nestedHtml = renderNode(cell.__children, depth + 1, rootInstance, invalidFields, `${k}[${rowIdx}].${colKey}`);
+            nestedHtml = renderNode(cell.__children, depth + 1, rootInstance, invalidFields, `${k}[${rowIdx}].${colKey}`, invalidComponents);
           }
           
           const hasNestedContent = nestedHtml && nestedHtml.trim().length > 0;
@@ -770,7 +770,7 @@ function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, 
           if (hasNestedContent) {
             cellContent = `<div idx="23" style="${padCol}"><strong>${cell.__label || labelByKey.get(colKey) || colKey}:</strong></div>${nestedHtml}`;
           } else if (directVal) {
-            cellContent = `<div idx="22" style="${padCol}"><strong style="${getInvalidStyle(cell.__comp, colKey, `${k}[${rowIdx}]`, invalidFields)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${directVal}</div>`;
+            cellContent = `<div idx="22" style="${padCol}"><strong style="${getInvalidStyle(cell.__comp, colKey, `${k}[${rowIdx}]`, invalidFields, invalidComponents)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${directVal}</div>`;
           } else {
             cellContent = `<div idx="24" style="${padCol}"><strong>${cell.__label || labelByKey.get(colKey) || colKey}:</strong></div>`;
           }
@@ -790,12 +790,12 @@ function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, 
           ? (() => {
               const textareaContent = val.replace(/__TEXTAREA__/g, '');
               return `<div idx="21" style="${padRow}">
-                       <strong style="${getInvalidStyle(cell.__comp, onlyKey, `${k}[${rowIdx}]`, invalidFields)}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong><br/>
+                       <strong style="${getInvalidStyle(cell.__comp, onlyKey, `${k}[${rowIdx}]`, invalidFields, invalidComponents)}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong><br/>
                        ${textareaContent}
                      </div>`;
             })()
-          : `<div idx="21" style="${padRow}"><strong style="${getInvalidStyle(cell.__comp, onlyKey, `${k}[${rowIdx}]`, invalidFields)}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong> ${val}</div>`
-        : renderNode(cell?.__children || {}, depth + 1, rootInstance, invalidFields, `${k}[${rowIdx}].${onlyKey}`);
+          : `<div idx="21" style="${padRow}"><strong style="${getInvalidStyle(cell.__comp, onlyKey, `${k}[${rowIdx}]`, invalidFields, invalidComponents)}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong> ${val}</div>`
+        : renderNode(cell?.__children || {}, depth + 1, rootInstance, invalidFields, `${k}[${rowIdx}].${onlyKey}`, invalidComponents);
       return `<li style="margin-left:0 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;', '')}"><strong style="${rowLabelStyle}">Row ${rowIdx + 1}:</strong>${inner}</li>`;
     }
   }).join('');
@@ -807,13 +807,13 @@ function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, 
 /**
  * Checks if a row is invalid
  */
-function isRowInvalid(row, datagridKey, rowIdx, invalidFields) {
+function isRowInvalid(row, datagridKey, rowIdx, invalidFields, invalidComponents = new Set()) {
   if (!row.__children) return false;
 
   const hasDirectInvalid = Object.keys(row.__children).some(colKey => {
     const cell = row.__children[colKey];
     const cellPath = `${datagridKey}[${rowIdx}].${colKey}`;
-    return isFieldInvalid(cell.__comp, cellPath, invalidFields);
+    return isFieldInvalid(cell.__comp, cellPath, invalidFields) || invalidComponents.has(cell.__comp);
   });
 
   if (hasDirectInvalid) return true;
@@ -821,15 +821,15 @@ function isRowInvalid(row, datagridKey, rowIdx, invalidFields) {
   return Object.keys(row.__children).some(colKey => {
     const cell = row.__children[colKey];
     const cellPath = `${datagridKey}[${rowIdx}].${colKey}`;
-    return isRowInvalidRecursive(cell, cellPath, invalidFields);
+    return isRowInvalidRecursive(cell, cellPath, invalidFields, invalidComponents);
   });
 }
 
 /**
  * Recursively checks if a row is invalid
  */
-function isRowInvalidRecursive(node, currentPath, invalidFields) {
-  if (node.__comp && isFieldInvalid(node.__comp, currentPath, invalidFields)) {
+function isRowInvalidRecursive(node, currentPath, invalidFields, invalidComponents = new Set()) {
+  if (node.__comp && (isFieldInvalid(node.__comp, currentPath, invalidFields) || invalidComponents.has(node.__comp))) {
     return true;
   }
 
@@ -837,7 +837,7 @@ function isRowInvalidRecursive(node, currentPath, invalidFields) {
     return Object.keys(node.__children).some(childKey => {
       const childNode = node.__children[childKey];
       const childPath = `${currentPath}.${childKey}`;
-      return isRowInvalidRecursive(childNode, childPath, invalidFields);
+      return isRowInvalidRecursive(childNode, childPath, invalidFields, invalidComponents);
     });
   }
 

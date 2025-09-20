@@ -491,8 +491,16 @@ export function isFieldInvalid(comp, path, invalidFields) {
   
   if (!fieldPath) return false;
 
+  // Debug logging
+  console.log('isFieldInvalid check:', {
+    fieldPath,
+    invalidFields: Array.from(invalidFields),
+    comp: comp?.key || comp?.component?.key
+  });
+
   // Direct path match
   if (invalidFields.has(fieldPath)) {
+    console.log('Direct path match found for:', fieldPath);
     return true;
   }
 
@@ -509,6 +517,7 @@ export function isFieldInvalid(comp, path, invalidFields) {
 
   for (const variation of pathVariations) {
     if (invalidFields.has(variation)) {
+      console.log('Path variation match found:', variation, 'for field:', fieldPath);
       return true;
     }
   }
@@ -524,6 +533,7 @@ export function isFieldInvalid(comp, path, invalidFields) {
       for (const invalidField of invalidFields) {
         if (invalidField.includes(arrayPart) && 
             (invalidField.endsWith('.' + fieldName) || invalidField === fieldName)) {
+          console.log('Array field match found:', invalidField, 'for field:', fieldPath);
           return true;
         }
       }
@@ -536,33 +546,55 @@ export function isFieldInvalid(comp, path, invalidFields) {
       // Only match if the invalid field doesn't contain array notation
       if (!invalidField.includes('[') && !invalidField.includes(']')) {
         if (invalidField.endsWith('.' + fieldName) || invalidField === fieldName) {
+          console.log('Field name match found:', invalidField, 'for field:', fieldPath);
           return true;
         }
       }
     }
   }
 
+  console.log('No match found for field:', fieldPath);
   return false;
 }
 
 /**
  * Gets invalid styling for a field
  */
-export function getInvalidStyle(comp, path, basePath = '', invalidFields) {
-  if (!invalidFields || invalidFields.size === 0) return '';
+export function getInvalidStyle(comp, path, basePath = '', invalidFields, invalidComponents = new Set()) {
+  if ((!invalidFields || invalidFields.size === 0) && (!invalidComponents || invalidComponents.size === 0)) {
+    console.log('getInvalidStyle: No invalid fields or components provided');
+    return '';
+  }
+
+  console.log('getInvalidStyle called:', {
+    comp: comp?.key || comp?.component?.key,
+    path,
+    basePath,
+    invalidFields: Array.from(invalidFields || []),
+    invalidComponents: Array.from(invalidComponents || [])
+  });
+
+  // Check if component is directly in invalid components set
+  if (invalidComponents && invalidComponents.has(comp)) {
+    console.log('getInvalidStyle: Component is directly invalid:', comp?.key);
+    return 'background-color:rgb(255 123 123); border-radius: 3px;';
+  }
 
   // Use the improved isFieldInvalid function for more precise matching
-  if (isFieldInvalid(comp, path, invalidFields)) {
+  if (invalidFields && isFieldInvalid(comp, path, invalidFields)) {
+    console.log('getInvalidStyle: Returning red background for path:', path);
     return 'background-color:rgb(255 123 123); border-radius: 3px;';
   }
 
   // Also check with basePath if provided
-  if (basePath) {
+  if (basePath && invalidFields) {
     const fullPath = `${basePath}.${path}`;
     if (isFieldInvalid(comp, fullPath, invalidFields)) {
+      console.log('getInvalidStyle: Returning red background for full path:', fullPath);
       return 'background-color:rgb(255 123 123); border-radius: 3px;';
     }
   }
 
+  console.log('getInvalidStyle: No styling applied for path:', path);
   return '';
 }

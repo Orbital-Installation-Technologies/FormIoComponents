@@ -295,6 +295,8 @@ export function createCustomComponentForReview(component, invalidFields = new Se
  * Collects all review leaves and labels from the form
  */
 export async function collectReviewLeavesAndLabels(root, invalidFields = new Set()) {
+  console.log('collectReviewLeavesAndLabels called with invalidFields:', Array.from(invalidFields));
+  
   const stats = {
     leafComponents: 0,
     containers: 0
@@ -403,12 +405,23 @@ export async function collectReviewLeavesAndLabels(root, invalidFields = new Set
     const isReviewVisible = comp?.component?.reviewVisible === true;
     const isInvalid = isComponentInvalid(comp, invalidFields);
     
+    console.log('Processing component:', {
+      key: comp.key,
+      path: comp.path,
+      isRequired,
+      isReviewVisible,
+      isInvalid,
+      invalidFields: Array.from(invalidFields)
+    });
+    
     // Show required fields only if they are invalid or marked review visible
     if (isRequired && !isInvalid && !isReviewVisible) {
+      console.log('Skipping required field (not invalid, not review visible):', comp.key);
       continue;
     }
     
     if (!isRequired && !isReviewVisible && !isAddressComponentEarly && !isEditGridComponentEarly) {
+      console.log('Skipping non-required field (not review visible, not address, not editgrid):', comp.key);
       continue;
     }
 

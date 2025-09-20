@@ -268,20 +268,36 @@ export default class ReviewButton extends FieldComponent {
     };
 
     try {
+      console.log('validateFormExternal called with options:', opts);
+      
       const results = initializeExternalValidationResults();
+      
+      // Force fresh validation by marking all components as dirty
       this.markAllComponentsAsDirty();
+      this.markDatagridRowsAsDirty();
+      
       const data = this.root?.submission?.data ?? this.root?.data ?? {};
+      console.log('Form data for validation:', data);
 
       const errorMap = new Map();
       const warningMap = new Map();
 
       if (this.root?.everyComponent) {
+        console.log('Starting component validation...');
         await validateComponentsAndCollectResults(this.root, errorMap, warningMap, results, opts);
+        console.log('Component validation completed. Error map size:', errorMap.size);
       }
 
       results.errors = Object.fromEntries(errorMap);
       results.warnings = Object.fromEntries(warningMap);
       generateErrorSummary(errorMap, results);
+
+      console.log('Final validation results:', {
+        isValid: results.isValid,
+        errorCount: results.errorCount,
+        invalidComponents: results.invalidComponents.length,
+        errors: results.errors
+      });
 
       if (opts.showErrors) {
         await this.handleExternalValidationUIUpdates(results, opts);
@@ -289,6 +305,7 @@ export default class ReviewButton extends FieldComponent {
 
       return results;
     } catch (err) {
+      console.error('Error in validateFormExternal:', err);
       return createExternalErrorResults();
     }
   }
@@ -435,23 +452,39 @@ export default class ReviewButton extends FieldComponent {
         // Update form values before review
         await updateFormValuesBeforeReview(this.root);
 
-        // Get invalid fields first
+        // Force a fresh validation every time the modal opens
+        console.log('Starting fresh validation for modal...');
+        
+        // Get invalid fields by validating the form fresh
         const invalidFields = new Set();
+        const invalidComponents = new Set(); // Store component references too
         const validation = await this.validateFormExternal({
           showErrors: false,
           scrollToError: false
         });
         
+        console.log('Fresh validation results:', validation);
+        
         if (validation && validation.invalidComponents) {
+          console.log('Invalid components found:', validation.invalidComponents);
           validation.invalidComponents.forEach(invalidComp => {
             const path = invalidComp.path || invalidComp.component?.path || invalidComp.component?.key;
+            const component = invalidComp.component;
+            console.log('Adding invalid field path:', path, 'from component:', invalidComp);
             if (path) {
               invalidFields.add(path);
             }
+            if (component) {
+              invalidComponents.add(component);
+            }
           });
         }
+        
+        console.log('Final invalid fields set for modal:', Array.from(invalidFields));
+        console.log('Final invalid components set for modal:', Array.from(invalidComponents));
 
         // Collect form data for review with invalid fields information
+        // This will determine which fields to show based on current validation state
         const { leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath } =
           await collectReviewLeavesAndLabels(this.root, invalidFields);
 
@@ -497,7 +530,7 @@ export default class ReviewButton extends FieldComponent {
         });
 
         // Render the review content
-        const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, this.root, filteredInvalidFields);
+        const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, this.root, filteredInvalidFields, invalidComponents);
 
         // Get support number
         const allData = this.root?.submission?.data ?? this.root?.data ?? {};
