@@ -174,6 +174,7 @@ export const recordComponentValidationResult = (
  * Process component errors
  */
 export const processComponentErrors = (component, errorMap, results, showErrors) => {
+  console.log("processComponentErrors", component, errorMap, results, showErrors);
   results.isValid = false;
   results.errorCount++;
 
@@ -202,6 +203,7 @@ export const processComponentErrors = (component, errorMap, results, showErrors)
   });
 
   if (showErrors && errors && errors.length) {
+    console.log("errors", errors);
     component.setCustomValidity(errors, true);
   }
 };
@@ -293,6 +295,7 @@ export const validateSelectedComponents = async (components, results, options, c
  * Validate components and collect results
  */
 export const validateComponentsAndCollectResults = async (root, errorMap, warningMap, results, opts) => {
+  console.log("validateComponentsAndCollectResults", root, errorMap, warningMap, results, opts);
   const { includeWarnings, showErrors } = opts || {};
 
   root.everyComponent((component) => {
@@ -302,29 +305,12 @@ export const validateComponentsAndCollectResults = async (root, errorMap, warnin
       // ---------- Address components ----------
       if (isAddressComponent(component)) {
         if (component.dataValue === '[object Object]') component.dataValue = {};
-        if (component.component?.validate?.required) {
-          const addressValue = component.dataValue?.formattedPlace;
-          const isAddressEmpty = !addressValue || addressValue.trim() === '';
-          if (isAddressEmpty) {
-            if (!component.errors) component.errors = [];
-            const addressError = `${component.component?.label || component.key} is required.`;
-            if (!component.errors.includes(addressError)) component.errors.push(addressError);
-            if (component.setCustomValidity) {
-                component.setCustomValidity(component.errors, true);
-            }
-            if (component.redraw) {
-                component.redraw();
-            }
-
-            processComponentErrors(component, errorMap, results, showErrors);
-            return;
-          }
-        }
         if (!component.checkValidity()) {
+          console.log("component.checkValidity() is false", component);
           processComponentErrors(component, errorMap, results, showErrors);
         }
         if (includeWarnings && component.warnings?.length) {
-          processComponentWarnings(component, warningMap, results);
+          //processComponentWarnings(component, warningMap, results);
         }
         return;
       }

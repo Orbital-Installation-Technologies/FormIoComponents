@@ -494,6 +494,7 @@ export function isFieldInvalid(comp, path, invalidFields) {
   }
 
   if (fieldPath) {
+    // Check exact path matches first
     if (!fieldPath.startsWith('form.')) {
       const nestedPath = `form.data.${fieldPath}`;
       if (invalidFields.has(nestedPath)) {
@@ -513,16 +514,29 @@ export function isFieldInvalid(comp, path, invalidFields) {
       }
     }
 
+    // For field name matching, be more precise to avoid cross-row contamination
     const fieldName = fieldPath.split('.').pop();
     for (const invalidField of invalidFields) {
-      if (invalidField.endsWith('.' + fieldName) || invalidField === fieldName) {
-        return true;
-      }
-      
-      if (invalidField.includes('[') && invalidField.includes(']')) {
-        const invalidFieldName = invalidField.split('.').pop();
-        if (invalidFieldName === fieldName || invalidFieldName === fieldPath) {
-          return true;
+      // If the field path contains array notation, only match if the invalid field has the same array index
+      if (fieldPath.includes('[') && fieldPath.includes(']')) {
+        if (invalidField.includes('[') && invalidField.includes(']')) {
+          // Extract the array part (e.g., "dataGrid[0]" from "form.data.dataGrid[0].picOfSn4")
+          const fieldArrayMatch = fieldPath.match(/(\w+\[\d+\])/);
+          const invalidArrayMatch = invalidField.match(/(\w+\[\d+\])/);
+          
+          if (fieldArrayMatch && invalidArrayMatch && fieldArrayMatch[1] === invalidArrayMatch[1]) {
+            // Same array and index, check if field name matches
+            if (invalidField.endsWith('.' + fieldName) || invalidField === fieldName) {
+              return true;
+            }
+          }
+        }
+      } else {
+        // For non-array paths, only match if the invalid field doesn't contain array notation
+        if (!invalidField.includes('[') && !invalidField.includes(']')) {
+          if (invalidField.endsWith('.' + fieldName) || invalidField === fieldName) {
+            return true;
+          }
         }
       }
     }
@@ -554,6 +568,7 @@ export function getInvalidStyle(comp, path, basePath = '', invalidFields) {
     pathsToTry.push(`data.${path}`);
   }
 
+  // Use the improved isFieldInvalid function for more precise matching
   for (const testPath of pathsToTry) {
     if (isFieldInvalid(comp, testPath, invalidFields)) {
       return 'background-color:rgb(255 123 123); border-radius: 3px;';
