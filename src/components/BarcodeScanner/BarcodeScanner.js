@@ -190,7 +190,6 @@ export default class BarcodeScanner extends FieldComponent {
       const input = this.refs.barcode;
 
       this.addEventListener(input, 'input', (event) => {
-        console.log('Input event fired');
         this.updateValue(event.target.value);
         this.validateAndSetDirty();
       });
