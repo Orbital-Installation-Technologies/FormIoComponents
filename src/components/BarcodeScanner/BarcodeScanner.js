@@ -74,7 +74,6 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   init() {
-    console.log("Initializing BarcodeScanner component ");
     super.init();
   }
 
@@ -96,7 +95,7 @@ export default class BarcodeScanner extends FieldComponent {
           <input
             ref="barcode"
             type="text"
-            class="form-control${this.errors && this.errors.length ? ' is-invalid' : ''}"
+            class="form-control"
             value="${this.dataValue || ""}"
             style="flex-grow:1; margin-right:10px;"
           />
@@ -105,12 +104,6 @@ export default class BarcodeScanner extends FieldComponent {
           </button>
           <!-- File upload button removed -->
         </div>
-        <!-- File input removed -->
-        ${this.errors && this.errors.length ? `
-          <div class="formio-errors">
-            <div class="form-text error">${this.errors[0].message}</div>
-          </div>` : ""
-      }
         <div ref="quaggaModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1000; flex-direction:column; align-items:center; justify-content:center; padding:20px; box-sizing:border-box;">
           <div ref="modalContainer" style="position:relative; background:black; border-radius:8px; overflow:hidden; display:flex; flex-direction:column; max-width:100%; max-height:100%;">
             <button ref="closeModal" style="position:absolute; top:10px; right:10px; z-index:1001; background:rgba(255,255,255,0.8); border:none; border-radius:50%; width:36px; height:36px; display:flex; align-items:center; justify-content:center; font-size:18px; cursor:pointer;">×</button>
@@ -157,7 +150,7 @@ export default class BarcodeScanner extends FieldComponent {
 
 
   validateAndSetDirty() {
-    this.setDirty(true);
+    //this.setDirty(true);
     const valid = this.checkValidity(this.data, true);
     if (!valid) {
       setTimeout(() => {
@@ -197,17 +190,18 @@ export default class BarcodeScanner extends FieldComponent {
       const input = this.refs.barcode;
 
       this.addEventListener(input, 'input', (event) => {
+        console.log('Input event fired');
         this.updateValue(event.target.value);
         this.validateAndSetDirty();
       });
 
-      this.addEventListener(input, 'click', () => {
+      this.addEventListener(input, 'blur', () => {
+        console.log('Blur event fired');
         this.validateAndSetDirty();
       });
 
       this.refs.barcode.addEventListener("change", () => {
         this.updateValue(this.refs.barcode.value);
-        this.validateAndSetDirty();
       });
 
       this.refs.scanButton.addEventListener("click", () => {
