@@ -342,7 +342,7 @@ export default class BarcodeScanner extends FieldComponent {
         if (!scanditConfigured) {
             await configure({
                 licenseKey: this._licenseKey,
-                libraryLocation: "https://cdn.jsdelivr.net/npm/@scandit/web-datacapture-barcode@7.4.0/sdc-lib/",
+                libraryLocation: "https://cdn.jsdelivr.net/npm/@scandit/web-datacapture-barcode@7.6.1/sdc-lib/",
                 moduleLoaders: [barcodeCaptureLoader()]
             });
             scanditConfigured = true;
