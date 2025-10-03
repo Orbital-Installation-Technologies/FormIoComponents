@@ -649,25 +649,35 @@ function handleDataGridComponent(comp, safePath, topIndexFor, pushLeaf, indexByP
         Array.isArray(root?.data?.[comp.key]) ? root.data[comp.key] :
           Array.isArray(comp._data?.[comp.key]) ? comp._data[comp.key] : [];
 
-    const processedFields = new Map();
-    dataRows.forEach((rowObj, rIdx) => {
-      if (!processedFields.has(rIdx)) processedFields.set(rIdx, new Set());
-      const rowDone = processedFields.get(rIdx);
-      colDefs.forEach((c, i) => {
-        const cKey = c.key || c.component?.key || c.path;
-        const cLabel = columnLabels[i] || cKey;
-        if (!cKey || rowDone.has(cKey)) return;
-        const val = rowObj?.[cKey];
-        pushLeaf({
-          comp: comp,
-          path: `${gridPath}[${rIdx}].${cKey}`,
-          label: cLabel,
-          value: val,
-          formIndex: topIndexFor(comp)
+    if (dataRows.length > 0) {
+      const processedFields = new Map();
+      dataRows.forEach((rowObj, rIdx) => {
+        if (!processedFields.has(rIdx)) processedFields.set(rIdx, new Set());
+        const rowDone = processedFields.get(rIdx);
+        colDefs.forEach((c, i) => {
+          const cKey = c.key || c.component?.key || c.path;
+          const cLabel = columnLabels[i] || cKey;
+          if (!cKey || rowDone.has(cKey)) return;
+          const val = rowObj?.[cKey];
+          pushLeaf({
+            comp: comp,
+            path: `${gridPath}[${rIdx}].${cKey}`,
+            label: cLabel,
+            value: val,
+            formIndex: topIndexFor(comp)
+          });
+          rowDone.add(cKey);
         });
-        rowDone.add(cKey);
       });
-    });
+    } else {
+      // Push a leaf for empty datatables so they appear in the review
+      pushLeaf({
+        comp: comp,
+        path: gridPath,
+        label: comp.component?.label || comp.label || comp.key || 'Data Table',
+        formIndex: topIndexFor(comp)
+      });
+    }
     return;
   }
 
@@ -677,6 +687,14 @@ function handleDataGridComponent(comp, safePath, topIndexFor, pushLeaf, indexByP
         const base = `${gridPath}[${rIdx}].${colKey}`;
         flattenCell(cellComp, base);
       });
+    });
+  } else {
+    // Push a leaf for empty datagrids so they appear in the review
+    pushLeaf({
+      comp: comp,
+      path: gridPath,
+      label: comp.component?.label || comp.label || comp.key || 'Data Grid',
+      formIndex: topIndexFor(comp)
     });
   }
 }
