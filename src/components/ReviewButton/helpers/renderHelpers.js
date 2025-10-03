@@ -454,9 +454,12 @@ function renderLeafNode(v, k, depth, basePath, invalidFields, invalidComponents 
   const isFormComponent = v.__comp?.type === 'form' || v.__comp?.component?.type === 'form';
   const val = firstLeafVal(v);
   const isTagpadDot = (v.__comp?.type === 'tagpad') || (v.__comp?.parent?.type === 'tagpad');
+  const isEmptyDatagrid = val && typeof val === 'object' && val._empty === true;
 
   if (isFormComponent) {
     return renderFormComponent(v, k, depth, basePath, invalidFields, invalidComponents);
+  } else if (isEmptyDatagrid) {
+    return `<div idx="7" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields, invalidComponents)}">${v.__label || k}:</strong> <span style="font-style: italic; color: #666;">No data to display</span></div>`;
   } else if (isTagpadDot) {
     return `<div idx="5" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields, invalidComponents)}">${v.__label || k}:</strong> ${val}</div>`;
   } else if (val && typeof val === 'string' && val.includes('__TEXTAREA__')) {
@@ -551,9 +554,15 @@ function renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath,
   }
 
   const conditionMet = (v.__kind === 'datagrid' || v.__kind === 'datatable' || v.__kind === 'editgrid') && hasRows;
+  const isDataGridWithNoRows = (v.__kind === 'datagrid' || v.__kind === 'datatable' || v.__kind === 'editgrid') && !hasRows;
   
   if (conditionMet) {
     return renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, header, invalidComponents);
+  }
+  
+  // Show datagrid label even when there are no rows
+  if (isDataGridWithNoRows) {
+    return `${header}<div style="margin-bottom:10px;"><strong>${displayLabel}</strong></div><div style="font-style: italic; color: #666;">No data to display</div></div>`;
   }
 
   const childrenHtml = [
