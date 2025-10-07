@@ -215,6 +215,10 @@ export function formatValue(value, comp) {
     return formatSelectboxesValue(value);
   }
 
+  if (comp?.component?.type === 'select' || comp?.type === 'select') {
+    return formatSelectValue(value, comp);
+  }
+
   if (Array.isArray(value)) {
     return formatArrayValue(value, isFileComponent);
   }
@@ -375,6 +379,36 @@ function formatSelectboxesValue(value) {
     return selected.join(', ');
   }
   return value;
+}
+
+/**
+ * Formats select dropdown values by converting values to their corresponding labels
+ */
+function formatSelectValue(value, comp) {
+  if (!value || value === '') return '';
+  
+  // Get the component definition - could be in comp.component or comp itself
+  const componentDef = comp.component || comp;
+  
+  // Get choices array from the component
+  const choices = componentDef.data?.values || componentDef.values || componentDef.choices || [];
+  
+  if (!Array.isArray(choices) || choices.length === 0) {
+    // If no choices found, return the value as-is
+    return value;
+  }
+  
+  // Handle multiple values (for multi-select)
+  if (Array.isArray(value)) {
+    return value.map(v => {
+      const choice = choices.find(c => c.value === v);
+      return choice ? choice.label : v;
+    }).join(', ');
+  }
+  
+  // Handle single value
+  const choice = choices.find(c => c.value === value);
+  return choice ? choice.label : value;
 }
 
 /**
