@@ -715,6 +715,13 @@ function renderContainerComponent(v, k, depth, rootInstance, invalidFields, base
  * Renders data grid rows
  */
 function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, header, invalidComponents = new Set()) {
+  console.log('renderDataGridRows called with:', {
+    datagridKey: k,
+    invalidFields: Array.from(invalidFields),
+    invalidComponents: Array.from(invalidComponents).map(c => c?.key || c?.component?.key),
+    rowsCount: Object.keys(v.__rows || {}).length
+  });
+
   const presentKeys = new Set();
   Object.values(v.__rows).forEach(r => {
     Object.keys(r.__children || {}).forEach(cKey => presentKeys.add(cKey));
@@ -735,6 +742,12 @@ function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, 
     const haveMultiCols = orderedKeys.length > 1;
     const rowHasErrors = isRowInvalid(row, k, rowIdx, invalidFields, invalidComponents);
     const rowLabelStyle = rowHasErrors ? 'background-color:rgb(255 123 123); border-radius: 3px;' : '';
+    
+    console.log('Row rendering:', {
+      rowIdx,
+      rowHasErrors,
+      rowLabelStyle: rowLabelStyle ? 'RED BACKGROUND' : 'NO STYLING'
+    });
 
     const padRow = `padding-left:10px; border-left:1px dotted #ccc;`;
     const padCol = `padding-left:10px; border-left:1px dotted #ccc;`;
@@ -819,36 +832,102 @@ function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, 
 function isRowInvalid(row, datagridKey, rowIdx, invalidFields, invalidComponents = new Set()) {
   if (!row.__children) return false;
 
+  console.log('Checking if row is invalid:', {
+    datagridKey,
+    rowIdx,
+    invalidFields: Array.from(invalidFields),
+    invalidComponents: Array.from(invalidComponents).map(c => c?.key || c?.component?.key)
+  });
+
   const hasDirectInvalid = Object.keys(row.__children).some(colKey => {
     const cell = row.__children[colKey];
     const cellPath = `${datagridKey}[${rowIdx}].${colKey}`;
-    return isFieldInvalid(cell.__comp, cellPath, invalidFields) || invalidComponents.has(cell.__comp);
+    const isInvalid = isFieldInvalid(cell.__comp, cellPath, invalidFields) || invalidComponents.has(cell.__comp);
+    
+    if (isInvalid) {
+      console.log('Found invalid cell:', {
+        colKey,
+        cellPath,
+        component: cell.__comp?.key || cell.__comp?.component?.key
+      });
+    }
+    
+    return isInvalid;
   });
 
-  if (hasDirectInvalid) return true;
+  if (hasDirectInvalid) {
+    console.log('Row has direct invalid cells');
+    return true;
+  }
 
-  return Object.keys(row.__children).some(colKey => {
+  const hasNestedInvalid = Object.keys(row.__children).some(colKey => {
     const cell = row.__children[colKey];
     const cellPath = `${datagridKey}[${rowIdx}].${colKey}`;
-    return isRowInvalidRecursive(cell, cellPath, invalidFields, invalidComponents);
+    const isNestedInvalid = isRowInvalidRecursive(cell, cellPath, invalidFields, invalidComponents);
+    
+    if (isNestedInvalid) {
+      console.log('Found nested invalid cell:', {
+        colKey,
+        cellPath,
+        component: cell.__comp?.key || cell.__comp?.component?.key
+      });
+    }
+    
+    return isNestedInvalid;
   });
+
+  if (hasNestedInvalid) {
+    console.log('Row has nested invalid cells');
+    return true;
+  }
+
+  console.log('Row is valid');
+  return false;
 }
 
 /**
  * Recursively checks if a row is invalid
  */
 function isRowInvalidRecursive(node, currentPath, invalidFields, invalidComponents = new Set()) {
+  console.log('Checking node recursively:', {
+    currentPath,
+    hasComp: !!node.__comp,
+    compKey: node.__comp?.key || node.__comp?.component?.key,
+    hasChildren: !!node.__children,
+    childrenKeys: node.__children ? Object.keys(node.__children) : []
+  });
+
   if (node.__comp && (isFieldInvalid(node.__comp, currentPath, invalidFields) || invalidComponents.has(node.__comp))) {
+    console.log('Found invalid component in recursive check:', {
+      currentPath,
+      compKey: node.__comp?.key || node.__comp?.component?.key
+    });
     return true;
   }
 
   if (node.__children) {
-    return Object.keys(node.__children).some(childKey => {
+    const hasInvalidChild = Object.keys(node.__children).some(childKey => {
       const childNode = node.__children[childKey];
       const childPath = `${currentPath}.${childKey}`;
-      return isRowInvalidRecursive(childNode, childPath, invalidFields, invalidComponents);
+      const isChildInvalid = isRowInvalidRecursive(childNode, childPath, invalidFields, invalidComponents);
+      
+      if (isChildInvalid) {
+        console.log('Found invalid child in recursive check:', {
+          childKey,
+          childPath,
+          compKey: childNode.__comp?.key || childNode.__comp?.component?.key
+        });
+      }
+      
+      return isChildInvalid;
     });
+    
+    if (hasInvalidChild) {
+      console.log('Node has invalid children');
+      return true;
+    }
   }
 
+  console.log('Node is valid in recursive check');
   return false;
 }

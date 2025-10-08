@@ -203,6 +203,17 @@ export function formatValue(value, comp) {
 
   const isFileComponent = comp?.component?.type === 'file';
 
+  // Handle file components first to avoid conflicts with other type checks
+  if (isFileComponent) {
+    if (Array.isArray(value)) {
+      return formatArrayValue(value, isFileComponent);
+    }
+    if (value && typeof value === 'object') {
+      return formatObjectValue(value, isFileComponent);
+    }
+    return value || '';
+  }
+
   if (comp?.component?.type === 'signature') {
     return value ? 'Signed' : 'Not Signed';
   }
@@ -565,9 +576,26 @@ export function isFieldInvalid(comp, path, invalidFields) {
       const arrayPart = arrayMatch[1];
       
       for (const invalidField of invalidFields) {
+        // Direct match
+        if (invalidField === fieldPath) {
+          console.log('Direct array field match found:', invalidField, 'for field:', fieldPath);
+          return true;
+        }
+        // Match with wildcard index
+        if (invalidField.includes(arrayPart.replace(/\[\d+\]/, '[*]')) && 
+            (invalidField.endsWith('.' + fieldName) || invalidField === fieldName)) {
+          console.log('Wildcard array field match found:', invalidField, 'for field:', fieldPath);
+          return true;
+        }
+        // Match with same array part and field name
         if (invalidField.includes(arrayPart) && 
             (invalidField.endsWith('.' + fieldName) || invalidField === fieldName)) {
           console.log('Array field match found:', invalidField, 'for field:', fieldPath);
+          return true;
+        }
+        // Match just the field name for data grid rows
+        if (invalidField === fieldName) {
+          console.log('Field name match in array context:', invalidField, 'for field:', fieldPath);
           return true;
         }
       }
@@ -577,7 +605,12 @@ export function isFieldInvalid(comp, path, invalidFields) {
     const fieldName = fieldPath.split('.').pop();
     
     for (const invalidField of invalidFields) {
-      // Only match if the invalid field doesn't contain array notation
+      // Direct match
+      if (invalidField === fieldPath) {
+        console.log('Direct field match found:', invalidField, 'for field:', fieldPath);
+        return true;
+      }
+      // Match if the invalid field doesn't contain array notation
       if (!invalidField.includes('[') && !invalidField.includes(']')) {
         if (invalidField.endsWith('.' + fieldName) || invalidField === fieldName) {
           console.log('Field name match found:', invalidField, 'for field:', fieldPath);
