@@ -203,6 +203,17 @@ export function formatValue(value, comp) {
 
   const isFileComponent = comp?.component?.type === 'file';
 
+  // Handle file components first to avoid conflicts with other type checks
+  if (isFileComponent) {
+    if (Array.isArray(value)) {
+      return formatArrayValue(value, isFileComponent);
+    }
+    if (value && typeof value === 'object') {
+      return formatObjectValue(value, isFileComponent);
+    }
+    return value || '';
+  }
+
   if (comp?.component?.type === 'signature') {
     return value ? 'Signed' : 'Not Signed';
   }
@@ -213,6 +224,10 @@ export function formatValue(value, comp) {
 
   if (comp?.component?.type === 'selectboxes') {
     return formatSelectboxesValue(value);
+  }
+
+  if (comp?.component?.type === 'select' || comp?.type === 'select') {
+    return formatSelectValue(value, comp);
   }
 
   if (Array.isArray(value)) {
@@ -378,6 +393,36 @@ function formatSelectboxesValue(value) {
 }
 
 /**
+ * Formats select dropdown values by converting values to their corresponding labels
+ */
+function formatSelectValue(value, comp) {
+  if (!value || value === '') return '';
+  
+  // Get the component definition - could be in comp.component or comp itself
+  const componentDef = comp.component || comp;
+  
+  // Get choices array from the component
+  const choices = componentDef.data?.values || componentDef.values || componentDef.choices || [];
+  
+  if (!Array.isArray(choices) || choices.length === 0) {
+    // If no choices found, return the value as-is
+    return value;
+  }
+  
+  // Handle multiple values (for multi-select)
+  if (Array.isArray(value)) {
+    return value.map(v => {
+      const choice = choices.find(c => c.value === v);
+      return choice ? choice.label : v;
+    }).join(', ');
+  }
+  
+  // Handle single value
+  const choice = choices.find(c => c.value === value);
+  return choice ? choice.label : value;
+}
+
+/**
  * Formats array values
  */
 function formatArrayValue(value, isFileComponent) {
@@ -531,9 +576,26 @@ export function isFieldInvalid(comp, path, invalidFields) {
       const arrayPart = arrayMatch[1];
       
       for (const invalidField of invalidFields) {
+        // Direct match
+        if (invalidField === fieldPath) {
+          console.log('Direct array field match found:', invalidField, 'for field:', fieldPath);
+          return true;
+        }
+        // Match with wildcard index
+        if (invalidField.includes(arrayPart.replace(/\[\d+\]/, '[*]')) && 
+            (invalidField.endsWith('.' + fieldName) || invalidField === fieldName)) {
+          console.log('Wildcard array field match found:', invalidField, 'for field:', fieldPath);
+          return true;
+        }
+        // Match with same array part and field name
         if (invalidField.includes(arrayPart) && 
             (invalidField.endsWith('.' + fieldName) || invalidField === fieldName)) {
           console.log('Array field match found:', invalidField, 'for field:', fieldPath);
+          return true;
+        }
+        // Match just the field name for data grid rows
+        if (invalidField === fieldName) {
+          console.log('Field name match in array context:', invalidField, 'for field:', fieldPath);
           return true;
         }
       }
@@ -543,7 +605,12 @@ export function isFieldInvalid(comp, path, invalidFields) {
     const fieldName = fieldPath.split('.').pop();
     
     for (const invalidField of invalidFields) {
-      // Only match if the invalid field doesn't contain array notation
+      // Direct match
+      if (invalidField === fieldPath) {
+        console.log('Direct field match found:', invalidField, 'for field:', fieldPath);
+        return true;
+      }
+      // Match if the invalid field doesn't contain array notation
       if (!invalidField.includes('[') && !invalidField.includes(']')) {
         if (invalidField.endsWith('.' + fieldName) || invalidField === fieldName) {
           console.log('Field name match found:', invalidField, 'for field:', fieldPath);
