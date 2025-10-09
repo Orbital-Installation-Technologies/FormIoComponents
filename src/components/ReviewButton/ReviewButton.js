@@ -16,6 +16,16 @@ import {
   updateFormValues,
   generateErrorSummary,
   findComponentsToValidate,
+  clearFieldErrors,
+  isFieldNowValid,
+  validateFileComponentWithRelaxedRequired,
+  addErrorHighlight,
+  removeErrorHighlight,
+  ensureErrorHighlightStyles,
+  applyFieldErrors,
+  setupChangeListeners,
+  setupPanelHooks,
+  highlightDataGridRows,
   createReviewModal,
   validateModalForm,
   setupScreenshotComponent,
@@ -342,263 +352,25 @@ export default class ReviewButton extends FieldComponent {
     this.root.everyComponent((component) => {
       const componentType = component.type || component.component?.type;
       if (componentType === 'datagrid' || componentType === 'datatable' || componentType === 'editgrid') {
-        this.highlightDataGridRows(component, results);
+        highlightDataGridRows(component, results);
       }
     });
   }
 
   highlightDataGridRows(dataGrid, results) {
-    if (!dataGrid.rows || !Array.isArray(dataGrid.rows)) return;
-
-    dataGrid.rows.forEach((row, rowIndex) => {
-      const panelComponent = row.panel;
-      if (!panelComponent) return;
-
-      var rowErrors = [];
-      var rowFileTweaks = [];
-
-      // Temporarily disable required validation on file fields with files
-      const self = this;
-      panelComponent.everyComponent?.(function(component) {
-        if (!component || !component.visible) return;
-
-        const type = component.type || component.component?.type;
-        if (type !== 'file') return;
-
-        const isRequired = !!(component.component?.validate?.required || component.validate?.required);
-        if (!isRequired) return;
-
-        // Check if file field has files
-        const dataValue = component.dataValue;
-        const getVal = component.getValue && component.getValue();
-        const files = component.files;
-        const serviceFiles = component.fileService?.files;
-
-        let hasValue = false;
-
-        // Check all possible sources
-        if (self.hasActualFileData(dataValue)) hasValue = true;
-        if (!hasValue && self.hasActualFileData(getVal)) hasValue = true;
-        if (!hasValue && self.hasActualFileData(files)) hasValue = true;
-        if (!hasValue && self.hasActualFileData(serviceFiles)) hasValue = true;
-
-        // Check DOM inputs as last resort
-        if (!hasValue && component.element) {
-          var fileInputs = component.element.querySelectorAll('input[type="file"]');
-          fileInputs.forEach?.(function(inp) {
-            if (inp?.files && inp.files.length > 0) hasValue = true;
-          });
-        }
-
-        if (hasValue) {
-          var ptr = component.component?.validate ? component.component.validate
-            : component.validate ? component.validate
-              : (component.component ? (component.component.validate = {}) : (component.validate = {}));
-          if (ptr) {
-            ptr.required = false;
-            rowFileTweaks.push({ component: component, ptr: ptr });
-          }
-        }
-      });
-
-      // Clear existing errors before validation
-      panelComponent.everyComponent?.(function(c) {
-        if (!c.visible) return;
-        c.error = '';
-        // Use setCustomValidity to safely clear errors instead of directly setting errors property
-        if (c.setCustomValidity) {
-          c.setCustomValidity([], false);
-        }
-      });
-
-      // Run validation on all visible components
-      panelComponent.everyComponent?.(function(c) {
-        if (!c.visible) return;
-        c.checkValidity?.(c.data, false, c.data);
-        if (c.errors && c.errors.length > 0) {
-          c.errors.forEach(function(err) {
-            rowErrors.push({
-              rowIndex: rowIndex,
-              field: err.component?.label || err.component?.key || 'Field',
-              message: err.message,
-              error: err
-            });
-          });
-        }
-      });
-
-      // Restore file field requirements
-      rowFileTweaks.forEach(function(t) {
-        if (t.ptr) t.ptr.required = true;
-      });
-
-      // Update panel state based on validation results
-      if (rowErrors.length > 0) {
-        // Store errors in custom property instead of read-only errors property
-        panelComponent._customErrors = rowErrors.map(function(e) { return e.error; });
-        panelComponent._hasErrors = true;
-
-        // Create error map for quick lookup
-        panelComponent._errorMap = {};
-        rowErrors.forEach(function(err) {
-          if (err.error && err.error.component && err.error.component.key) {
-            panelComponent._errorMap[err.error.component.key] = err.error;
-          }
-        });
-      } else {
-        // IMPORTANT: Explicitly clear all error states for valid rows
-        panelComponent._customErrors = [];
-        panelComponent._hasErrors = false;
-        panelComponent._errorMap = {};
-
-        // Clear all component errors
-        panelComponent.everyComponent?.(function(c) {
-          if (c) {
-            c.error = '';
-            // Use setCustomValidity to safely clear errors
-            if (c.setCustomValidity) {
-              c.setCustomValidity([], false);
-            }
-          }
-        });
-
-        // Ensure highlighting is removed when no errors
-        if (panelComponent.element) {
-          this.removeErrorHighlight(panelComponent.element);
-        }
-      }
-
-      // Setup hooks for this panel (for maintaining errors during redraws)
-      this.setupPanelHooks(panelComponent, rowIndex);
-    });
-
-    // Apply highlighting after validation
-    dataGrid.rows.forEach((row, rowIndex) => {
-      const panelComponent = row.panel;
-      if (!panelComponent) return;
-
-      // Only highlight if there are actual errors in the error map
-      if (panelComponent._hasErrors && panelComponent._errorMap && Object.keys(panelComponent._errorMap).length > 0) {
-        setTimeout(() => {
-          if (panelComponent.element) {
-            this.addErrorHighlight(panelComponent.element);
-          }
-        }, 50);
-      } else {
-        // Make absolutely sure no error highlighting remains on valid rows
-        panelComponent._hasErrors = false;
-        panelComponent._errorMap = {};
-        if (panelComponent.element) {
-          this.removeErrorHighlight(panelComponent.element);
-        }
-      }
-    });
+    highlightDataGridRows(dataGrid, results, this);
   }
 
   addErrorHighlight(element) {
-    if (!element) return;
-
-    // Find the row container (tries multiple selectors)
-    var rowContainer = element.closest('.formio-component-panel') ||
-      element.closest('[ref="row"]') ||
-      element.closest('.formio-component-columns') ||
-      element.closest('.list-group-item') ||
-      element.parentElement;
-
-    // Fallback: traverse up to find container
-    if (!rowContainer || !rowContainer.classList) {
-      var parent = element;
-      for (var i = 0; i < 5; i++) {
-        if (parent && parent.classList && (
-          parent.classList.contains('formio-component') ||
-          parent.hasAttribute('data-noattach') ||
-          parent.classList.contains('row')
-        )) {
-          rowContainer = parent;
-          break;
-        }
-        parent = parent.parentElement;
-      }
-    }
-
-    // Apply error styling
-    if (rowContainer && rowContainer.style) {
-      rowContainer.classList.add('has-error', 'alert', 'alert-danger');
-      rowContainer.style.setProperty('border-left', '4px solid #d9534f', 'important');
-      rowContainer.style.setProperty('background-color', '#fff5f5', 'important');
-      rowContainer.style.setProperty('margin-bottom', '10px', 'important');
-      rowContainer.style.setProperty('padding', '10px', 'important');
-      rowContainer.setAttribute('data-has-errors', 'true');
-    }
+    addErrorHighlight(element);
   }
 
   ensureErrorHighlightStyles() {
-    if (document.getElementById('formio-row-error-styles')) return;
-    
-    const style = document.createElement('style');
-    style.id = 'formio-row-error-styles';
-    style.textContent = `
-      .formio-component-panel.has-error,
-      .formio-component-panel.alert-danger,
-      [ref="row"].has-error,
-      [ref="row"].alert-danger,
-      .formio-component-columns.has-error,
-      .formio-component-columns.alert-danger,
-      .list-group-item.has-error,
-      .list-group-item.alert-danger {
-        border-left: 4px solid #d9534f !important;
-        background-color: #fff5f5 !important;
-        margin-bottom: 10px !important;
-        padding: 10px !important;
-      }
-      
-      .formio-component-panel[data-has-errors="true"],
-      [ref="row"][data-has-errors="true"],
-      .formio-component-columns[data-has-errors="true"],
-      .list-group-item[data-has-errors="true"] {
-        border-left: 4px solid #d9534f !important;
-        background-color: #fff5f5 !important;
-        margin-bottom: 10px !important;
-        padding: 10px !important;
-      }
-    `;
-    document.head.appendChild(style);
+    ensureErrorHighlightStyles();
   }
 
   removeErrorHighlight(element) {
-    if (!element) return;
-
-    // Find the row container (same logic as addErrorHighlight)
-    var rowContainer = element.closest('.formio-component-panel') ||
-      element.closest('[ref="row"]') ||
-      element.closest('.formio-component-columns') ||
-      element.closest('.list-group-item') ||
-      element.parentElement;
-
-    if (!rowContainer || !rowContainer.classList) {
-      var parent = element;
-      for (var i = 0; i < 5; i++) {
-        if (parent && parent.classList && (
-          parent.classList.contains('formio-component') ||
-          parent.hasAttribute('data-noattach') ||
-          parent.classList.contains('row')
-        )) {
-          rowContainer = parent;
-          break;
-        }
-        parent = parent.parentElement;
-      }
-    }
-
-    // Remove error styling
-    if (rowContainer && rowContainer.style) {
-      rowContainer.classList.remove('has-error', 'alert', 'alert-danger');
-      rowContainer.style.removeProperty('border-left');
-      rowContainer.style.removeProperty('background-color');
-      rowContainer.style.removeProperty('margin-bottom');
-      rowContainer.style.removeProperty('padding');
-      rowContainer.removeAttribute('data-has-errors');
-    }
+    removeErrorHighlight(element);
   }
 
   clearAllDataGridRowHighlighting() {
@@ -619,7 +391,7 @@ export default class ReviewButton extends FieldComponent {
     dataGrid.rows.forEach((row) => {
       const panelComponent = row.panel;
       if (panelComponent && panelComponent.element) {
-        this.removeErrorHighlight(panelComponent.element);
+        removeErrorHighlight(panelComponent.element);
         panelComponent._hasErrors = false;
         panelComponent._customErrors = [];
       }
@@ -681,7 +453,7 @@ export default class ReviewButton extends FieldComponent {
               const componentType = comp.type || comp.component?.type;
               if (componentType === 'file') {
                 console.log('validateDataGridRows: Using enhanced file validation for', comp.key);
-                const isValid = this.validateFileComponentWithRelaxedRequired(comp);
+                const isValid = validateFileComponentWithRelaxedRequired(comp);
                 console.log('validateDataGridRows: Enhanced file validation result:', isValid, 'for', comp.key);
                 
                 if (!isValid) {
@@ -752,30 +524,30 @@ export default class ReviewButton extends FieldComponent {
     const fileList = comp.fileList;
     
     // Check if any of these sources contain actual file data
-    const hasValue = this.hasActualFileData(dataValue) ||
-                    this.hasActualFileData(getValue) ||
-                    this.hasActualFileData(files) ||
-                    this.hasActualFileData(serviceFiles) ||
-                    this.hasActualFileData(value) ||
-                    this.hasActualFileData(rawValue) ||
-                    this.hasActualFileData(submissionValue) ||
-                    this.hasActualFileData(uploads) ||
-                    this.hasActualFileData(fileData) ||
-                    this.hasActualFileData(uploadedFiles) ||
-                    this.hasActualFileData(fileList);
+    const hasValue = hasActualFileData(dataValue) ||
+                    hasActualFileData(getValue) ||
+                    hasActualFileData(files) ||
+                    hasActualFileData(serviceFiles) ||
+                    hasActualFileData(value) ||
+                    hasActualFileData(rawValue) ||
+                    hasActualFileData(submissionValue) ||
+                    hasActualFileData(uploads) ||
+                    hasActualFileData(fileData) ||
+                    hasActualFileData(uploadedFiles) ||
+                    hasActualFileData(fileList);
     
     console.log('checkFileComponentHasValue: Initial check result:', hasValue, {
-      dataValueCheck: this.hasActualFileData(dataValue),
-      getValueCheck: this.hasActualFileData(getValue),
-      filesCheck: this.hasActualFileData(files),
-      serviceFilesCheck: this.hasActualFileData(serviceFiles),
-      valueCheck: this.hasActualFileData(value),
-      rawValueCheck: this.hasActualFileData(rawValue),
-      submissionValueCheck: this.hasActualFileData(submissionValue),
-      uploadsCheck: this.hasActualFileData(uploads),
-      fileDataCheck: this.hasActualFileData(fileData),
-      uploadedFilesCheck: this.hasActualFileData(uploadedFiles),
-      fileListCheck: this.hasActualFileData(fileList)
+      dataValueCheck: hasActualFileData(dataValue),
+      getValueCheck: hasActualFileData(getValue),
+      filesCheck: hasActualFileData(files),
+      serviceFilesCheck: hasActualFileData(serviceFiles),
+      valueCheck: hasActualFileData(value),
+      rawValueCheck: hasActualFileData(rawValue),
+      submissionValueCheck: hasActualFileData(submissionValue),
+      uploadsCheck: hasActualFileData(uploads),
+      fileDataCheck: hasActualFileData(fileData),
+      uploadedFilesCheck: hasActualFileData(uploadedFiles),
+      fileListCheck: hasActualFileData(fileList)
     });
     
     // If no value found in component properties, check DOM inputs and S3 uploads
@@ -999,7 +771,7 @@ export default class ReviewButton extends FieldComponent {
         return false;
       }
       
-      const hasFiles = value.some(v => this.hasActualFileData(v));
+      const hasFiles = value.some(v => hasActualFileData(v));
       console.log('hasActualFileData: Array check result:', hasFiles, 'array length:', value.length);
       return hasFiles;
     }
@@ -1063,491 +835,15 @@ export default class ReviewButton extends FieldComponent {
     return false;
   }
 
-  /**
-   * Clears all error states and visual indicators from a field component
-   * @param {Object} comp - Form.io component to clear errors from
-   */
-  clearFieldErrors(comp) {
-    if (!comp) return;
 
-    // Clear component error state
-    comp.error = '';
-    // Use setCustomValidity to safely clear errors
-    if (comp.setCustomValidity) {
-      comp.setCustomValidity([], false);
-    }
-    comp.setPristine(true);
 
-    if (!comp.element) return;
-
-    // Remove error classes from component element
-    comp.element.classList.remove('has-error', 'has-message', 'formio-error-wrapper');
-
-    // Remove error class from form-group
-    var formGroup = comp.element.closest('.form-group') || comp.element.querySelector('.form-group') || comp.element;
-    if (formGroup) {
-      formGroup.classList.remove('has-error');
-    }
-
-    // Remove error styling from input element
-    var input = comp.element.querySelector('input, select, textarea, .choices__inner');
-    if (input) {
-      input.classList.remove('is-invalid', 'form-control-danger');
-      input.style.removeProperty('border-color');
-      input.style.removeProperty('border-width');
-    }
-
-    // Remove all error message elements
-    var errMsgs = comp.element.querySelectorAll('.formio-errors, .invalid-feedback, .error');
-    errMsgs.forEach(function(msg) {
-      if (msg && msg.parentNode) {
-        msg.parentNode.removeChild(msg);
-      }
-    });
-
-    // Also check in parent elements for error messages
-    if (formGroup) {
-      var parentErrMsgs = formGroup.querySelectorAll('.formio-errors, .invalid-feedback');
-      parentErrMsgs.forEach(function(msg) {
-        if (msg && msg.parentNode) {
-          msg.parentNode.removeChild(msg);
-        }
-      });
-    }
-
-    // Trigger a redraw to update the component display
-    if (comp.redraw) {
-      setTimeout(function() {
-        comp.redraw();
-      }, 50);
-    }
-  }
-
-  /**
-   * Applies field-level error messages and styling to components with errors
-   * @param {Object} panel - Panel component containing the fields
-   */
-  applyFieldErrors(panel) {
-    if (!panel || !panel._hasErrors || !panel._errorMap) {
-      return;
-    }
-
-    var attemptCount = 0;
-    var maxAttempts = 10;
-
-    // Try applying errors with retries (in case DOM isn't ready)
-    var tryApplyErrors = function() {
-      var appliedCount = 0;
-
-      panel.everyComponent(function(comp) {
-        var compKey = comp.component && comp.component.key;
-        if (compKey && panel._errorMap[compKey]) {
-          var err = panel._errorMap[compKey];
-
-          // Set component error state
-          comp.error = err.message;
-          // Use setCustomValidity to safely set errors
-          if (comp.setCustomValidity) {
-            comp.setCustomValidity([err], true);
-          }
-          comp.setPristine(false);
-
-          if (comp.element) {
-            comp.element.classList.add('has-error', 'has-message', 'formio-error-wrapper');
-
-            var formGroup = comp.element.closest('.form-group') || comp.element.querySelector('.form-group') || comp.element;
-            formGroup.classList.add('has-error');
-
-            // Get component type
-            var compType = comp.type || comp.component.type;
-
-            var input = comp.element.querySelector('input, select, textarea, .choices');
-            if (input) {
-              // Apply red border to input
-              input.classList.add('is-invalid', 'form-control-danger');
-              input.style.borderColor = '#d9534f';
-              input.style.borderWidth = '2px';
-
-              // Create and insert error message
-              var errMsg = document.createElement('div');
-              errMsg.className = 'formio-errors invalid-feedback';
-              errMsg.style.display = 'block';
-              errMsg.style.color = '#d9534f';
-              errMsg.innerHTML = '<p style="margin:0;">' + err.message + '</p>';
-
-              var existing = comp.element.querySelector('.formio-errors');
-              if (existing) existing.remove();
-
-              // FIXED: Special handling for barcode fields
-              var insertPoint;
-              if (compType === 'barcode') {
-                // For barcode fields, find the wrapper that contains both input and button
-                var barcodeWrapper = input.closest('.input-group') ||
-                  input.closest('.form-group') ||
-                  input.parentElement;
-
-                // Insert error message AFTER the wrapper (below the field)
-                if (barcodeWrapper && barcodeWrapper.parentElement) {
-                  insertPoint = barcodeWrapper.parentElement;
-                  // Insert after the barcode wrapper
-                  if (barcodeWrapper.nextSibling) {
-                    insertPoint.insertBefore(errMsg, barcodeWrapper.nextSibling);
-                  } else {
-                    insertPoint.appendChild(errMsg);
-                  }
-                } else {
-                  // Fallback
-                  insertPoint = comp.element;
-                  insertPoint.appendChild(errMsg);
-                }
-              } else if (compType === 'radio') {
-                // For radio buttons, find the container that holds ALL radio options
-                var radioContainer = comp.element.querySelector('.form-radio') ||
-                  comp.element.querySelector('.radio') ||
-                  comp.element.querySelector('[role="radiogroup"]') ||
-                  formGroup;
-
-                // Insert error message AFTER all radio options
-                if (radioContainer) {
-                  radioContainer.appendChild(errMsg);
-                } else {
-                  // Fallback: append to the component element
-                  comp.element.appendChild(errMsg);
-                }
-              } else {
-                // For other field types, use the standard approach
-                insertPoint = input.parentElement || comp.element;
-                insertPoint.appendChild(errMsg);
-              }
-
-              appliedCount++;
-            }
-          }
-        }
-      });
-
-      // Retry if not all errors were applied
-      if (appliedCount < Object.keys(panel._errorMap).length && attemptCount < maxAttempts) {
-        attemptCount++;
-        setTimeout(tryApplyErrors, 200);
-      }
-    };
-
-    tryApplyErrors();
-  }
-
-  /**
-   * Checks if a field is now valid (used for real-time error clearing)
-   * @param {Object} comp - Form.io component to check
-   * @param {*} value - Current value of the field
-   * @returns {boolean} - True if field is valid
-   */
-  isFieldNowValid(comp, value) {
-    if (!comp) return false;
-
-    var compType = comp.type || comp.component.type;
-
-    // SPECIAL CASE: File fields
-    if (compType === 'file') {
-      var hasFile = this.hasActualFileData(value) ||
-        this.hasActualFileData(comp.dataValue) ||
-        (comp.files && comp.files.length > 0);
-
-      // Check DOM file inputs as fallback
-      if (!hasFile && comp.element) {
-        var fileInputs = comp.element.querySelectorAll('input[type="file"]');
-        for (var i = 0; i < fileInputs.length; i++) {
-          if (fileInputs[i]?.files && fileInputs[i].files.length > 0) {
-            hasFile = true;
-            break;
-          }
-        }
-      }
-
-      return hasFile;
-    }
-
-    // NON-FILE FIELDS
-    else {
-      // Check if field is required
-      var isRequired = comp.component?.validate?.required || comp.validate?.required;
-
-      if (!isRequired) {
-        return true; // Non-required fields are always valid
-      }
-
-      // Get the current value from multiple sources
-      var currentValue = value;
-      if (currentValue === null || currentValue === undefined || currentValue === '') {
-        currentValue = comp.dataValue;
-      }
-      if (currentValue === null || currentValue === undefined || currentValue === '') {
-        if (comp.getValue) {
-          currentValue = comp.getValue();
-        }
-      }
-      if (currentValue === null || currentValue === undefined || currentValue === '') {
-        var dataKey = comp.component?.key;
-        if (dataKey && comp.data) {
-          currentValue = comp.data[dataKey];
-        }
-      }
-
-      // SPECIAL CASE: Radio buttons - check DOM state
-      if (compType === 'radio' && comp.element) {
-        var checkedRadio = comp.element.querySelector('input[type="radio"]:checked');
-        if (checkedRadio && checkedRadio.value) {
-          currentValue = checkedRadio.value;
-        }
-      }
-
-      // SPECIAL CASE: Selectboxes (checkboxes) - check for any selected values
-      if (compType === 'selectboxes') {
-        if (typeof currentValue === 'object' && currentValue !== null) {
-          // Check if any checkbox is checked
-          var hasChecked = Object.keys(currentValue).some(function(key) {
-            return currentValue[key] === true;
-          });
-          if (hasChecked) {
-            return true; // At least one checkbox is selected
-          }
-        }
-      }
-
-      // Check if field has a value
-      var hasValue = false;
-      if (currentValue !== null && currentValue !== undefined && currentValue !== '') {
-        if (Array.isArray(currentValue)) {
-          hasValue = currentValue.length > 0;
-        } else if (typeof currentValue === 'object') {
-          hasValue = Object.keys(currentValue).length > 0;
-        } else if (typeof currentValue === 'string') {
-          hasValue = currentValue.trim().length > 0;
-        } else if (typeof currentValue === 'number') {
-          hasValue = true; // Numbers are always valid even if 0
-        } else if (typeof currentValue === 'boolean') {
-          hasValue = true; // Booleans are always valid
-        } else {
-          hasValue = true;
-        }
-      }
-
-      if (!hasValue) {
-        return false;
-      }
-
-      // If it has a value, run full validation to check other rules (e.g., format, length)
-      if (comp.checkValidity) {
-        // Save current state
-        var oldErrors = comp.errors ? [].concat(comp.errors) : [];
-        // Use setCustomValidity to safely clear errors
-        if (comp.setCustomValidity) {
-          comp.setCustomValidity([], false);
-        }
-
-        var validationResult = comp.checkValidity(comp.data, false, comp.data);
-        var isValid = validationResult === true || (comp.errors && comp.errors.length === 0);
-
-        // Restore errors if validation failed
-        if (!isValid && comp.setCustomValidity) {
-          comp.setCustomValidity(oldErrors, true);
-        }
-
-        return isValid;
-      }
-
-      return hasValue;
-    }
-  }
 
   /**
    * Sets up change listeners on all components in a panel for real-time error clearing
    * @param {Object} panel - Panel component to setup listeners on
    */
   setupChangeListeners(panel) {
-    if (!panel) return;
-
-    // Capture the ReviewButton instance reference
-    var reviewButtonInstance = this;
-
-    panel.everyComponent(function(comp) {
-      if (!comp || !comp.component) return;
-
-      var compKey = comp.component.key;
-
-      // Skip if this specific component already has a listener
-      if (comp._hasValidationListener) return;
-      comp._hasValidationListener = true;
-
-      var compType = comp.type || comp.component.type;
-
-      /**
-       * Function to check and clear errors when field value changes
-       * @param {*} value - New value of the field
-       */
-      var checkAndClearError = function(value) {
-        setTimeout(function() {
-          if (!comp || !panel._errorMap) return;
-
-          // Get value from multiple sources
-          var checkValue = value;
-          if (!checkValue || checkValue === '') {
-            checkValue = comp.dataValue || comp.getValue?.() || (comp.data ? comp.data[compKey] : null);
-          }
-
-          var isValid = reviewButtonInstance.isFieldNowValid(comp, checkValue);
-
-          if (isValid && panel._errorMap[compKey]) {
-            // Field is now valid, remove from error map
-            delete panel._errorMap[compKey];
-            reviewButtonInstance.clearFieldErrors(comp);
-
-            // Check if there are any remaining errors
-            var remainingErrors = Object.keys(panel._errorMap || {}).length;
-
-            // If no more errors in this panel, remove panel highlighting
-            if (remainingErrors === 0) {
-              panel._hasErrors = false;
-              panel._customErrors = [];
-              panel._errorMap = {};
-
-              // Clear all component errors
-              panel.everyComponent?.(function(c) {
-                if (c) {
-                  c.error = '';
-                  // Use setCustomValidity to safely clear errors
-                  if (c.setCustomValidity) {
-                    c.setCustomValidity([], false);
-                  }
-                }
-              });
-
-              if (panel.element) {
-                reviewButtonInstance.removeErrorHighlight(panel.element);
-              }
-            }
-          }
-        }, 50);
-      };
-
-      // Add change listener (works for all field types)
-      comp.on('change', checkAndClearError);
-
-      // FILE FIELDS: Add upload completion listener
-      if (compType === 'file') {
-        comp.on('fileUploadingEnd', function() {
-          setTimeout(function() {
-            checkAndClearError(comp.getValue?.() || comp.dataValue);
-          }, 200);
-        });
-      }
-
-      // TEXT FIELDS (including barcode): Add input listener for immediate feedback
-      if (compType === 'textfield' || compType === 'textarea' || compType === 'number' || compType === 'email' || compType === 'phoneNumber' || compType === 'barcode') {
-        comp.on('input', checkAndClearError);
-
-        // Setup DOM listeners after a delay to ensure element is rendered
-        setTimeout(function() {
-          if (!comp.element) return;
-
-          var inputElement = comp.element.querySelector('input, textarea');
-          if (inputElement && !inputElement._hasCustomListener) {
-            inputElement._hasCustomListener = true;
-            inputElement.addEventListener('input', function() {
-              checkAndClearError(this.value);
-            });
-            inputElement.addEventListener('blur', function() {
-              checkAndClearError(this.value);
-            });
-          }
-        }, 300);
-      }
-
-      // RADIO/CHECKBOX FIELDS: Add DOM-level listeners
-      if (compType === 'radio' || compType === 'selectboxes') {
-        comp.on('blur', function() {
-          checkAndClearError(comp.dataValue || comp.getValue?.());
-        });
-
-        // Setup DOM listeners for radio buttons and checkboxes
-        setTimeout(function() {
-          if (!comp.element) return;
-
-          var radioInputs = comp.element.querySelectorAll('input[type="radio"], input[type="checkbox"]');
-          radioInputs.forEach(function(radioInput) {
-            if (!radioInput._hasCustomListener) {
-              radioInput._hasCustomListener = true;
-              radioInput.addEventListener('change', function() {
-                // For radio buttons, trigger immediately
-                setTimeout(function() {
-                  checkAndClearError(comp.getValue?.() || comp.dataValue);
-                }, 50);
-              });
-              radioInput.addEventListener('click', function() {
-                // Also on click for immediate feedback
-                setTimeout(function() {
-                  checkAndClearError(comp.getValue?.() || comp.dataValue);
-                }, 100);
-              });
-            }
-          });
-        }, 300);
-      }
-
-      // SELECT/DROPDOWN FIELDS: Add multiple event listeners for reliability
-      if (compType === 'select') {
-        comp.on('blur', function() {
-          checkAndClearError(comp.dataValue || comp.getValue?.() || (comp.data ? comp.data[compKey] : null));
-        });
-
-        // Immediate check on componentChange event
-        comp.on('componentChange', function() {
-          setTimeout(function() {
-            checkAndClearError(comp.dataValue || comp.getValue?.() || (comp.data ? comp.data[compKey] : null));
-          }, 100);
-        });
-
-        // Setup DOM listeners after a delay to ensure element is rendered
-        setTimeout(function() {
-          if (!comp.element) return;
-
-          // For native <select> elements
-          var selectElement = comp.element.querySelector('select');
-          if (selectElement && !selectElement._hasCustomListener) {
-            selectElement._hasCustomListener = true;
-            selectElement.addEventListener('change', function() {
-              checkAndClearError(this.value);
-            });
-            selectElement.addEventListener('input', function() {
-              checkAndClearError(this.value);
-            });
-          }
-
-          // For Choices.js dropdowns
-          var choicesElement = comp.element.querySelector('.choices__inner');
-          if (choicesElement && !choicesElement._hasCustomListener) {
-            choicesElement._hasCustomListener = true;
-
-            // Listen for clicks on the choices dropdown
-            choicesElement.addEventListener('click', function() {
-              setTimeout(function() {
-                checkAndClearError(comp.dataValue || comp.getValue?.());
-              }, 200);
-            });
-
-            // Listen for the Choices.js change event on the parent
-            var choicesWrapper = comp.element.querySelector('.choices');
-            if (choicesWrapper) {
-              choicesWrapper.addEventListener('change', function() {
-                setTimeout(function() {
-                  checkAndClearError(comp.dataValue || comp.getValue?.());
-                }, 100);
-              });
-            }
-          }
-        }, 300);
-      }
-    }.bind(this));
+    setupChangeListeners(panel, this);
   }
 
   /**
@@ -1556,100 +852,9 @@ export default class ReviewButton extends FieldComponent {
    * @param {number} rowIndex - Index of the row in the DataGrid
    */
   setupPanelHooks(panel, rowIndex) {
-    if (panel._errorHooksAdded) return; // Avoid duplicate hooks
-    panel._errorHooksAdded = true;
-
-    // Capture the ReviewButton instance reference
-    var reviewButtonInstance = this;
-
-    // Setup change listeners for dynamic error clearing
-    this.setupChangeListeners(panel);
-
-    // Hook into panel attach method
-    var originalPanelAttach = panel.attach;
-    panel.attach = function(element) {
-      var result = originalPanelAttach.call(this, element);
-
-      // Reapply errors after attach if panel has errors
-      if (this._hasErrors) {
-        setTimeout(function() {
-          reviewButtonInstance.applyFieldErrors(panel);
-          if (panel.element) {
-            reviewButtonInstance.addErrorHighlight(panel.element);
-          }
-        }, 150);
-      }
-
-      return result;
-    };
-
-    // Hook into panel redraw method
-    var originalPanelRedraw = panel.redraw;
-    panel.redraw = function() {
-      var res = originalPanelRedraw ? originalPanelRedraw.apply(this, arguments) : null;
-
-      // Reapply errors after redraw if panel has errors
-      if (this._hasErrors) {
-        setTimeout(function() {
-          reviewButtonInstance.applyFieldErrors(panel);
-          if (panel.element) {
-            reviewButtonInstance.addErrorHighlight(panel.element);
-          }
-        }, 100);
-      }
-
-      return res;
-    };
+    setupPanelHooks(panel, rowIndex, this);
   }
 
-  // Enhanced file validation method based on the provided approach
-  validateFileComponentWithRelaxedRequired(comp) {
-    if (!comp) return false;
-    
-    const isFile = (comp.type || comp.component?.type) === 'file';
-    if (!isFile) return false;
-    
-    const isRequired = !!(comp.component?.validate?.required || comp.validate?.required);
-    if (!isRequired) return true; // Not required, so always valid
-    
-    console.log('validateFileComponentWithRelaxedRequired: Checking file component', comp.key, 'isRequired:', isRequired);
-    
-    // Check multiple data sources for file presence
-    const candidates = [
-      comp.dataValue,
-      comp.getValue?.(),
-      comp.getValueAsString?.(),
-      comp.files,
-      comp.fileService?.files,
-      comp.uploads,
-      comp.fileData,
-      comp.uploadedFiles,
-      comp.fileList
-    ];
-    
-    let hasVal = candidates.some(v => this.hasActualFileData(v));
-    
-    // Fallback to DOM <input type="file">
-    if (!hasVal && comp.element) {
-      const inputs = comp.element.querySelectorAll?.('input[type="file"]');
-      for (const el of inputs) {
-        if (el?.files && el.files.length > 0) { 
-          hasVal = true; 
-          break; 
-        }
-      }
-    }
-    
-    console.log('validateFileComponentWithRelaxedRequired: hasVal:', hasVal, 'for component:', comp.key);
-    
-    if (hasVal) {
-      // Clear errors immediately and force component update
-      this.clearFileComponentErrors(comp);
-      return true;
-    }
-    
-    return false; // No files found, so invalid if required
-  }
 
   // Direct method to clear file component errors
   clearFileComponentErrors(comp) {
@@ -1727,12 +932,12 @@ export default class ReviewButton extends FieldComponent {
           const hasFiles = this.checkFileComponentHasValue(component);
           if (hasFiles) {
             console.log('clearErrorsFromFileComponentsWithFiles: Found file component with files:', component.key);
-            this.clearFileComponentErrors(component);
+            clearFieldErrors(component);
             
             // For nested forms, also try to clear from the parent form context
             if (component.parent && component.parent.type !== 'form') {
               console.log('clearErrorsFromFileComponentsWithFiles: Also clearing from parent context for nested component:', component.key);
-              this.clearFileComponentErrors(component);
+              clearFieldErrors(component);
             }
           }
         }
@@ -1766,7 +971,7 @@ export default class ReviewButton extends FieldComponent {
                 const hasFiles = this.checkFileComponentHasValue(nestedComponent);
                 if (hasFiles) {
                   console.log('clearErrorsFromNestedFormFileComponents: Found file component with files in nested form:', nestedComponent.key);
-                  this.clearFileComponentErrors(nestedComponent);
+                  clearFieldErrors(nestedComponent);
                 }
               }
             }
@@ -1953,7 +1158,7 @@ export default class ReviewButton extends FieldComponent {
       const serviceFiles = component.fileService?.files;
       const candidates = [dataValue, getVal, getValStr, component.files, serviceFiles];
 
-      let hasValue = candidates.some((v) => this.hasActualFileData(v));
+      let hasValue = candidates.some((v) => hasActualFileData(v));
 
       if (!hasValue && domInputs.length) {
         for (var i = 0; i < domInputs.length; i++) {
@@ -2076,7 +1281,7 @@ export default class ReviewButton extends FieldComponent {
 
         // Apply error highlighting to the row
         setTimeout(() => {
-          this.addErrorHighlight(p.element);
+          addErrorHighlight(p.element);
         }, 100);
       } else {
         // Row is valid - clear all error states
@@ -2093,7 +1298,7 @@ export default class ReviewButton extends FieldComponent {
             }
           });
 
-          this.removeErrorHighlight(p.element);
+          removeErrorHighlight(p.element);
           p.redraw?.();
         }, 100);
       }
@@ -2150,10 +1355,10 @@ export default class ReviewButton extends FieldComponent {
               let hasValue = false;
 
               // Check all possible sources
-              if (this.hasActualFileData(dataValue)) hasValue = true;
-              if (!hasValue && this.hasActualFileData(getVal)) hasValue = true;
-              if (!hasValue && this.hasActualFileData(files)) hasValue = true;
-              if (!hasValue && this.hasActualFileData(serviceFiles)) hasValue = true;
+              if (hasActualFileData(dataValue)) hasValue = true;
+              if (!hasValue && hasActualFileData(getVal)) hasValue = true;
+              if (!hasValue && hasActualFileData(files)) hasValue = true;
+              if (!hasValue && hasActualFileData(serviceFiles)) hasValue = true;
 
               // Check DOM inputs as last resort
               if (!hasValue && component.element) {
@@ -2240,12 +1445,12 @@ export default class ReviewButton extends FieldComponent {
 
               // Ensure highlighting is removed when no errors
               if (panelComponent.element) {
-                this.removeErrorHighlight(panelComponent.element);
+                removeErrorHighlight(panelComponent.element);
               }
             }
 
             // Setup hooks for this panel (for maintaining errors during redraws)
-            this.setupPanelHooks(panelComponent, rowIndex);
+            setupPanelHooks(panelComponent, rowIndex);
           });
 
           // Apply highlighting after validation
@@ -2257,7 +1462,7 @@ export default class ReviewButton extends FieldComponent {
             if (panelComponent._hasErrors && panelComponent._errorMap && Object.keys(panelComponent._errorMap).length > 0) {
               setTimeout(() => {
                 if (panelComponent.element) {
-                  this.addErrorHighlight(panelComponent.element);
+                  addErrorHighlight(panelComponent.element);
                 }
               }, 50);
             } else {
@@ -2265,7 +1470,7 @@ export default class ReviewButton extends FieldComponent {
               panelComponent._hasErrors = false;
               panelComponent._errorMap = {};
               if (panelComponent.element) {
-                this.removeErrorHighlight(panelComponent.element);
+                removeErrorHighlight(panelComponent.element);
               }
             }
           });
@@ -2286,12 +1491,12 @@ export default class ReviewButton extends FieldComponent {
             setTimeout(() => {
               dataGrid.rows.forEach((row, idx) => {
                 if (row.panel) {
-                  this.setupPanelHooks(row.panel, idx);
+                  setupPanelHooks(row.panel, idx);
 
                   if (row.panel._hasErrors) {
-                    this.applyFieldErrors(row.panel);
+                    applyFieldErrors(row.panel);
                     if (row.panel.element) {
-                      this.addErrorHighlight(row.panel.element);
+                      addErrorHighlight(row.panel.element);
                     }
                   }
                 }
@@ -2309,12 +1514,12 @@ export default class ReviewButton extends FieldComponent {
             setTimeout(() => {
               dataGrid.rows.forEach((row, idx) => {
                 if (row.panel) {
-                  this.setupPanelHooks(row.panel, idx);
+                  setupPanelHooks(row.panel, idx);
 
                   if (row.panel._hasErrors) {
-                    this.applyFieldErrors(row.panel);
+                    applyFieldErrors(row.panel);
                     if (row.panel.element) {
-                      this.addErrorHighlight(row.panel.element);
+                      addErrorHighlight(row.panel.element);
                     }
                   }
                 }
@@ -2336,11 +1541,11 @@ export default class ReviewButton extends FieldComponent {
               // Apply errors to all rows including the new one
               dataGrid.rows.forEach((row, idx) => {
                 if (row.panel) {
-                  this.setupPanelHooks(row.panel, idx);
+                  setupPanelHooks(row.panel, idx);
                   if (row.panel._hasErrors) {
-                    this.applyFieldErrors(row.panel);
+                    applyFieldErrors(row.panel);
                     if (row.panel.element) {
-                      this.addErrorHighlight(row.panel.element);
+                      addErrorHighlight(row.panel.element);
                     }
                   }
                 }
@@ -2374,13 +1579,13 @@ export default class ReviewButton extends FieldComponent {
               // Re-setup and apply errors
               dataGrid.rows.forEach((row, idx) => {
                 if (row && row.panel) {
-                  this.setupPanelHooks(row.panel, idx);
+                  setupPanelHooks(row.panel, idx);
 
                   if (row.panel._hasErrors) {
                     setTimeout(() => {
                       if (row.panel && row.panel.element) {
-                        this.applyFieldErrors(row.panel);
-                        this.addErrorHighlight(row.panel.element);
+                        applyFieldErrors(row.panel);
+                        addErrorHighlight(row.panel.element);
                       }
                     }, 150);
                   }
@@ -2399,16 +1604,16 @@ export default class ReviewButton extends FieldComponent {
 
           // Only highlight if there are actual errors
           if (panelComponent._hasErrors && panelComponent._errorMap && Object.keys(panelComponent._errorMap).length > 0) {
-            this.applyFieldErrors(panelComponent);
+            applyFieldErrors(panelComponent);
             if (panelComponent.element) {
-              this.addErrorHighlight(panelComponent.element);
+              addErrorHighlight(panelComponent.element);
             }
           } else {
             // Ensure valid rows have no highlighting
             panelComponent._hasErrors = false;
             panelComponent._errorMap = {};
             if (panelComponent.element) {
-              this.removeErrorHighlight(panelComponent.element);
+              removeErrorHighlight(panelComponent.element);
             }
           }
         });
@@ -2484,7 +1689,7 @@ export default class ReviewButton extends FieldComponent {
                 const componentType = component.type || component.component?.type;
                 if (componentType === 'file') {
                   console.log('File component error check - using enhanced validation for:', component.key);
-                  const isValid = this.validateFileComponentWithRelaxedRequired(component);
+                  const isValid = validateFileComponentWithRelaxedRequired(component);
                   console.log('File component enhanced validation result:', isValid, 'for component:', component.key);
                   
                   if (isValid) {

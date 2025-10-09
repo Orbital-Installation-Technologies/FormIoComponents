@@ -19,7 +19,10 @@ export {
   isFormValid,
   updateFormValues,
   generateErrorSummary,
-  findComponentsToValidate
+  findComponentsToValidate,
+  clearFieldErrors,
+  isFieldNowValid,
+  validateFileComponentWithRelaxedRequired
 } from './validationUtils.js';
 
 // Review modal helpers
@@ -45,10 +48,21 @@ export {
   formatValue,
   firstLeafVal,
   getInvalidStyle,
-  isFieldInvalid
+  isFieldInvalid,
+  addErrorHighlight,
+  removeErrorHighlight,
+  ensureErrorHighlightStyles,
+  applyFieldErrors
 } from './uiRenderingHelpers.js';
 
 // Main rendering helpers
 export {
   renderLeaves
 } from './renderHelpers.js';
+
+// DataGrid validation helpers
+export {
+  setupChangeListeners,
+  setupPanelHooks,
+  highlightDataGridRows
+} from './dataGridValidationHelpers.js';

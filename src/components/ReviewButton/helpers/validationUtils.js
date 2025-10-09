@@ -675,3 +675,236 @@ export const findComponentsToValidate = (keys, root) => {
 
   return componentsToValidate;
 };
+
+/**
+ * Clears all error states and visual indicators from a field component
+ * @param {Object} comp - Form.io component to clear errors from
+ */
+export function clearFieldErrors(comp) {
+  if (!comp) return;
+
+  // Clear component error state
+  comp.error = '';
+  // Use setCustomValidity to safely clear errors
+  if (comp.setCustomValidity) {
+    comp.setCustomValidity([], false);
+  }
+  comp.setPristine(true);
+
+  if (!comp.element) return;
+
+  // Remove error classes from component element
+  comp.element.classList.remove('has-error', 'has-message', 'formio-error-wrapper');
+
+  // Remove error class from form-group
+  var formGroup = comp.element.closest('.form-group') || comp.element.querySelector('.form-group') || comp.element;
+  if (formGroup) {
+    formGroup.classList.remove('has-error');
+  }
+
+  // Remove error styling from input element
+  var input = comp.element.querySelector('input, select, textarea, .choices__inner');
+  if (input) {
+    input.classList.remove('is-invalid', 'form-control-danger');
+    input.style.removeProperty('border-color');
+    input.style.removeProperty('border-width');
+  }
+
+  // Remove all error message elements
+  var errMsgs = comp.element.querySelectorAll('.formio-errors, .invalid-feedback, .error');
+  errMsgs.forEach(function(msg) {
+    if (msg && msg.parentNode) {
+      msg.parentNode.removeChild(msg);
+    }
+  });
+
+  // Also check in parent elements for error messages
+  if (formGroup) {
+    var parentErrMsgs = formGroup.querySelectorAll('.formio-errors, .invalid-feedback');
+    parentErrMsgs.forEach(function(msg) {
+      if (msg && msg.parentNode) {
+        msg.parentNode.removeChild(msg);
+      }
+    });
+  }
+
+  // Trigger a redraw to update the component display
+  if (comp.redraw) {
+    setTimeout(function() {
+      comp.redraw();
+    }, 50);
+  }
+}
+
+/**
+ * Checks if a field is now valid (used for real-time error clearing)
+ * @param {Object} comp - Form.io component to check
+ * @param {*} value - Current value of the field
+ * @returns {boolean} - True if field is valid
+ */
+export function isFieldNowValid(comp, value) {
+  if (!comp) return false;
+
+  var compType = comp.type || comp.component.type;
+
+  // SPECIAL CASE: File fields
+  if (compType === 'file') {
+    var hasFile = hasActualFileData(value) ||
+      hasActualFileData(comp.dataValue) ||
+      (comp.files && comp.files.length > 0);
+
+    // Check DOM file inputs as fallback
+    if (!hasFile && comp.element) {
+      var fileInputs = comp.element.querySelectorAll('input[type="file"]');
+      for (var i = 0; i < fileInputs.length; i++) {
+        if (fileInputs[i]?.files && fileInputs[i].files.length > 0) {
+          hasFile = true;
+          break;
+        }
+      }
+    }
+
+    return hasFile;
+  }
+
+  // NON-FILE FIELDS
+  else {
+    // Check if field is required
+    var isRequired = comp.component?.validate?.required || comp.validate?.required;
+
+    if (!isRequired) {
+      return true; // Non-required fields are always valid
+    }
+
+    // Get the current value from multiple sources
+    var currentValue = value;
+    if (currentValue === null || currentValue === undefined || currentValue === '') {
+      currentValue = comp.dataValue;
+    }
+    if (currentValue === null || currentValue === undefined || currentValue === '') {
+      if (comp.getValue) {
+        currentValue = comp.getValue();
+      }
+    }
+    if (currentValue === null || currentValue === undefined || currentValue === '') {
+      var dataKey = comp.component?.key;
+      if (dataKey && comp.data) {
+        currentValue = comp.data[dataKey];
+      }
+    }
+
+    // SPECIAL CASE: Radio buttons - check DOM state
+    if (compType === 'radio' && comp.element) {
+      var checkedRadio = comp.element.querySelector('input[type="radio"]:checked');
+      if (checkedRadio && checkedRadio.value) {
+        currentValue = checkedRadio.value;
+      }
+    }
+
+    // SPECIAL CASE: Selectboxes (checkboxes) - check for any selected values
+    if (compType === 'selectboxes') {
+      if (typeof currentValue === 'object' && currentValue !== null) {
+        // Check if any checkbox is checked
+        var hasChecked = Object.keys(currentValue).some(function(key) {
+          return currentValue[key] === true;
+        });
+        if (hasChecked) {
+          return true; // At least one checkbox is selected
+        }
+      }
+    }
+
+    // Check if field has a value
+    var hasValue = false;
+    if (currentValue !== null && currentValue !== undefined && currentValue !== '') {
+      if (Array.isArray(currentValue)) {
+        hasValue = currentValue.length > 0;
+      } else if (typeof currentValue === 'object') {
+        hasValue = Object.keys(currentValue).length > 0;
+      } else if (typeof currentValue === 'string') {
+        hasValue = currentValue.trim().length > 0;
+      } else if (typeof currentValue === 'number') {
+        hasValue = true; // Numbers are always valid even if 0
+      } else if (typeof currentValue === 'boolean') {
+        hasValue = true; // Booleans are always valid
+      } else {
+        hasValue = true;
+      }
+    }
+
+    if (!hasValue) {
+      return false;
+    }
+
+    // If it has a value, run full validation to check other rules (e.g., format, length)
+    if (comp.checkValidity) {
+      // Save current state
+      var oldErrors = comp.errors ? [].concat(comp.errors) : [];
+      // Use setCustomValidity to safely clear errors
+      if (comp.setCustomValidity) {
+        comp.setCustomValidity([], false);
+      }
+
+      var validationResult = comp.checkValidity(comp.data, false, comp.data);
+      var isValid = validationResult === true || (comp.errors && comp.errors.length === 0);
+
+      // Restore errors if validation failed
+      if (!isValid && comp.setCustomValidity) {
+        comp.setCustomValidity(oldErrors, true);
+      }
+
+      return isValid;
+    }
+
+    return hasValue;
+  }
+}
+
+/**
+ * Enhanced file validation method with relaxed required validation
+ * @param {Object} comp - File component to validate
+ * @returns {boolean} - True if valid
+ */
+export function validateFileComponentWithRelaxedRequired(comp) {
+  if (!comp) return false;
+  
+  const isFile = (comp.type || comp.component?.type) === 'file';
+  if (!isFile) return false;
+  
+  const isRequired = !!(comp.component?.validate?.required || comp.validate?.required);
+  if (!isRequired) return true; // Not required, so always valid
+  
+  // Check multiple data sources for file presence
+  const candidates = [
+    comp.dataValue,
+    comp.getValue?.(),
+    comp.getValueAsString?.(),
+    comp.files,
+    comp.fileService?.files,
+    comp.uploads,
+    comp.fileData,
+    comp.uploadedFiles,
+    comp.fileList
+  ];
+  
+  let hasVal = candidates.some(v => hasActualFileData(v));
+  
+  // Fallback to DOM <input type="file">
+  if (!hasVal && comp.element) {
+    const inputs = comp.element.querySelectorAll?.('input[type="file"]');
+    for (const el of inputs) {
+      if (el?.files && el.files.length > 0) { 
+        hasVal = true; 
+        break; 
+      }
+    }
+  }
+  
+  if (hasVal) {
+    // Clear errors immediately and force component update
+    clearFieldErrors(comp);
+    return true;
+  }
+  
+  return false; // No files found, so invalid if required
+}
