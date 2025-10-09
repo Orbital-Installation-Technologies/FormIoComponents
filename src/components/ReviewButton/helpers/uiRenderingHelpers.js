@@ -536,12 +536,15 @@ export function isFieldInvalid(comp, path, invalidFields) {
   
   if (!fieldPath) return false;
 
-  // Debug logging
-  console.log('isFieldInvalid check:', {
-    fieldPath,
-    invalidFields: Array.from(invalidFields),
-    comp: comp?.key || comp?.component?.key
-  });
+  // Debug logging for hardware product
+  if (fieldPath && (fieldPath.includes('hardwareProduct') || fieldPath.includes('Hardware'))) {
+    console.log('isFieldInvalid check for Hardware Product:', {
+      fieldPath,
+      invalidFields: Array.from(invalidFields),
+      comp: comp?.key || comp?.component?.key,
+      compValue: comp?.dataValue || comp?.getValue?.()
+    });
+  }
 
   // Direct path match
   if (invalidFields.has(fieldPath)) {
@@ -576,26 +579,14 @@ export function isFieldInvalid(comp, path, invalidFields) {
       const arrayPart = arrayMatch[1];
       
       for (const invalidField of invalidFields) {
-        // Direct match
+        // Direct match with exact path
         if (invalidField === fieldPath) {
           console.log('Direct array field match found:', invalidField, 'for field:', fieldPath);
           return true;
         }
-        // Match with wildcard index
-        if (invalidField.includes(arrayPart.replace(/\[\d+\]/, '[*]')) && 
-            (invalidField.endsWith('.' + fieldName) || invalidField === fieldName)) {
-          console.log('Wildcard array field match found:', invalidField, 'for field:', fieldPath);
-          return true;
-        }
-        // Match with same array part and field name
-        if (invalidField.includes(arrayPart) && 
-            (invalidField.endsWith('.' + fieldName) || invalidField === fieldName)) {
+        // Match with same array part and exact field name - must match the specific row index
+        if (invalidField.includes(arrayPart) && invalidField.endsWith('.' + fieldName)) {
           console.log('Array field match found:', invalidField, 'for field:', fieldPath);
-          return true;
-        }
-        // Match just the field name for data grid rows
-        if (invalidField === fieldName) {
-          console.log('Field name match in array context:', invalidField, 'for field:', fieldPath);
           return true;
         }
       }
@@ -801,22 +792,23 @@ export function applyFieldErrors(panel) {
 
     panel.everyComponent(function(comp) {
       var compKey = comp.component && comp.component.key;
-      if (compKey && panel._errorMap[compKey]) {
-        var err = panel._errorMap[compKey];
+      if (compKey) {
+        if (panel._errorMap[compKey]) {
+          var err = panel._errorMap[compKey];
 
-        // Set component error state
-        comp.error = err.message;
-        // Use setCustomValidity to safely set errors
-        if (comp.setCustomValidity) {
-          comp.setCustomValidity([err], true);
-        }
-        comp.setPristine(false);
+          // Set component error state
+          comp.error = err.message;
+          // Use setCustomValidity to safely set errors
+          if (comp.setCustomValidity) {
+            comp.setCustomValidity([err], true);
+          }
+          comp.setPristine(false);
 
-        if (comp.element) {
-          comp.element.classList.add('has-error', 'has-message', 'formio-error-wrapper');
+          if (comp.element) {
+            comp.element.classList.add('has-error', 'has-message', 'formio-error-wrapper');
 
-          var formGroup = comp.element.closest('.form-group') || comp.element.querySelector('.form-group') || comp.element;
-          formGroup.classList.add('has-error');
+            var formGroup = comp.element.closest('.form-group') || comp.element.querySelector('.form-group') || comp.element;
+            formGroup.classList.add('has-error');
 
           // Get component type
           var compType = comp.type || comp.component.type;
@@ -881,6 +873,7 @@ export function applyFieldErrors(panel) {
             }
 
             appliedCount++;
+          }
           }
         }
       }

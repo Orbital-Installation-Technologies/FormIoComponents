@@ -348,6 +348,7 @@ export function highlightDataGridRows(dataGrid, results, reviewButtonInstance) {
           panelComponent._errorMap[err.error.component.key] = err.error;
         }
       });
+
     } else {
       // IMPORTANT: Explicitly clear all error states for valid rows
       panelComponent._customErrors = [];

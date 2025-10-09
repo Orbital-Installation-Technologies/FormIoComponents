@@ -398,6 +398,36 @@ export default class ReviewButton extends FieldComponent {
     });
   }
 
+  clearDataGridValidationState() {
+    this.root.everyComponent(comp => {
+      if (comp.component?.type === 'datagrid' && comp.rows) {
+        comp.rows.forEach((row) => {
+          if (row.panel) {
+            // Clear validation state
+            row.panel._hasErrors = false;
+            row.panel._errorMap = {};
+            row.panel._customErrors = [];
+            
+            // Clear component errors
+            row.panel.everyComponent?.(c => {
+              if (c) {
+                c.error = '';
+                if (c.setCustomValidity) {
+                  c.setCustomValidity([], false);
+                }
+              }
+            });
+            
+            // Remove visual highlighting
+            if (row.panel.element) {
+              removeErrorHighlight(row.panel.element);
+            }
+          }
+        });
+      }
+    });
+  }
+
   validateDataGridRows(dataGrid) {
     if (!dataGrid.rows || !Array.isArray(dataGrid.rows)) return;
 
@@ -1426,6 +1456,7 @@ export default class ReviewButton extends FieldComponent {
                   panelComponent._errorMap[err.error.component.key] = err.error;
                 }
               });
+
             } else {
               // IMPORTANT: Explicitly clear all error states for valid rows
               panelComponent._customErrors = [];
@@ -1633,6 +1664,9 @@ export default class ReviewButton extends FieldComponent {
         // Update form values before review
         await updateFormValuesBeforeReview(this.root);
 
+        // Clear any stale datagrid validation state before fresh validation
+        this.clearDataGridValidationState();
+
         // Force a fresh validation every time the modal opens
         console.log('Starting fresh validation for modal...');
         
@@ -1713,16 +1747,7 @@ export default class ReviewButton extends FieldComponent {
                 if (path) {
                   invalidFields.add(path);
                   invalidComponents.add(component);
-                  
-                  // Add variations for data grid paths
-                  if (path.includes('[') && path.includes(']')) {
-                    const fieldName = path.split('.').pop();
-                    if (fieldName) {
-                      invalidFields.add(fieldName);
-                    }
-                    const pathWithoutIndex = path.replace(/\[\d+\]/, '[*]');
-                    invalidFields.add(pathWithoutIndex);
-                  }
+                  // Don't add path variations for datagrid fields to prevent cross-row contamination
                 }
               }
             } catch (err) {
@@ -1746,17 +1771,7 @@ export default class ReviewButton extends FieldComponent {
             console.log('Adding invalid field path:', path, 'from component:', invalidComp);
             if (path) {
               invalidFields.add(path);
-              // Also add variations of the path for better matching
-              if (path.includes('[') && path.includes(']')) {
-                // For data grid paths like "datagrid[0].field", also add the field name alone
-                const fieldName = path.split('.').pop();
-                if (fieldName) {
-                  invalidFields.add(fieldName);
-                }
-                // Add the path without the array index for broader matching
-                const pathWithoutIndex = path.replace(/\[\d+\]/, '[*]');
-                invalidFields.add(pathWithoutIndex);
-              }
+              // Don't add path variations for datagrid fields to prevent cross-row contamination
             }
             if (component) {
               invalidComponents.add(component);
@@ -1770,20 +1785,27 @@ export default class ReviewButton extends FieldComponent {
           Object.keys(validation.errors).forEach(errorPath => {
             console.log('Adding error path from errors object:', errorPath);
             invalidFields.add(errorPath);
-            // Add variations for data grid paths
-            if (errorPath.includes('[') && errorPath.includes(']')) {
+            // For non-datagrid paths, add the field name for broader matching
+            if (!errorPath.includes('[') && !errorPath.includes(']')) {
               const fieldName = errorPath.split('.').pop();
               if (fieldName) {
                 invalidFields.add(fieldName);
               }
-              const pathWithoutIndex = errorPath.replace(/\[\d+\]/, '[*]');
-              invalidFields.add(pathWithoutIndex);
             }
+            // Don't add path variations for datagrid fields to prevent cross-row contamination
           });
         }
         
         console.log('Final invalid fields set for modal:', Array.from(invalidFields));
         console.log('Final invalid components set for modal:', Array.from(invalidComponents));
+        
+        // Debug: Log datagrid-specific invalid fields
+        const datagridInvalidFields = Array.from(invalidFields).filter(f => f.includes('[') && f.includes(']'));
+        console.log('Datagrid invalid fields:', datagridInvalidFields);
+        
+        // Debug: Check if hardwareProduct is in the set
+        const hardwareProductFields = Array.from(invalidFields).filter(f => f.toLowerCase().includes('hardware'));
+        console.log('Hardware product related invalid fields:', hardwareProductFields);
 
         // Collect form data for review with invalid fields information
         // This will determine which fields to show based on current validation state
