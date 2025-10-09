@@ -99,14 +99,17 @@ export default class ReviewButton extends FieldComponent {
         const isEmpty = !addressValue || !addressValue.trim();
 
         if (isEmpty) {
-          if (!component.errors) component.errors = [];
           const errorMessage = `${component.component?.label || component.key} is required.`;
-          if (!component.errors.includes(errorMessage)) {
-            component.errors.push(errorMessage);
+          // Use setCustomValidity to safely set errors
+          if (component.setCustomValidity) {
+            component.setCustomValidity([errorMessage], true);
           }
 
           setTimeout(() => {
-            component.setCustomValidity(component.errors, true);
+            // Re-apply the error to ensure it persists
+            if (component.setCustomValidity) {
+              component.setCustomValidity([errorMessage], true);
+            }
             component.redraw();
           }, 5000);
 
@@ -347,123 +350,169 @@ export default class ReviewButton extends FieldComponent {
   highlightDataGridRows(dataGrid, results) {
     if (!dataGrid.rows || !Array.isArray(dataGrid.rows)) return;
 
-    console.log('highlightDataGridRows: Processing', dataGrid.rows.length, 'rows');
-
     dataGrid.rows.forEach((row, rowIndex) => {
       const panelComponent = row.panel;
-      if (!panelComponent) {
-        console.log('highlightDataGridRows: No panel component for row', rowIndex);
-        return;
-      }
+      if (!panelComponent) return;
 
-      console.log('highlightDataGridRows: Processing row', rowIndex, 'panel:', panelComponent);
+      var rowErrors = [];
+      var rowFileTweaks = [];
 
-      // Check if this row has any validation errors
-      let hasRowErrors = false;
-      const rowErrors = [];
+      // Temporarily disable required validation on file fields with files
+      const self = this;
+      panelComponent.everyComponent?.(function(component) {
+        if (!component || !component.visible) return;
 
-      if (panelComponent.everyComponent) {
-        panelComponent.everyComponent((comp) => {
-          try {
-            // Skip validation for hidden components
-            if (comp.component?.hidden === true || comp.hidden === true) {
-              console.log('highlightDataGridRows: Skipping hidden component', comp.key, 'in row', rowIndex);
-              return;
-            }
-            
-            // Skip validation for disabled components unless they're marked review visible
-            if (comp.disabled === true || comp.component?.disabled === true) {
-              if (comp.component?.reviewVisible !== true) {
-                console.log('highlightDataGridRows: Skipping disabled component', comp.key, 'in row', rowIndex);
-                return;
-              }
-            }
-            
-            // Skip validation for invisible components
-            if (!comp.visible || comp._visible === false) {
-              console.log('highlightDataGridRows: Skipping invisible component', comp.key, 'in row', rowIndex);
-              return;
-            }
+        const type = component.type || component.component?.type;
+        if (type !== 'file') return;
 
-            // Special handling for file components - check if they actually have files
-            const componentType = comp.type || comp.component?.type;
-            if (componentType === 'file') {
-              const isRequired = comp.component?.validate?.required || comp.validate?.required;
-              if (isRequired) {
-                const hasFile = this.checkFileComponentHasValue(comp);
-                if (!hasFile) {
-                  // File is required but missing
-                  const errorMessage = `${comp.component?.label || comp.key} is required.`;
-                  console.log('highlightDataGridRows: File component missing required file in row', rowIndex, 'component:', comp.key);
-                  hasRowErrors = true;
-                  rowErrors.push({ message: errorMessage, component: comp });
-                } else {
-                  console.log('highlightDataGridRows: File component has file in row', rowIndex, 'component:', comp.key);
-                }
-              }
-            } else {
-              // Check if component has errors using a safe method
-              const hasErrors = comp.errors && comp.errors.length > 0;
-              if (hasErrors) {
-                console.log('highlightDataGridRows: Found errors in row', rowIndex, 'component:', comp.key, 'errors:', comp.errors);
-                hasRowErrors = true;
-                rowErrors.push(...comp.errors);
-              }
-            }
-          } catch (err) {
-            console.warn('highlightDataGridRows: Error accessing errors for component', comp.key, 'in row', rowIndex, err);
-            // Try alternative error checking
-            if (comp._customErrors && comp._customErrors.length > 0) {
-              console.log('highlightDataGridRows: Found custom errors in row', rowIndex, 'component:', comp.key, 'errors:', comp._customErrors);
-              hasRowErrors = true;
-              rowErrors.push(...comp._customErrors);
+        const isRequired = !!(component.component?.validate?.required || component.validate?.required);
+        if (!isRequired) return;
+
+        // Check if file field has files
+        const dataValue = component.dataValue;
+        const getVal = component.getValue && component.getValue();
+        const files = component.files;
+        const serviceFiles = component.fileService?.files;
+
+        let hasValue = false;
+
+        // Check all possible sources
+        if (self.hasActualFileData(dataValue)) hasValue = true;
+        if (!hasValue && self.hasActualFileData(getVal)) hasValue = true;
+        if (!hasValue && self.hasActualFileData(files)) hasValue = true;
+        if (!hasValue && self.hasActualFileData(serviceFiles)) hasValue = true;
+
+        // Check DOM inputs as last resort
+        if (!hasValue && component.element) {
+          var fileInputs = component.element.querySelectorAll('input[type="file"]');
+          fileInputs.forEach?.(function(inp) {
+            if (inp?.files && inp.files.length > 0) hasValue = true;
+          });
+        }
+
+        if (hasValue) {
+          var ptr = component.component?.validate ? component.component.validate
+            : component.validate ? component.validate
+              : (component.component ? (component.component.validate = {}) : (component.validate = {}));
+          if (ptr) {
+            ptr.required = false;
+            rowFileTweaks.push({ component: component, ptr: ptr });
+          }
+        }
+      });
+
+      // Clear existing errors before validation
+      panelComponent.everyComponent?.(function(c) {
+        if (!c.visible) return;
+        c.error = '';
+        // Use setCustomValidity to safely clear errors instead of directly setting errors property
+        if (c.setCustomValidity) {
+          c.setCustomValidity([], false);
+        }
+      });
+
+      // Run validation on all visible components
+      panelComponent.everyComponent?.(function(c) {
+        if (!c.visible) return;
+        c.checkValidity?.(c.data, false, c.data);
+        if (c.errors && c.errors.length > 0) {
+          c.errors.forEach(function(err) {
+            rowErrors.push({
+              rowIndex: rowIndex,
+              field: err.component?.label || err.component?.key || 'Field',
+              message: err.message,
+              error: err
+            });
+          });
+        }
+      });
+
+      // Restore file field requirements
+      rowFileTweaks.forEach(function(t) {
+        if (t.ptr) t.ptr.required = true;
+      });
+
+      // Update panel state based on validation results
+      if (rowErrors.length > 0) {
+        // Store errors in custom property instead of read-only errors property
+        panelComponent._customErrors = rowErrors.map(function(e) { return e.error; });
+        panelComponent._hasErrors = true;
+
+        // Create error map for quick lookup
+        panelComponent._errorMap = {};
+        rowErrors.forEach(function(err) {
+          if (err.error && err.error.component && err.error.component.key) {
+            panelComponent._errorMap[err.error.component.key] = err.error;
+          }
+        });
+      } else {
+        // IMPORTANT: Explicitly clear all error states for valid rows
+        panelComponent._customErrors = [];
+        panelComponent._hasErrors = false;
+        panelComponent._errorMap = {};
+
+        // Clear all component errors
+        panelComponent.everyComponent?.(function(c) {
+          if (c) {
+            c.error = '';
+            // Use setCustomValidity to safely clear errors
+            if (c.setCustomValidity) {
+              c.setCustomValidity([], false);
             }
           }
         });
+
+        // Ensure highlighting is removed when no errors
+        if (panelComponent.element) {
+          this.removeErrorHighlight(panelComponent.element);
+        }
       }
 
-      console.log('highlightDataGridRows: Row', rowIndex, 'hasRowErrors:', hasRowErrors, 'rowErrors:', rowErrors.length);
+      // Setup hooks for this panel (for maintaining errors during redraws)
+      this.setupPanelHooks(panelComponent, rowIndex);
+    });
 
-      // Apply or remove highlighting based on error state
-      if (hasRowErrors) {
-        console.log('highlightDataGridRows: Adding error highlight to row', rowIndex);
-        this.addErrorHighlight(panelComponent.element);
-        panelComponent._hasErrors = true;
-        // Store errors in a custom property instead of the read-only errors property
-        panelComponent._customErrors = rowErrors;
+    // Apply highlighting after validation
+    dataGrid.rows.forEach((row, rowIndex) => {
+      const panelComponent = row.panel;
+      if (!panelComponent) return;
+
+      // Only highlight if there are actual errors in the error map
+      if (panelComponent._hasErrors && panelComponent._errorMap && Object.keys(panelComponent._errorMap).length > 0) {
+        setTimeout(() => {
+          if (panelComponent.element) {
+            this.addErrorHighlight(panelComponent.element);
+          }
+        }, 50);
       } else {
-        console.log('highlightDataGridRows: Removing error highlight from row', rowIndex);
-        this.removeErrorHighlight(panelComponent.element);
+        // Make absolutely sure no error highlighting remains on valid rows
         panelComponent._hasErrors = false;
-        panelComponent._customErrors = [];
+        panelComponent._errorMap = {};
+        if (panelComponent.element) {
+          this.removeErrorHighlight(panelComponent.element);
+        }
       }
     });
   }
 
   addErrorHighlight(element) {
-    if (!element) {
-      console.log('addErrorHighlight: No element provided');
-      return;
-    }
-    
-    console.log('addErrorHighlight: Adding highlight to element:', element);
-    
-    // Ensure CSS styles are available
-    this.ensureErrorHighlightStyles();
-    
-    let rowContainer = element.closest('.formio-component-panel') ||
-                       element.closest('[ref="row"]') ||
-                       element.closest('.formio-component-columns') ||
-                       element.closest('.list-group-item') ||
-                       element.parentElement;
-    
+    if (!element) return;
+
+    // Find the row container (tries multiple selectors)
+    var rowContainer = element.closest('.formio-component-panel') ||
+      element.closest('[ref="row"]') ||
+      element.closest('.formio-component-columns') ||
+      element.closest('.list-group-item') ||
+      element.parentElement;
+
+    // Fallback: traverse up to find container
     if (!rowContainer || !rowContainer.classList) {
-      let parent = element;
-      for (let i = 0; i < 5; i++) {
+      var parent = element;
+      for (var i = 0; i < 5; i++) {
         if (parent && parent.classList && (
-            parent.classList.contains('formio-component') ||
-            parent.hasAttribute('data-noattach') ||
-            parent.classList.contains('row')
+          parent.classList.contains('formio-component') ||
+          parent.hasAttribute('data-noattach') ||
+          parent.classList.contains('row')
         )) {
           rowContainer = parent;
           break;
@@ -471,22 +520,15 @@ export default class ReviewButton extends FieldComponent {
         parent = parent.parentElement;
       }
     }
-    
-    console.log('addErrorHighlight: Found rowContainer:', rowContainer);
-    
+
+    // Apply error styling
     if (rowContainer && rowContainer.style) {
-      console.log('addErrorHighlight: Applying styles to rowContainer');
       rowContainer.classList.add('has-error', 'alert', 'alert-danger');
-      rowContainer.style.setProperty('border', '3px solid #dc3545', 'important');
-      rowContainer.style.setProperty('border-left', '6px solid #dc3545', 'important');
-      rowContainer.style.setProperty('background-color', '#f8d7da', 'important');
-      rowContainer.style.setProperty('margin-bottom', '15px', 'important');
-      rowContainer.style.setProperty('padding', '15px', 'important');
-      rowContainer.style.setProperty('border-radius', '6px', 'important');
-      rowContainer.style.setProperty('box-shadow', '0 2px 8px rgba(220, 53, 69, 0.3)', 'important');
+      rowContainer.style.setProperty('border-left', '4px solid #d9534f', 'important');
+      rowContainer.style.setProperty('background-color', '#fff5f5', 'important');
+      rowContainer.style.setProperty('margin-bottom', '10px', 'important');
+      rowContainer.style.setProperty('padding', '10px', 'important');
       rowContainer.setAttribute('data-has-errors', 'true');
-    } else {
-      console.log('addErrorHighlight: Could not find suitable rowContainer or no style property');
     }
   }
 
@@ -504,86 +546,20 @@ export default class ReviewButton extends FieldComponent {
       .formio-component-columns.alert-danger,
       .list-group-item.has-error,
       .list-group-item.alert-danger {
-        border: 3px solid #dc3545 !important;
-        border-left: 6px solid #dc3545 !important;
-        background-color: #f8d7da !important;
-        margin-bottom: 15px !important;
-        padding: 15px !important;
-        border-radius: 6px !important;
-        box-shadow: 0 2px 8px rgba(220, 53, 69, 0.3) !important;
+        border-left: 4px solid #d9534f !important;
+        background-color: #fff5f5 !important;
+        margin-bottom: 10px !important;
+        padding: 10px !important;
       }
       
       .formio-component-panel[data-has-errors="true"],
       [ref="row"][data-has-errors="true"],
       .formio-component-columns[data-has-errors="true"],
       .list-group-item[data-has-errors="true"] {
-        border: 3px solid #dc3545 !important;
-        border-left: 6px solid #dc3545 !important;
-        background-color: #f8d7da !important;
-        margin-bottom: 15px !important;
-        padding: 15px !important;
-        border-radius: 6px !important;
-        box-shadow: 0 2px 8px rgba(220, 53, 69, 0.3) !important;
-      }
-      
-      /* Enhanced error highlighting for better visibility */
-      .formio-component-panel.has-error .formio-component,
-      [ref="row"].has-error .formio-component,
-      .formio-component-columns.has-error .formio-component {
-        border: 2px solid #dc3545 !important;
-        background-color: #fff !important;
-        border-radius: 4px !important;
-      }
-      
-      .formio-component-panel.has-error .formio-component.has-error,
-      [ref="row"].has-error .formio-component.has-error,
-      .formio-component-columns.has-error .formio-component.has-error {
-        border: 3px solid #dc3545 !important;
-        background-color: #f8d7da !important;
-        box-shadow: 0 0 0 0.3rem rgba(220, 53, 69, 0.4) !important;
-        border-radius: 4px !important;
-      }
-      
-      /* Make error messages more prominent */
-      .formio-component-panel.has-error .formio-errors,
-      [ref="row"].has-error .formio-errors,
-      .formio-component-columns.has-error .formio-errors {
-        background-color: #dc3545 !important;
-        color: white !important;
-        padding: 8px 12px !important;
-        border-radius: 4px !important;
-        margin-top: 8px !important;
-        font-weight: bold !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
-      }
-      
-      /* Enhanced input field highlighting */
-      .formio-component-panel.has-error input,
-      .formio-component-panel.has-error select,
-      .formio-component-panel.has-error textarea,
-      [ref="row"].has-error input,
-      [ref="row"].has-error select,
-      [ref="row"].has-error textarea,
-      .formio-component-columns.has-error input,
-      .formio-component-columns.has-error select,
-      .formio-component-columns.has-error textarea {
-        border: 2px solid #dc3545 !important;
+        border-left: 4px solid #d9534f !important;
         background-color: #fff5f5 !important;
-        box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.25) !important;
-      }
-      
-      /* Pulsing animation for attention */
-      @keyframes errorPulse {
-        0% { box-shadow: 0 2px 8px rgba(220, 53, 69, 0.3); }
-        50% { box-shadow: 0 2px 12px rgba(220, 53, 69, 0.6); }
-        100% { box-shadow: 0 2px 8px rgba(220, 53, 69, 0.3); }
-      }
-      
-      .formio-component-panel.has-error,
-      [ref="row"].has-error,
-      .formio-component-columns.has-error,
-      .list-group-item.has-error {
-        animation: errorPulse 2s infinite !important;
+        margin-bottom: 10px !important;
+        padding: 10px !important;
       }
     `;
     document.head.appendChild(style);
@@ -591,20 +567,21 @@ export default class ReviewButton extends FieldComponent {
 
   removeErrorHighlight(element) {
     if (!element) return;
-    
-    let rowContainer = element.closest('.formio-component-panel') ||
-                       element.closest('[ref="row"]') ||
-                       element.closest('.formio-component-columns') ||
-                       element.closest('.list-group-item') ||
-                       element.parentElement;
-    
+
+    // Find the row container (same logic as addErrorHighlight)
+    var rowContainer = element.closest('.formio-component-panel') ||
+      element.closest('[ref="row"]') ||
+      element.closest('.formio-component-columns') ||
+      element.closest('.list-group-item') ||
+      element.parentElement;
+
     if (!rowContainer || !rowContainer.classList) {
-      let parent = element;
-      for (let i = 0; i < 5; i++) {
+      var parent = element;
+      for (var i = 0; i < 5; i++) {
         if (parent && parent.classList && (
-            parent.classList.contains('formio-component') ||
-            parent.hasAttribute('data-noattach') ||
-            parent.classList.contains('row')
+          parent.classList.contains('formio-component') ||
+          parent.hasAttribute('data-noattach') ||
+          parent.classList.contains('row')
         )) {
           rowContainer = parent;
           break;
@@ -612,17 +589,14 @@ export default class ReviewButton extends FieldComponent {
         parent = parent.parentElement;
       }
     }
-    
+
+    // Remove error styling
     if (rowContainer && rowContainer.style) {
       rowContainer.classList.remove('has-error', 'alert', 'alert-danger');
-      rowContainer.style.removeProperty('border');
       rowContainer.style.removeProperty('border-left');
       rowContainer.style.removeProperty('background-color');
       rowContainer.style.removeProperty('margin-bottom');
       rowContainer.style.removeProperty('padding');
-      rowContainer.style.removeProperty('border-radius');
-      rowContainer.style.removeProperty('box-shadow');
-      rowContainer.style.removeProperty('animation');
       rowContainer.removeAttribute('data-has-errors');
     }
   }
@@ -1089,6 +1063,545 @@ export default class ReviewButton extends FieldComponent {
     return false;
   }
 
+  /**
+   * Clears all error states and visual indicators from a field component
+   * @param {Object} comp - Form.io component to clear errors from
+   */
+  clearFieldErrors(comp) {
+    if (!comp) return;
+
+    // Clear component error state
+    comp.error = '';
+    // Use setCustomValidity to safely clear errors
+    if (comp.setCustomValidity) {
+      comp.setCustomValidity([], false);
+    }
+    comp.setPristine(true);
+
+    if (!comp.element) return;
+
+    // Remove error classes from component element
+    comp.element.classList.remove('has-error', 'has-message', 'formio-error-wrapper');
+
+    // Remove error class from form-group
+    var formGroup = comp.element.closest('.form-group') || comp.element.querySelector('.form-group') || comp.element;
+    if (formGroup) {
+      formGroup.classList.remove('has-error');
+    }
+
+    // Remove error styling from input element
+    var input = comp.element.querySelector('input, select, textarea, .choices__inner');
+    if (input) {
+      input.classList.remove('is-invalid', 'form-control-danger');
+      input.style.removeProperty('border-color');
+      input.style.removeProperty('border-width');
+    }
+
+    // Remove all error message elements
+    var errMsgs = comp.element.querySelectorAll('.formio-errors, .invalid-feedback, .error');
+    errMsgs.forEach(function(msg) {
+      if (msg && msg.parentNode) {
+        msg.parentNode.removeChild(msg);
+      }
+    });
+
+    // Also check in parent elements for error messages
+    if (formGroup) {
+      var parentErrMsgs = formGroup.querySelectorAll('.formio-errors, .invalid-feedback');
+      parentErrMsgs.forEach(function(msg) {
+        if (msg && msg.parentNode) {
+          msg.parentNode.removeChild(msg);
+        }
+      });
+    }
+
+    // Trigger a redraw to update the component display
+    if (comp.redraw) {
+      setTimeout(function() {
+        comp.redraw();
+      }, 50);
+    }
+  }
+
+  /**
+   * Applies field-level error messages and styling to components with errors
+   * @param {Object} panel - Panel component containing the fields
+   */
+  applyFieldErrors(panel) {
+    if (!panel || !panel._hasErrors || !panel._errorMap) {
+      return;
+    }
+
+    var attemptCount = 0;
+    var maxAttempts = 10;
+
+    // Try applying errors with retries (in case DOM isn't ready)
+    var tryApplyErrors = function() {
+      var appliedCount = 0;
+
+      panel.everyComponent(function(comp) {
+        var compKey = comp.component && comp.component.key;
+        if (compKey && panel._errorMap[compKey]) {
+          var err = panel._errorMap[compKey];
+
+          // Set component error state
+          comp.error = err.message;
+          // Use setCustomValidity to safely set errors
+          if (comp.setCustomValidity) {
+            comp.setCustomValidity([err], true);
+          }
+          comp.setPristine(false);
+
+          if (comp.element) {
+            comp.element.classList.add('has-error', 'has-message', 'formio-error-wrapper');
+
+            var formGroup = comp.element.closest('.form-group') || comp.element.querySelector('.form-group') || comp.element;
+            formGroup.classList.add('has-error');
+
+            // Get component type
+            var compType = comp.type || comp.component.type;
+
+            var input = comp.element.querySelector('input, select, textarea, .choices');
+            if (input) {
+              // Apply red border to input
+              input.classList.add('is-invalid', 'form-control-danger');
+              input.style.borderColor = '#d9534f';
+              input.style.borderWidth = '2px';
+
+              // Create and insert error message
+              var errMsg = document.createElement('div');
+              errMsg.className = 'formio-errors invalid-feedback';
+              errMsg.style.display = 'block';
+              errMsg.style.color = '#d9534f';
+              errMsg.innerHTML = '<p style="margin:0;">' + err.message + '</p>';
+
+              var existing = comp.element.querySelector('.formio-errors');
+              if (existing) existing.remove();
+
+              // FIXED: Special handling for barcode fields
+              var insertPoint;
+              if (compType === 'barcode') {
+                // For barcode fields, find the wrapper that contains both input and button
+                var barcodeWrapper = input.closest('.input-group') ||
+                  input.closest('.form-group') ||
+                  input.parentElement;
+
+                // Insert error message AFTER the wrapper (below the field)
+                if (barcodeWrapper && barcodeWrapper.parentElement) {
+                  insertPoint = barcodeWrapper.parentElement;
+                  // Insert after the barcode wrapper
+                  if (barcodeWrapper.nextSibling) {
+                    insertPoint.insertBefore(errMsg, barcodeWrapper.nextSibling);
+                  } else {
+                    insertPoint.appendChild(errMsg);
+                  }
+                } else {
+                  // Fallback
+                  insertPoint = comp.element;
+                  insertPoint.appendChild(errMsg);
+                }
+              } else if (compType === 'radio') {
+                // For radio buttons, find the container that holds ALL radio options
+                var radioContainer = comp.element.querySelector('.form-radio') ||
+                  comp.element.querySelector('.radio') ||
+                  comp.element.querySelector('[role="radiogroup"]') ||
+                  formGroup;
+
+                // Insert error message AFTER all radio options
+                if (radioContainer) {
+                  radioContainer.appendChild(errMsg);
+                } else {
+                  // Fallback: append to the component element
+                  comp.element.appendChild(errMsg);
+                }
+              } else {
+                // For other field types, use the standard approach
+                insertPoint = input.parentElement || comp.element;
+                insertPoint.appendChild(errMsg);
+              }
+
+              appliedCount++;
+            }
+          }
+        }
+      });
+
+      // Retry if not all errors were applied
+      if (appliedCount < Object.keys(panel._errorMap).length && attemptCount < maxAttempts) {
+        attemptCount++;
+        setTimeout(tryApplyErrors, 200);
+      }
+    };
+
+    tryApplyErrors();
+  }
+
+  /**
+   * Checks if a field is now valid (used for real-time error clearing)
+   * @param {Object} comp - Form.io component to check
+   * @param {*} value - Current value of the field
+   * @returns {boolean} - True if field is valid
+   */
+  isFieldNowValid(comp, value) {
+    if (!comp) return false;
+
+    var compType = comp.type || comp.component.type;
+
+    // SPECIAL CASE: File fields
+    if (compType === 'file') {
+      var hasFile = this.hasActualFileData(value) ||
+        this.hasActualFileData(comp.dataValue) ||
+        (comp.files && comp.files.length > 0);
+
+      // Check DOM file inputs as fallback
+      if (!hasFile && comp.element) {
+        var fileInputs = comp.element.querySelectorAll('input[type="file"]');
+        for (var i = 0; i < fileInputs.length; i++) {
+          if (fileInputs[i]?.files && fileInputs[i].files.length > 0) {
+            hasFile = true;
+            break;
+          }
+        }
+      }
+
+      return hasFile;
+    }
+
+    // NON-FILE FIELDS
+    else {
+      // Check if field is required
+      var isRequired = comp.component?.validate?.required || comp.validate?.required;
+
+      if (!isRequired) {
+        return true; // Non-required fields are always valid
+      }
+
+      // Get the current value from multiple sources
+      var currentValue = value;
+      if (currentValue === null || currentValue === undefined || currentValue === '') {
+        currentValue = comp.dataValue;
+      }
+      if (currentValue === null || currentValue === undefined || currentValue === '') {
+        if (comp.getValue) {
+          currentValue = comp.getValue();
+        }
+      }
+      if (currentValue === null || currentValue === undefined || currentValue === '') {
+        var dataKey = comp.component?.key;
+        if (dataKey && comp.data) {
+          currentValue = comp.data[dataKey];
+        }
+      }
+
+      // SPECIAL CASE: Radio buttons - check DOM state
+      if (compType === 'radio' && comp.element) {
+        var checkedRadio = comp.element.querySelector('input[type="radio"]:checked');
+        if (checkedRadio && checkedRadio.value) {
+          currentValue = checkedRadio.value;
+        }
+      }
+
+      // SPECIAL CASE: Selectboxes (checkboxes) - check for any selected values
+      if (compType === 'selectboxes') {
+        if (typeof currentValue === 'object' && currentValue !== null) {
+          // Check if any checkbox is checked
+          var hasChecked = Object.keys(currentValue).some(function(key) {
+            return currentValue[key] === true;
+          });
+          if (hasChecked) {
+            return true; // At least one checkbox is selected
+          }
+        }
+      }
+
+      // Check if field has a value
+      var hasValue = false;
+      if (currentValue !== null && currentValue !== undefined && currentValue !== '') {
+        if (Array.isArray(currentValue)) {
+          hasValue = currentValue.length > 0;
+        } else if (typeof currentValue === 'object') {
+          hasValue = Object.keys(currentValue).length > 0;
+        } else if (typeof currentValue === 'string') {
+          hasValue = currentValue.trim().length > 0;
+        } else if (typeof currentValue === 'number') {
+          hasValue = true; // Numbers are always valid even if 0
+        } else if (typeof currentValue === 'boolean') {
+          hasValue = true; // Booleans are always valid
+        } else {
+          hasValue = true;
+        }
+      }
+
+      if (!hasValue) {
+        return false;
+      }
+
+      // If it has a value, run full validation to check other rules (e.g., format, length)
+      if (comp.checkValidity) {
+        // Save current state
+        var oldErrors = comp.errors ? [].concat(comp.errors) : [];
+        // Use setCustomValidity to safely clear errors
+        if (comp.setCustomValidity) {
+          comp.setCustomValidity([], false);
+        }
+
+        var validationResult = comp.checkValidity(comp.data, false, comp.data);
+        var isValid = validationResult === true || (comp.errors && comp.errors.length === 0);
+
+        // Restore errors if validation failed
+        if (!isValid && comp.setCustomValidity) {
+          comp.setCustomValidity(oldErrors, true);
+        }
+
+        return isValid;
+      }
+
+      return hasValue;
+    }
+  }
+
+  /**
+   * Sets up change listeners on all components in a panel for real-time error clearing
+   * @param {Object} panel - Panel component to setup listeners on
+   */
+  setupChangeListeners(panel) {
+    if (!panel) return;
+
+    // Capture the ReviewButton instance reference
+    var reviewButtonInstance = this;
+
+    panel.everyComponent(function(comp) {
+      if (!comp || !comp.component) return;
+
+      var compKey = comp.component.key;
+
+      // Skip if this specific component already has a listener
+      if (comp._hasValidationListener) return;
+      comp._hasValidationListener = true;
+
+      var compType = comp.type || comp.component.type;
+
+      /**
+       * Function to check and clear errors when field value changes
+       * @param {*} value - New value of the field
+       */
+      var checkAndClearError = function(value) {
+        setTimeout(function() {
+          if (!comp || !panel._errorMap) return;
+
+          // Get value from multiple sources
+          var checkValue = value;
+          if (!checkValue || checkValue === '') {
+            checkValue = comp.dataValue || comp.getValue?.() || (comp.data ? comp.data[compKey] : null);
+          }
+
+          var isValid = reviewButtonInstance.isFieldNowValid(comp, checkValue);
+
+          if (isValid && panel._errorMap[compKey]) {
+            // Field is now valid, remove from error map
+            delete panel._errorMap[compKey];
+            reviewButtonInstance.clearFieldErrors(comp);
+
+            // Check if there are any remaining errors
+            var remainingErrors = Object.keys(panel._errorMap || {}).length;
+
+            // If no more errors in this panel, remove panel highlighting
+            if (remainingErrors === 0) {
+              panel._hasErrors = false;
+              panel._customErrors = [];
+              panel._errorMap = {};
+
+              // Clear all component errors
+              panel.everyComponent?.(function(c) {
+                if (c) {
+                  c.error = '';
+                  // Use setCustomValidity to safely clear errors
+                  if (c.setCustomValidity) {
+                    c.setCustomValidity([], false);
+                  }
+                }
+              });
+
+              if (panel.element) {
+                reviewButtonInstance.removeErrorHighlight(panel.element);
+              }
+            }
+          }
+        }, 50);
+      };
+
+      // Add change listener (works for all field types)
+      comp.on('change', checkAndClearError);
+
+      // FILE FIELDS: Add upload completion listener
+      if (compType === 'file') {
+        comp.on('fileUploadingEnd', function() {
+          setTimeout(function() {
+            checkAndClearError(comp.getValue?.() || comp.dataValue);
+          }, 200);
+        });
+      }
+
+      // TEXT FIELDS (including barcode): Add input listener for immediate feedback
+      if (compType === 'textfield' || compType === 'textarea' || compType === 'number' || compType === 'email' || compType === 'phoneNumber' || compType === 'barcode') {
+        comp.on('input', checkAndClearError);
+
+        // Setup DOM listeners after a delay to ensure element is rendered
+        setTimeout(function() {
+          if (!comp.element) return;
+
+          var inputElement = comp.element.querySelector('input, textarea');
+          if (inputElement && !inputElement._hasCustomListener) {
+            inputElement._hasCustomListener = true;
+            inputElement.addEventListener('input', function() {
+              checkAndClearError(this.value);
+            });
+            inputElement.addEventListener('blur', function() {
+              checkAndClearError(this.value);
+            });
+          }
+        }, 300);
+      }
+
+      // RADIO/CHECKBOX FIELDS: Add DOM-level listeners
+      if (compType === 'radio' || compType === 'selectboxes') {
+        comp.on('blur', function() {
+          checkAndClearError(comp.dataValue || comp.getValue?.());
+        });
+
+        // Setup DOM listeners for radio buttons and checkboxes
+        setTimeout(function() {
+          if (!comp.element) return;
+
+          var radioInputs = comp.element.querySelectorAll('input[type="radio"], input[type="checkbox"]');
+          radioInputs.forEach(function(radioInput) {
+            if (!radioInput._hasCustomListener) {
+              radioInput._hasCustomListener = true;
+              radioInput.addEventListener('change', function() {
+                // For radio buttons, trigger immediately
+                setTimeout(function() {
+                  checkAndClearError(comp.getValue?.() || comp.dataValue);
+                }, 50);
+              });
+              radioInput.addEventListener('click', function() {
+                // Also on click for immediate feedback
+                setTimeout(function() {
+                  checkAndClearError(comp.getValue?.() || comp.dataValue);
+                }, 100);
+              });
+            }
+          });
+        }, 300);
+      }
+
+      // SELECT/DROPDOWN FIELDS: Add multiple event listeners for reliability
+      if (compType === 'select') {
+        comp.on('blur', function() {
+          checkAndClearError(comp.dataValue || comp.getValue?.() || (comp.data ? comp.data[compKey] : null));
+        });
+
+        // Immediate check on componentChange event
+        comp.on('componentChange', function() {
+          setTimeout(function() {
+            checkAndClearError(comp.dataValue || comp.getValue?.() || (comp.data ? comp.data[compKey] : null));
+          }, 100);
+        });
+
+        // Setup DOM listeners after a delay to ensure element is rendered
+        setTimeout(function() {
+          if (!comp.element) return;
+
+          // For native <select> elements
+          var selectElement = comp.element.querySelector('select');
+          if (selectElement && !selectElement._hasCustomListener) {
+            selectElement._hasCustomListener = true;
+            selectElement.addEventListener('change', function() {
+              checkAndClearError(this.value);
+            });
+            selectElement.addEventListener('input', function() {
+              checkAndClearError(this.value);
+            });
+          }
+
+          // For Choices.js dropdowns
+          var choicesElement = comp.element.querySelector('.choices__inner');
+          if (choicesElement && !choicesElement._hasCustomListener) {
+            choicesElement._hasCustomListener = true;
+
+            // Listen for clicks on the choices dropdown
+            choicesElement.addEventListener('click', function() {
+              setTimeout(function() {
+                checkAndClearError(comp.dataValue || comp.getValue?.());
+              }, 200);
+            });
+
+            // Listen for the Choices.js change event on the parent
+            var choicesWrapper = comp.element.querySelector('.choices');
+            if (choicesWrapper) {
+              choicesWrapper.addEventListener('change', function() {
+                setTimeout(function() {
+                  checkAndClearError(comp.dataValue || comp.getValue?.());
+                }, 100);
+              });
+            }
+          }
+        }, 300);
+      }
+    }.bind(this));
+  }
+
+  /**
+   * Sets up hooks for a single panel to maintain error states during redraws/reattaches
+   * @param {Object} panel - Panel component to setup hooks on
+   * @param {number} rowIndex - Index of the row in the DataGrid
+   */
+  setupPanelHooks(panel, rowIndex) {
+    if (panel._errorHooksAdded) return; // Avoid duplicate hooks
+    panel._errorHooksAdded = true;
+
+    // Capture the ReviewButton instance reference
+    var reviewButtonInstance = this;
+
+    // Setup change listeners for dynamic error clearing
+    this.setupChangeListeners(panel);
+
+    // Hook into panel attach method
+    var originalPanelAttach = panel.attach;
+    panel.attach = function(element) {
+      var result = originalPanelAttach.call(this, element);
+
+      // Reapply errors after attach if panel has errors
+      if (this._hasErrors) {
+        setTimeout(function() {
+          reviewButtonInstance.applyFieldErrors(panel);
+          if (panel.element) {
+            reviewButtonInstance.addErrorHighlight(panel.element);
+          }
+        }, 150);
+      }
+
+      return result;
+    };
+
+    // Hook into panel redraw method
+    var originalPanelRedraw = panel.redraw;
+    panel.redraw = function() {
+      var res = originalPanelRedraw ? originalPanelRedraw.apply(this, arguments) : null;
+
+      // Reapply errors after redraw if panel has errors
+      if (this._hasErrors) {
+        setTimeout(function() {
+          reviewButtonInstance.applyFieldErrors(panel);
+          if (panel.element) {
+            reviewButtonInstance.addErrorHighlight(panel.element);
+          }
+        }, 100);
+      }
+
+      return res;
+    };
+  }
+
   // Enhanced file validation method based on the provided approach
   validateFileComponentWithRelaxedRequired(comp) {
     if (!comp) return false;
@@ -1379,6 +1892,530 @@ export default class ReviewButton extends FieldComponent {
       console.error("Error submitting form:", e);
       alert("An error occurred while submitting the form. Please try again.");
     }
+  }
+
+  /**
+   * Form.io DataGrid Custom Validation Script
+   *
+   * Purpose: Provides "soft validation" for DataGrid rows - allows users to save incomplete rows
+   * while displaying clear visual feedback about missing/invalid fields.
+   *
+   * Features:
+   * - Save row with validation warnings (doesn't block save)
+   * - Validate all rows in the DataGrid
+   * - Real-time error clearing as fields are filled
+   * - Visual highlighting with red borders and pink backgrounds for rows with errors
+   * - Special handling for file upload fields to avoid false positives
+   * - Support for all field types: text, select, radio, checkbox, file, barcode, etc.
+   */
+  executeDataGridValidationScript(instance) {
+    const p = instance.getParent ? instance.getParent() : instance.parent;
+    if (!p) return;
+
+    // ============================================================================
+    // PART 1: SAVE CURRENT ROW WITH VALIDATION
+    // ============================================================================
+
+    var currentRowErrors = [];
+
+    // Mark components as dirty to trigger validation
+    if (p.setDirty) p.setDirty(true);
+
+    p.everyComponent?.(c => {
+      if (!c.visible) return;
+      c.setDirty?.(true);
+    });
+
+    // Temporarily disable "required" validation on file fields that have files
+    // This prevents false positives during validation
+    var fileTweaks = [];
+
+    p.everyComponent?.(component => {
+      if (!component || !component.visible) return;
+
+      const type = component.type || component.component?.type;
+      if (type !== 'file') return;
+
+      const isRequired = !!(component.component?.validate?.required || component.validate?.required);
+      if (!isRequired) return;
+
+      // Check if file field has any files
+      const dataValue = component.dataValue;
+      const getVal = component.getValue && component.getValue();
+      const getValStr = component.getValueAsString && component.getValueAsString();
+      const domInputs = [];
+
+      if (component.element) {
+        var fileInputs = component.element.querySelectorAll('input[type="file"]');
+        fileInputs.forEach?.(el => domInputs.push(el));
+      }
+
+      const serviceFiles = component.fileService?.files;
+      const candidates = [dataValue, getVal, getValStr, component.files, serviceFiles];
+
+      let hasValue = candidates.some((v) => this.hasActualFileData(v));
+
+      if (!hasValue && domInputs.length) {
+        for (var i = 0; i < domInputs.length; i++) {
+          var inp = domInputs[i];
+          if (inp?.files && inp.files.length > 0) {
+            hasValue = true;
+            break;
+          }
+        }
+      }
+
+      // If file exists, temporarily disable required validation
+      if (hasValue) {
+        var comp = component;
+        var wasRequired = !!(comp.component?.validate?.required || comp.validate?.required);
+        var ptr = comp.component?.validate ? comp.component.validate
+          : comp.validate ? comp.validate
+            : (comp.component ? (comp.component.validate = {}) : (comp.validate = {}));
+        if (ptr) {
+          ptr.required = false;
+        }
+        fileTweaks.push({ comp, wasRequired, ptr });
+      }
+    });
+
+    // Clear existing errors
+    p.everyComponent?.(c => {
+      if (!c.visible) return;
+      c.error = '';
+      // Use setCustomValidity to safely clear errors
+      if (c.setCustomValidity) {
+        c.setCustomValidity([], false);
+      }
+    });
+
+    // Run validation on all visible components
+    p.everyComponent?.(c => {
+      if (!c.visible) return;
+      c.checkValidity?.(c.data, false, c.data);
+      if (c.errors && c.errors.length > 0) {
+        currentRowErrors.push(...c.errors);
+      }
+    });
+
+    // Restore file field required validation
+    fileTweaks.forEach(t => {
+      if (t.ptr && t.wasRequired) t.ptr.required = true;
+    });
+
+    // Store errors in custom property instead of read-only errors property
+    p._customErrors = currentRowErrors;
+
+    setTimeout(function () {
+      /**
+       * Finds the native Form.io save button in the modal
+       * @returns {HTMLElement|null} - The save button element
+       */
+      function findNativeSave() {
+        var eh = p.eventHandlers || [];
+        for (var i = 0; i < eh.length; i++) {
+          var obj = eh[i] && eh[i].obj;
+          if (obj && obj.matches && obj.matches('button.btn.btn-success.formio-dialog-button')) {
+            return obj;
+          }
+        }
+        var modal = (p.refs && p.refs.modal) ? p.refs.modal : null;
+        if (!modal) {
+          var modals = document.querySelectorAll('.component-modal');
+          modal = modals.length ? modals[modals.length - 1] : null;
+        }
+        return modal ? modal.querySelector('.modal-footer .btn.btn-success.formio-dialog-button') : null;
+      }
+
+      // Click the native save button to actually save the row
+      var nativeSave = findNativeSave();
+      if (nativeSave) {
+        setTimeout(function () { nativeSave.click(); }, 0);
+      } else if (instance.emit) {
+        instance.emit('customEvent', { type: 'rowSaveProxy' });
+      }
+
+      // Show alert if there are validation errors (but still saves the row)
+      if (currentRowErrors.length > 0) {
+        var errorsPerField = {};
+        var labels = [];
+        currentRowErrors.map(function (e) {
+          var label = e.component?.label || e.component?.key || 'Field';
+          if (e.message.includes(label)) {
+            e.message = e.message.replace(label, "");
+          }
+          if (!labels.includes(label)) {
+            labels.push(label);
+          }
+          if( !errorsPerField[label]){
+            errorsPerField[label] = [];
+          }
+          errorsPerField[label].push(e);
+        });
+
+        var msg = 'There are missing/invalid fields:\n\n';
+        labels.map(function (fieldLabel) {
+          msg= msg + `• ${fieldLabel}: \n`;
+          errorsPerField[fieldLabel].map(function (err){
+            msg= msg + `   - ${err.message}\n`;
+          });
+        });
+        //if (p.setPristine) p.setPristine(true);
+        if (p.setDirty) p.setDirty(false);
+        setTimeout(function () { try { window.alert(msg); } catch (_) {} }, 200);
+        
+
+        // Mark the panel as having errors and store error map
+        p._hasErrors = true;
+        p._errorMap = {};
+        currentRowErrors.forEach(function(err) {
+          if (err.component && err.component.key) {
+            p._errorMap[err.component.key] = err;
+          }
+        });
+
+        // Apply error highlighting to the row
+        setTimeout(() => {
+          this.addErrorHighlight(p.element);
+        }, 100);
+      } else {
+        // Row is valid - clear all error states
+        setTimeout(() => {
+          p._customErrors = [];
+          p._hasErrors = false;
+          p._errorMap = {};
+
+          p.everyComponent?.(c => {
+            if (c.error) c.error = '';
+            // Use setCustomValidity to safely clear errors
+            if (c.setCustomValidity) {
+              c.setCustomValidity([], false);
+            }
+          });
+
+          this.removeErrorHighlight(p.element);
+          p.redraw?.();
+        }, 100);
+      }
+
+      // ============================================================================
+      // PART 2: VALIDATE ALL ROWS IN THE DATA GRID
+      // ============================================================================
+
+      setTimeout(function() {
+        var root = p.root || p;
+        var dataGrid = null;
+
+        // Find the DataGrid component
+        root.everyComponent(function(comp) {
+          if (comp.component.key === 'dataGrid' && comp.component.type === 'datagrid') {
+            dataGrid = comp;
+          }
+        });
+
+        if (!dataGrid || !dataGrid.rows || dataGrid.rows.length === 0) {
+          return;
+        }
+
+        /**
+         * Validates all rows in the DataGrid and updates their error states
+         */
+        function validateAllRows() {
+          var allRowErrors = [];
+          var rowsWithErrors = [];
+
+          dataGrid.rows.forEach(function(row, rowIndex) {
+            var rowErrors = [];
+            var panelComponent = row.panel;
+            if (!panelComponent) return;
+
+            var rowFileTweaks = [];
+
+            // Temporarily disable required validation on file fields with files
+            panelComponent.everyComponent?.(function(component) {
+              if (!component || !component.visible) return;
+
+              const type = component.type || component.component?.type;
+              if (type !== 'file') return;
+
+              const isRequired = !!(component.component?.validate?.required || component.validate?.required);
+              if (!isRequired) return;
+
+              // Check if file field has files
+              const dataValue = component.dataValue;
+              const getVal = component.getValue && component.getValue();
+              const files = component.files;
+              const serviceFiles = component.fileService?.files;
+
+              let hasValue = false;
+
+              // Check all possible sources
+              if (this.hasActualFileData(dataValue)) hasValue = true;
+              if (!hasValue && this.hasActualFileData(getVal)) hasValue = true;
+              if (!hasValue && this.hasActualFileData(files)) hasValue = true;
+              if (!hasValue && this.hasActualFileData(serviceFiles)) hasValue = true;
+
+              // Check DOM inputs as last resort
+              if (!hasValue && component.element) {
+                var fileInputs = component.element.querySelectorAll('input[type="file"]');
+                fileInputs.forEach?.(function(inp) {
+                  if (inp?.files && inp.files.length > 0) hasValue = true;
+                });
+              }
+
+              if (hasValue) {
+                var ptr = component.component?.validate ? component.component.validate
+                  : component.validate ? component.validate
+                    : (component.component ? (component.component.validate = {}) : (component.validate = {}));
+                if (ptr) {
+                  ptr.required = false;
+                  rowFileTweaks.push({ component: component, ptr: ptr });
+                }
+              }
+            }.bind(this));
+
+            // Clear existing errors before validation
+            panelComponent.everyComponent?.(function(c) {
+              if (!c.visible) return;
+              c.error = '';
+              // Use setCustomValidity to safely clear errors
+              if (c.setCustomValidity) {
+                c.setCustomValidity([], false);
+              }
+            });
+
+            // Run validation on all visible components
+            panelComponent.everyComponent?.(function(c) {
+              if (!c.visible) return;
+              c.checkValidity?.(c.data, false, c.data);
+              if (c.errors && c.errors.length > 0) {
+                c.errors.forEach(function(err) {
+                  rowErrors.push({
+                    rowIndex: rowIndex,
+                    field: err.component?.label || err.component?.key || 'Field',
+                    message: err.message,
+                    error: err
+                  });
+                });
+              }
+            });
+
+            // Restore file field requirements
+            rowFileTweaks.forEach(function(t) {
+              if (t.ptr) t.ptr.required = true;
+            });
+
+            // Update panel state based on validation results
+            if (rowErrors.length > 0) {
+              rowsWithErrors.push(rowIndex + 1);
+              allRowErrors.push.apply(allRowErrors, rowErrors);
+
+              // Store errors in custom property instead of read-only errors property
+              panelComponent._customErrors = rowErrors.map(function(e) { return e.error; });
+              panelComponent._hasErrors = true;
+
+              // Create error map for quick lookup
+              panelComponent._errorMap = {};
+              rowErrors.forEach(function(err) {
+                if (err.error && err.error.component && err.error.component.key) {
+                  panelComponent._errorMap[err.error.component.key] = err.error;
+                }
+              });
+            } else {
+              // IMPORTANT: Explicitly clear all error states for valid rows
+              panelComponent._customErrors = [];
+              panelComponent._hasErrors = false;
+              panelComponent._errorMap = {};
+
+              // Clear all component errors
+              panelComponent.everyComponent?.(function(c) {
+                if (c) {
+                  c.error = '';
+                  // Use setCustomValidity to safely clear errors
+                  if (c.setCustomValidity) {
+                    c.setCustomValidity([], false);
+                  }
+                }
+              });
+
+              // Ensure highlighting is removed when no errors
+              if (panelComponent.element) {
+                this.removeErrorHighlight(panelComponent.element);
+              }
+            }
+
+            // Setup hooks for this panel (for maintaining errors during redraws)
+            this.setupPanelHooks(panelComponent, rowIndex);
+          });
+
+          // Apply highlighting after validation
+          dataGrid.rows.forEach(function(row, rowIndex) {
+            var panelComponent = row.panel;
+            if (!panelComponent) return;
+
+            // Only highlight if there are actual errors in the error map
+            if (panelComponent._hasErrors && panelComponent._errorMap && Object.keys(panelComponent._errorMap).length > 0) {
+              setTimeout(() => {
+                if (panelComponent.element) {
+                  this.addErrorHighlight(panelComponent.element);
+                }
+              }, 50);
+            } else {
+              // Make absolutely sure no error highlighting remains on valid rows
+              panelComponent._hasErrors = false;
+              panelComponent._errorMap = {};
+              if (panelComponent.element) {
+                this.removeErrorHighlight(panelComponent.element);
+              }
+            }
+          });
+        }
+
+        // Run initial validation
+        validateAllRows();
+
+        // Setup global dataGrid hooks ONCE
+        if (!dataGrid._globalHooksAdded) {
+          dataGrid._globalHooksAdded = true;
+
+          // Hook into DataGrid attach method
+          var originalDataGridAttach = dataGrid.attach;
+          dataGrid.attach = function(element) {
+            var result = originalDataGridAttach.call(this, element);
+
+            setTimeout(() => {
+              dataGrid.rows.forEach((row, idx) => {
+                if (row.panel) {
+                  this.setupPanelHooks(row.panel, idx);
+
+                  if (row.panel._hasErrors) {
+                    this.applyFieldErrors(row.panel);
+                    if (row.panel.element) {
+                      this.addErrorHighlight(row.panel.element);
+                    }
+                  }
+                }
+              });
+            }, 200);
+
+            return result;
+          };
+
+          // Hook into DataGrid redraw method
+          var originalDataGridRedraw = dataGrid.redraw;
+          dataGrid.redraw = function() {
+            var result = originalDataGridRedraw ? originalDataGridRedraw.apply(this, arguments) : null;
+
+            setTimeout(() => {
+              dataGrid.rows.forEach((row, idx) => {
+                if (row.panel) {
+                  this.setupPanelHooks(row.panel, idx);
+
+                  if (row.panel._hasErrors) {
+                    this.applyFieldErrors(row.panel);
+                    if (row.panel.element) {
+                      this.addErrorHighlight(row.panel.element);
+                    }
+                  }
+                }
+              });
+            }, 100);
+
+            return result;
+          };
+
+          // Hook into addRow to preserve validation state when adding new rows
+          var originalAddRow = dataGrid.addRow;
+          dataGrid.addRow = function() {
+            var result = originalAddRow.apply(this, arguments);
+
+            setTimeout(() => {
+              // Re-validate all rows to maintain error state
+              validateAllRows();
+
+              // Apply errors to all rows including the new one
+              dataGrid.rows.forEach((row, idx) => {
+                if (row.panel) {
+                  this.setupPanelHooks(row.panel, idx);
+                  if (row.panel._hasErrors) {
+                    this.applyFieldErrors(row.panel);
+                    if (row.panel.element) {
+                      this.addErrorHighlight(row.panel.element);
+                    }
+                  }
+                }
+              });
+            }, 300);
+
+            return result;
+          };
+
+          // Hook into removeRow to preserve validation state when removing rows
+          var originalRemoveRow = dataGrid.removeRow;
+          dataGrid.removeRow = function(rowIndex) {
+            var result = originalRemoveRow.apply(this, arguments);
+
+            setTimeout(() => {
+              // Clear all listener flags so they get re-added
+              dataGrid.rows.forEach((row) => {
+                if (row.panel) {
+                  row.panel._errorHooksAdded = false;
+                  row.panel.everyComponent((comp) => {
+                    if (comp) {
+                      comp._hasValidationListener = false;
+                    }
+                  });
+                }
+              });
+
+              // Re-validate all remaining rows
+              validateAllRows();
+
+              // Re-setup and apply errors
+              dataGrid.rows.forEach((row, idx) => {
+                if (row && row.panel) {
+                  this.setupPanelHooks(row.panel, idx);
+
+                  if (row.panel._hasErrors) {
+                    setTimeout(() => {
+                      if (row.panel && row.panel.element) {
+                        this.applyFieldErrors(row.panel);
+                        this.addErrorHighlight(row.panel.element);
+                      }
+                    }, 150);
+                  }
+                }
+              });
+            }, 400);
+
+            return result;
+          };
+        }
+
+        // Apply highlighting immediately after initial validation
+        dataGrid.rows.forEach((row, rowIndex) => {
+          var panelComponent = row.panel;
+          if (!panelComponent) return;
+
+          // Only highlight if there are actual errors
+          if (panelComponent._hasErrors && panelComponent._errorMap && Object.keys(panelComponent._errorMap).length > 0) {
+            this.applyFieldErrors(panelComponent);
+            if (panelComponent.element) {
+              this.addErrorHighlight(panelComponent.element);
+            }
+          } else {
+            // Ensure valid rows have no highlighting
+            panelComponent._hasErrors = false;
+            panelComponent._errorMap = {};
+            if (panelComponent.element) {
+              this.removeErrorHighlight(panelComponent.element);
+            }
+          }
+        });
+
+      }, 500);
+
+    }, 300);
   }
 
   attach(element) {
