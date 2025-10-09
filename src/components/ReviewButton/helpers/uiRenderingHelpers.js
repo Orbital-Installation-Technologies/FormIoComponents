@@ -581,14 +581,15 @@ export function isFieldInvalid(comp, path, invalidFields) {
           console.log('Direct array field match found:', invalidField, 'for field:', fieldPath);
           return true;
         }
-        // Match with wildcard index
-        if (invalidField.includes(arrayPart.replace(/\[\d+\]/, '[*]')) && 
+        // Match with wildcard index - FIXED: Use exact wildcard match
+        const wildcardArrayPart = arrayPart.replace(/\[\d+\]/, '[*]');
+        if (invalidField.startsWith(wildcardArrayPart + '.') && 
             (invalidField.endsWith('.' + fieldName) || invalidField === fieldName)) {
           console.log('Wildcard array field match found:', invalidField, 'for field:', fieldPath);
           return true;
         }
-        // Match with same array part and field name
-        if (invalidField.includes(arrayPart) && 
+        // Match with same array part and field name - FIXED: Use exact array part match
+        if (invalidField.startsWith(arrayPart + '.') && 
             (invalidField.endsWith('.' + fieldName) || invalidField === fieldName)) {
           console.log('Array field match found:', invalidField, 'for field:', fieldPath);
           return true;
@@ -611,9 +612,16 @@ export function isFieldInvalid(comp, path, invalidFields) {
         return true;
       }
       // Match if the invalid field doesn't contain array notation
+      // FIXED: Only match if the invalid field is a direct path match, not just field name
       if (!invalidField.includes('[') && !invalidField.includes(']')) {
-        if (invalidField.endsWith('.' + fieldName) || invalidField === fieldName) {
-          console.log('Field name match found:', invalidField, 'for field:', fieldPath);
+        // Only match if the invalid field ends with the exact field path
+        if (invalidField.endsWith('.' + fieldPath) || invalidField === fieldPath) {
+          console.log('Field path match found:', invalidField, 'for field:', fieldPath);
+          return true;
+        }
+        // Also check if the invalid field is just the field name (for top-level fields)
+        if (invalidField === fieldName && fieldPath === fieldName) {
+          console.log('Top-level field name match found:', invalidField, 'for field:', fieldPath);
           return true;
         }
       }
@@ -673,14 +681,12 @@ export function getInvalidStyle(comp, path, basePath = '', invalidFields, invali
 export function addErrorHighlight(element) {
   if (!element) return;
 
-  // Find the row container (tries multiple selectors)
   var rowContainer = element.closest('.formio-component-panel') ||
     element.closest('[ref="row"]') ||
     element.closest('.formio-component-columns') ||
     element.closest('.list-group-item') ||
     element.parentElement;
 
-  // Fallback: traverse up to find container
   if (!rowContainer || !rowContainer.classList) {
     var parent = element;
     for (var i = 0; i < 5; i++) {
@@ -688,15 +694,11 @@ export function addErrorHighlight(element) {
         parent.classList.contains('formio-component') ||
         parent.hasAttribute('data-noattach') ||
         parent.classList.contains('row')
-      )) {
-        rowContainer = parent;
-        break;
-      }
+      )) { rowContainer = parent; break; }
       parent = parent.parentElement;
     }
   }
 
-  // Apply error styling
   if (rowContainer && rowContainer.style) {
     rowContainer.classList.add('has-error', 'alert', 'alert-danger');
     rowContainer.style.setProperty('border-left', '4px solid #d9534f', 'important');
@@ -714,7 +716,6 @@ export function addErrorHighlight(element) {
 export function removeErrorHighlight(element) {
   if (!element) return;
 
-  // Find the row container (same logic as addErrorHighlight)
   var rowContainer = element.closest('.formio-component-panel') ||
     element.closest('[ref="row"]') ||
     element.closest('.formio-component-columns') ||
@@ -728,15 +729,11 @@ export function removeErrorHighlight(element) {
         parent.classList.contains('formio-component') ||
         parent.hasAttribute('data-noattach') ||
         parent.classList.contains('row')
-      )) {
-        rowContainer = parent;
-        break;
-      }
+      )) { rowContainer = parent; break; }
       parent = parent.parentElement;
     }
   }
 
-  // Remove error styling
   if (rowContainer && rowContainer.style) {
     rowContainer.classList.remove('has-error', 'alert', 'alert-danger');
     rowContainer.style.removeProperty('border-left');
@@ -792,6 +789,19 @@ export function applyFieldErrors(panel) {
     return;
   }
 
+  console.log(`applyFieldErrors called for panel (Row ${panel._rowIndex || 'unknown'}) with error map:`, panel._errorMap);
+  
+  // Debug: Log all components in the panel
+  console.log('Panel components:');
+  panel.everyComponent(function(comp) {
+    console.log('  Component:', {
+      key: comp.key,
+      componentKey: comp.component?.key,
+      path: comp.path,
+      type: comp.type || comp.component?.type
+    });
+  });
+
   var attemptCount = 0;
   var maxAttempts = 10;
 
@@ -801,8 +811,42 @@ export function applyFieldErrors(panel) {
 
     panel.everyComponent(function(comp) {
       var compKey = comp.component && comp.component.key;
+      var compPath = comp.path || comp.key;
+      
+      // Check both component key and field name for DataGrid components
+      var shouldApplyError = false;
+      var err = null;
+      
       if (compKey && panel._errorMap[compKey]) {
-        var err = panel._errorMap[compKey];
+        err = panel._errorMap[compKey];
+        shouldApplyError = true;
+        console.log(`Applying error to component by key ${compKey}:`, err);
+      } else if (compPath) {
+        // For DataGrid components, also check by field name extracted from path
+        const fieldName = compPath.split('.').pop();
+        if (fieldName && panel._errorMap[fieldName]) {
+          err = panel._errorMap[fieldName];
+          shouldApplyError = true;
+          console.log(`Applying error to component by field name ${fieldName}:`, err);
+        }
+      }
+      
+      // Additional fallback: check if any error map key matches component properties
+      if (!shouldApplyError) {
+        const errorMapKeys = Object.keys(panel._errorMap);
+        for (const errorKey of errorMapKeys) {
+          if (compKey === errorKey || comp.key === errorKey || 
+              (compPath && compPath.includes(errorKey)) ||
+              (comp.component && comp.component.key === errorKey)) {
+            err = panel._errorMap[errorKey];
+            shouldApplyError = true;
+            console.log(`Applying error to component by fallback match ${errorKey}:`, err);
+            break;
+          }
+        }
+      }
+      
+      if (shouldApplyError && err) {
 
         // Set component error state
         comp.error = err.message;

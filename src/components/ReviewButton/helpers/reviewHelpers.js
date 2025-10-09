@@ -284,6 +284,20 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
   // Cancel button handler
   modal.querySelector("#cancelModal").onclick = async () => {
     hideScreenshot();
+    
+    // Trigger validation highlighting on the main form when modal closes
+    if (window.reviewButtonInstance) {
+      try {
+        const validation = await window.reviewButtonInstance.validateFormExternal({
+          showErrors: true,
+          scrollToError: false
+        });
+        console.log('Validation triggered on modal close:', validation);
+      } catch (error) {
+        console.error('Error triggering validation on modal close:', error);
+      }
+    }
+    
     document.body.removeChild(modal);
   };
 

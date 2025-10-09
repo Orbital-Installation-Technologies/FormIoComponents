@@ -4,7 +4,7 @@
  */
 
 import { hasActualFileData, clearFieldErrors, isFieldNowValid } from './validationUtils.js';
-import { addErrorHighlight, removeErrorHighlight, applyFieldErrors } from './uiRenderingHelpers.js';
+import { removeErrorHighlight, applyFieldErrors, addErrorHighlight } from './uiRenderingHelpers.js';
 
 /**
  * Sets up change listeners on all components in a panel for real-time error clearing
@@ -214,11 +214,10 @@ export function setupPanelHooks(panel, rowIndex, reviewButtonInstance) {
 
     // Reapply errors after attach if panel has errors
     if (this._hasErrors) {
+      console.log('Panel attach - reapplying errors for panel with error map:', panel._errorMap);
       setTimeout(function() {
         applyFieldErrors(panel);
-        if (panel.element) {
-          addErrorHighlight(panel.element);
-        }
+        if (panel.element) addErrorHighlight(panel.element);
       }, 150);
     }
 
@@ -232,11 +231,10 @@ export function setupPanelHooks(panel, rowIndex, reviewButtonInstance) {
 
     // Reapply errors after redraw if panel has errors
     if (this._hasErrors) {
+      console.log('Panel redraw - reapplying errors for panel with error map:', panel._errorMap);
       setTimeout(function() {
         applyFieldErrors(panel);
-        if (panel.element) {
-          addErrorHighlight(panel.element);
-        }
+        if (panel.element) addErrorHighlight(panel.element);
       }, 100);
     }
 
@@ -253,147 +251,85 @@ export function setupPanelHooks(panel, rowIndex, reviewButtonInstance) {
 export function highlightDataGridRows(dataGrid, results, reviewButtonInstance) {
   if (!dataGrid.rows || !Array.isArray(dataGrid.rows)) return;
 
+  const dataGridKey = dataGrid.key || dataGrid.component?.key;
+  if (!dataGridKey) return;
+
   dataGrid.rows.forEach((row, rowIndex) => {
     const panelComponent = row.panel;
     if (!panelComponent) return;
 
-    var rowErrors = [];
-    var rowFileTweaks = [];
+    // Clear existing errors first
+    panelComponent._customErrors = [];
+    panelComponent._hasErrors = false;
+    panelComponent._errorMap = {};
 
-    // Temporarily disable required validation on file fields with files
-    const self = reviewButtonInstance;
-    panelComponent.everyComponent?.(function(component) {
-      if (!component || !component.visible) return;
-
-      const type = component.type || component.component?.type;
-      if (type !== 'file') return;
-
-      const isRequired = !!(component.component?.validate?.required || component.validate?.required);
-      if (!isRequired) return;
-
-      // Check if file field has files
-      const dataValue = component.dataValue;
-      const getVal = component.getValue && component.getValue();
-      const files = component.files;
-      const serviceFiles = component.fileService?.files;
-
-      let hasValue = false;
-
-      // Check all possible sources
-      if (hasActualFileData(dataValue)) hasValue = true;
-      if (!hasValue && hasActualFileData(getVal)) hasValue = true;
-      if (!hasValue && hasActualFileData(files)) hasValue = true;
-      if (!hasValue && hasActualFileData(serviceFiles)) hasValue = true;
-
-      // Check DOM inputs as last resort
-      if (!hasValue && component.element) {
-        var fileInputs = component.element.querySelectorAll('input[type="file"]');
-        fileInputs.forEach?.(function(inp) {
-          if (inp?.files && inp.files.length > 0) hasValue = true;
-        });
-      }
-
-      if (hasValue) {
-        var ptr = component.component?.validate ? component.component.validate
-          : component.validate ? component.validate
-            : (component.component ? (component.component.validate = {}) : (component.validate = {}));
-        if (ptr) {
-          ptr.required = false;
-          rowFileTweaks.push({ component: component, ptr: ptr });
+    // Clear all component errors
+    panelComponent.everyComponent?.(function(c) {
+      if (c) {
+        c.error = '';
+        if (c.setCustomValidity) {
+          c.setCustomValidity([], false);
         }
       }
     });
 
-    // Clear existing errors before validation
-    panelComponent.everyComponent?.(function(c) {
-      if (!c.visible) return;
-      c.error = '';
-      // Use setCustomValidity to safely clear errors instead of directly setting errors property
-      if (c.setCustomValidity) {
-        c.setCustomValidity([], false);
-      }
-    });
+    // Check if this row has any errors in the filtered results
+    const rowErrors = [];
+    const rowPath = `${dataGridKey}[${rowIndex}]`;
 
-    // Run validation on all visible components
-    panelComponent.everyComponent?.(function(c) {
-      if (!c.visible) return;
-      c.checkValidity?.(c.data, false, c.data);
-      if (c.errors && c.errors.length > 0) {
-        c.errors.forEach(function(err) {
-          rowErrors.push({
-            rowIndex: rowIndex,
-            field: err.component?.label || err.component?.key || 'Field',
-            message: err.message,
-            error: err
-          });
-        });
-      }
-    });
+    // Look for errors that match this specific row
+    if (results && results.errors) {
+      Object.keys(results.errors).forEach(path => {
+        if (path.startsWith(rowPath + '.')) {
+          const error = results.errors[path];
+          if (error && error.errors && error.errors.length > 0) {
+            // Create error object with component information
+            const fieldKey = path.split('.').pop();
+            const errorObj = {
+              component: { key: fieldKey },
+              message: error.errors[0] || 'Invalid',
+              errors: error.errors
+            };
+            rowErrors.push(errorObj);
+          }
+        }
+      });
+    }
 
-    // Restore file field requirements
-    rowFileTweaks.forEach(function(t) {
-      if (t.ptr) t.ptr.required = true;
-    });
-
-    // Update panel state based on validation results
+    // If this row has errors, set up the error state
     if (rowErrors.length > 0) {
-      // Store errors in custom property instead of read-only errors property
-      panelComponent._customErrors = rowErrors.map(function(e) { return e.error; });
+      panelComponent._customErrors = rowErrors;
       panelComponent._hasErrors = true;
 
       // Create error map for quick lookup
       panelComponent._errorMap = {};
       rowErrors.forEach(function(err) {
-        if (err.error && err.error.component && err.error.component.key) {
-          panelComponent._errorMap[err.error.component.key] = err.error;
+        if (err && err.component && err.component.key) {
+          panelComponent._errorMap[err.component.key] = err;
+          console.log(`Added to error map: ${err.component.key}`, err);
         }
       });
-    } else {
-      // IMPORTANT: Explicitly clear all error states for valid rows
-      panelComponent._customErrors = [];
-      panelComponent._hasErrors = false;
-      panelComponent._errorMap = {};
-
-      // Clear all component errors
-      panelComponent.everyComponent?.(function(c) {
-        if (c) {
-          c.error = '';
-          // Use setCustomValidity to safely clear errors
-          if (c.setCustomValidity) {
-            c.setCustomValidity([], false);
-          }
-        }
-      });
-
-      // Ensure highlighting is removed when no errors
-      if (panelComponent.element) {
-        removeErrorHighlight(panelComponent.element);
-      }
+      console.log('Final error map for row', rowIndex, ':', panelComponent._errorMap);
     }
 
     // Setup hooks for this panel (for maintaining errors during redraws)
     setupPanelHooks(panelComponent, rowIndex, reviewButtonInstance);
   });
 
-  // Apply highlighting after validation
+  // Apply highlighting after setting up error states
   dataGrid.rows.forEach((row, rowIndex) => {
     const panelComponent = row.panel;
     if (!panelComponent) return;
 
     // Only highlight if there are actual errors in the error map
     if (panelComponent._hasErrors && panelComponent._errorMap && Object.keys(panelComponent._errorMap).length > 0) {
-      setTimeout(() => {
-        if (panelComponent.element) {
-          addErrorHighlight(panelComponent.element);
-        }
+      setTimeout(function () { 
+        if (panelComponent.element) addErrorHighlight(panelComponent.element); 
       }, 50);
     } else {
-      // Make absolutely sure no error highlighting remains on valid rows
       panelComponent._hasErrors = false;
       panelComponent._errorMap = {};
-      if (panelComponent.element) {
-        removeErrorHighlight(panelComponent.element);
-      }
+      if (panelComponent.element) removeErrorHighlight(panelComponent.element);
     }
   });
 }
