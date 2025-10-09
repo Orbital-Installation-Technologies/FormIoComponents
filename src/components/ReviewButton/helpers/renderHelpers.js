@@ -832,12 +832,6 @@ function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, 
 function isRowInvalid(row, datagridKey, rowIdx, invalidFields, invalidComponents = new Set()) {
   if (!row.__children) return false;
 
-  console.log('Checking if row is invalid:', {
-    datagridKey,
-    rowIdx,
-    invalidFields: Array.from(invalidFields),
-    invalidComponents: Array.from(invalidComponents).map(c => c?.key || c?.component?.key)
-  });
 
   const hasDirectInvalid = Object.keys(row.__children).some(colKey => {
     const cell = row.__children[colKey];

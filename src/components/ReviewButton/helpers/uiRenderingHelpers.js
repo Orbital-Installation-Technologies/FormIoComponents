@@ -536,12 +536,15 @@ export function isFieldInvalid(comp, path, invalidFields) {
   
   if (!fieldPath) return false;
 
-  // Debug logging
-  console.log('isFieldInvalid check:', {
-    fieldPath,
-    invalidFields: Array.from(invalidFields),
-    comp: comp?.key || comp?.component?.key
-  });
+  // Debug logging for hardware product
+  if (fieldPath && (fieldPath.includes('hardwareProduct') || fieldPath.includes('Hardware'))) {
+    console.log('isFieldInvalid check for Hardware Product:', {
+      fieldPath,
+      invalidFields: Array.from(invalidFields),
+      comp: comp?.key || comp?.component?.key,
+      compValue: comp?.dataValue || comp?.getValue?.()
+    });
+  }
 
   // Direct path match
   if (invalidFields.has(fieldPath)) {
@@ -576,26 +579,14 @@ export function isFieldInvalid(comp, path, invalidFields) {
       const arrayPart = arrayMatch[1];
       
       for (const invalidField of invalidFields) {
-        // Direct match
+        // Direct match with exact path
         if (invalidField === fieldPath) {
           console.log('Direct array field match found:', invalidField, 'for field:', fieldPath);
           return true;
         }
-        // Match with wildcard index
-        if (invalidField.includes(arrayPart.replace(/\[\d+\]/, '[*]')) && 
-            (invalidField.endsWith('.' + fieldName) || invalidField === fieldName)) {
-          console.log('Wildcard array field match found:', invalidField, 'for field:', fieldPath);
-          return true;
-        }
-        // Match with same array part and field name
-        if (invalidField.includes(arrayPart) && 
-            (invalidField.endsWith('.' + fieldName) || invalidField === fieldName)) {
+        // Match with same array part and exact field name - must match the specific row index
+        if (invalidField.includes(arrayPart) && invalidField.endsWith('.' + fieldName)) {
           console.log('Array field match found:', invalidField, 'for field:', fieldPath);
-          return true;
-        }
-        // Match just the field name for data grid rows
-        if (invalidField === fieldName) {
-          console.log('Field name match in array context:', invalidField, 'for field:', fieldPath);
           return true;
         }
       }
@@ -664,4 +655,236 @@ export function getInvalidStyle(comp, path, basePath = '', invalidFields, invali
 
   console.log('getInvalidStyle: No styling applied for path:', path);
   return '';
+}
+
+/**
+ * Adds visual error highlighting to a row (red border + pink background)
+ * @param {HTMLElement} element - The element to highlight
+ */
+export function addErrorHighlight(element) {
+  if (!element) return;
+
+  // Find the row container (tries multiple selectors)
+  var rowContainer = element.closest('.formio-component-panel') ||
+    element.closest('[ref="row"]') ||
+    element.closest('.formio-component-columns') ||
+    element.closest('.list-group-item') ||
+    element.parentElement;
+
+  // Fallback: traverse up to find container
+  if (!rowContainer || !rowContainer.classList) {
+    var parent = element;
+    for (var i = 0; i < 5; i++) {
+      if (parent && parent.classList && (
+        parent.classList.contains('formio-component') ||
+        parent.hasAttribute('data-noattach') ||
+        parent.classList.contains('row')
+      )) {
+        rowContainer = parent;
+        break;
+      }
+      parent = parent.parentElement;
+    }
+  }
+
+  // Apply error styling
+  if (rowContainer && rowContainer.style) {
+    rowContainer.classList.add('has-error', 'alert', 'alert-danger');
+    rowContainer.style.setProperty('border-left', '4px solid #d9534f', 'important');
+    rowContainer.style.setProperty('background-color', '#fff5f5', 'important');
+    rowContainer.style.setProperty('margin-bottom', '10px', 'important');
+    rowContainer.style.setProperty('padding', '10px', 'important');
+    rowContainer.setAttribute('data-has-errors', 'true');
+  }
+}
+
+/**
+ * Removes visual error highlighting from a row
+ * @param {HTMLElement} element - The element to un-highlight
+ */
+export function removeErrorHighlight(element) {
+  if (!element) return;
+
+  // Find the row container (same logic as addErrorHighlight)
+  var rowContainer = element.closest('.formio-component-panel') ||
+    element.closest('[ref="row"]') ||
+    element.closest('.formio-component-columns') ||
+    element.closest('.list-group-item') ||
+    element.parentElement;
+
+  if (!rowContainer || !rowContainer.classList) {
+    var parent = element;
+    for (var i = 0; i < 5; i++) {
+      if (parent && parent.classList && (
+        parent.classList.contains('formio-component') ||
+        parent.hasAttribute('data-noattach') ||
+        parent.classList.contains('row')
+      )) {
+        rowContainer = parent;
+        break;
+      }
+      parent = parent.parentElement;
+    }
+  }
+
+  // Remove error styling
+  if (rowContainer && rowContainer.style) {
+    rowContainer.classList.remove('has-error', 'alert', 'alert-danger');
+    rowContainer.style.removeProperty('border-left');
+    rowContainer.style.removeProperty('background-color');
+    rowContainer.style.removeProperty('margin-bottom');
+    rowContainer.style.removeProperty('padding');
+    rowContainer.removeAttribute('data-has-errors');
+  }
+}
+
+/**
+ * Ensures error highlight styles are available in the document
+ */
+export function ensureErrorHighlightStyles() {
+  if (document.getElementById('formio-row-error-styles')) return;
+  
+  const style = document.createElement('style');
+  style.id = 'formio-row-error-styles';
+  style.textContent = `
+    .formio-component-panel.has-error,
+    .formio-component-panel.alert-danger,
+    [ref="row"].has-error,
+    [ref="row"].alert-danger,
+    .formio-component-columns.has-error,
+    .formio-component-columns.alert-danger,
+    .list-group-item.has-error,
+    .list-group-item.alert-danger {
+      border-left: 4px solid #d9534f !important;
+      background-color: #fff5f5 !important;
+      margin-bottom: 10px !important;
+      padding: 10px !important;
+    }
+    
+    .formio-component-panel[data-has-errors="true"],
+    [ref="row"][data-has-errors="true"],
+    .formio-component-columns[data-has-errors="true"],
+    .list-group-item[data-has-errors="true"] {
+      border-left: 4px solid #d9534f !important;
+      background-color: #fff5f5 !important;
+      margin-bottom: 10px !important;
+      padding: 10px !important;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+/**
+ * Applies field-level error messages and styling to components with errors
+ * @param {Object} panel - Panel component containing the fields
+ */
+export function applyFieldErrors(panel) {
+  if (!panel || !panel._hasErrors || !panel._errorMap) {
+    return;
+  }
+
+  var attemptCount = 0;
+  var maxAttempts = 10;
+
+  // Try applying errors with retries (in case DOM isn't ready)
+  var tryApplyErrors = function() {
+    var appliedCount = 0;
+
+    panel.everyComponent(function(comp) {
+      var compKey = comp.component && comp.component.key;
+      if (compKey) {
+        if (panel._errorMap[compKey]) {
+          var err = panel._errorMap[compKey];
+
+          // Set component error state
+          comp.error = err.message;
+          // Use setCustomValidity to safely set errors
+          if (comp.setCustomValidity) {
+            comp.setCustomValidity([err], true);
+          }
+          comp.setPristine(false);
+
+          if (comp.element) {
+            comp.element.classList.add('has-error', 'has-message', 'formio-error-wrapper');
+
+            var formGroup = comp.element.closest('.form-group') || comp.element.querySelector('.form-group') || comp.element;
+            formGroup.classList.add('has-error');
+
+          // Get component type
+          var compType = comp.type || comp.component.type;
+
+          var input = comp.element.querySelector('input, select, textarea, .choices');
+          if (input) {
+            // Apply red border to input
+            input.classList.add('is-invalid', 'form-control-danger');
+            input.style.borderColor = '#d9534f';
+            input.style.borderWidth = '2px';
+
+            // Create and insert error message
+            var errMsg = document.createElement('div');
+            errMsg.className = 'formio-errors invalid-feedback';
+            errMsg.style.display = 'block';
+            errMsg.style.color = '#d9534f';
+            errMsg.innerHTML = '<p style="margin:0;">' + err.message + '</p>';
+
+            var existing = comp.element.querySelector('.formio-errors');
+            if (existing) existing.remove();
+
+            // FIXED: Special handling for barcode fields
+            var insertPoint;
+            if (compType === 'barcode') {
+              // For barcode fields, find the wrapper that contains both input and button
+              var barcodeWrapper = input.closest('.input-group') ||
+                input.closest('.form-group') ||
+                input.parentElement;
+
+              // Insert error message AFTER the wrapper (below the field)
+              if (barcodeWrapper && barcodeWrapper.parentElement) {
+                insertPoint = barcodeWrapper.parentElement;
+                // Insert after the barcode wrapper
+                if (barcodeWrapper.nextSibling) {
+                  insertPoint.insertBefore(errMsg, barcodeWrapper.nextSibling);
+                } else {
+                  insertPoint.appendChild(errMsg);
+                }
+              } else {
+                // Fallback
+                insertPoint = comp.element;
+                insertPoint.appendChild(errMsg);
+              }
+            } else if (compType === 'radio') {
+              // For radio buttons, find the container that holds ALL radio options
+              var radioContainer = comp.element.querySelector('.form-radio') ||
+                comp.element.querySelector('.radio') ||
+                comp.element.querySelector('[role="radiogroup"]') ||
+                formGroup;
+
+              // Insert error message AFTER all radio options
+              if (radioContainer) {
+                radioContainer.appendChild(errMsg);
+              } else {
+                // Fallback: append to the component element
+                comp.element.appendChild(errMsg);
+              }
+            } else {
+              // For other field types, use the standard approach
+              insertPoint = input.parentElement || comp.element;
+              insertPoint.appendChild(errMsg);
+            }
+
+            appliedCount++;
+          }
+          }
+        }
+      }
+    });
+
+    // Retry if not all errors were applied
+    if (appliedCount < Object.keys(panel._errorMap).length && attemptCount < maxAttempts) {
+      attemptCount++;
+      setTimeout(tryApplyErrors, 200);
+    }
+  };
+
+  tryApplyErrors();
 }

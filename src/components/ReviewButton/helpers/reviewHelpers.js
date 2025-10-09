@@ -17,9 +17,7 @@ export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, suppor
       <div idx="22" class="mb-4 text-sm" style="max-height:200px; overflow-y:auto; border:1px solid #ccc; padding:8px;">
         ${reviewHtml}
       </div>
-      ${hasErrors ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-         <p class="text-red-700 font-medium">⚠️ Fix the ${fieldErrorCount} error${fieldErrorCount === 1 ? '' : 's'} in the form before submitting</p>
-      </div>` : ''}
+      
       ${!hasErrors ? `
       <div class="flex space-x-4 mb-4">
         <div class="text-sm w-1/2">
