@@ -19,6 +19,7 @@ import {
   clearFieldErrors,
   isFieldNowValid,
   validateFileComponentWithRelaxedRequired,
+  addErrorHighlight,
   removeErrorHighlight,
   ensureErrorHighlightStyles,
   applyFieldErrors,
@@ -351,51 +352,9 @@ export default class ReviewButton extends FieldComponent {
     this.root.everyComponent((component) => {
       const componentType = component.type || component.component?.type;
       if (componentType === 'datagrid' || componentType === 'datatable' || componentType === 'editgrid') {
-        // Filter results to only include errors for this specific DataGrid
-        const filteredResults = this.filterResultsForDataGrid(component, results);
-        highlightDataGridRows(component, filteredResults);
+        highlightDataGridRows(component, results);
       }
     });
-  }
-
-  filterResultsForDataGrid(dataGrid, results) {
-    if (!results || !results.errors) {
-      return results;
-    }
-
-    const dataGridKey = dataGrid.key || dataGrid.component?.key;
-    if (!dataGridKey) {
-      return results;
-    }
-
-    // Create a filtered results object that only includes errors for this DataGrid
-    const filteredResults = {
-      ...results,
-      errors: {},
-      invalidComponents: [],
-      errorCount: 0
-    };
-
-    // Filter errors to only include those that belong to this DataGrid
-    Object.keys(results.errors).forEach(path => {
-      if (path.includes(dataGridKey + '[')) {
-        filteredResults.errors[path] = results.errors[path];
-        filteredResults.errorCount++;
-      }
-    });
-
-    // Filter invalid components to only include those that belong to this DataGrid
-    if (results.invalidComponents) {
-      filteredResults.invalidComponents = results.invalidComponents.filter(comp => {
-        const compPath = comp.path || comp.key || comp.component?.key;
-        return compPath && compPath.includes(dataGridKey + '[');
-      });
-    }
-
-    // Update isValid based on filtered results
-    filteredResults.isValid = filteredResults.errorCount === 0;
-
-    return filteredResults;
   }
 
   highlightDataGridRows(dataGrid, results) {
@@ -1320,10 +1279,9 @@ export default class ReviewButton extends FieldComponent {
           }
         });
 
-        // Apply error highlighting to individual fields and row
-        setTimeout(function () { 
-          applyFieldErrors(p);
-          if (p.element) addErrorHighlight(p.element); 
+        // Apply error highlighting to the row
+        setTimeout(() => {
+          addErrorHighlight(p.element);
         }, 100);
       } else {
         // Row is valid - clear all error states
@@ -1371,23 +1329,7 @@ export default class ReviewButton extends FieldComponent {
           var allRowErrors = [];
           var rowsWithErrors = [];
 
-          // Validate each row completely independently
-          for (var i = 0; i < dataGrid.rows.length; i++) {
-            var row = dataGrid.rows[i];
-            validateSingleRow(row, i);
-            
-            // Add a small delay between row validations to ensure complete isolation
-            if (i < dataGrid.rows.length - 1) {
-              // Use a synchronous delay to ensure isolation
-              var start = Date.now();
-              while (Date.now() - start < 5) {
-                // Small delay to ensure isolation
-              }
-            }
-          }
-        }
-
-        function validateSingleRow(row, rowIndex) {
+          dataGrid.rows.forEach(function(row, rowIndex) {
             var rowErrors = [];
             var panelComponent = row.panel;
             if (!panelComponent) return;
@@ -1445,33 +1387,13 @@ export default class ReviewButton extends FieldComponent {
               if (c.setCustomValidity) {
                 c.setCustomValidity([], false);
               }
-              // Also clear any existing errors array
-              if (c.errors) {
-                c.errors = [];
-              }
             });
 
             // Run validation on all visible components
             panelComponent.everyComponent?.(function(c) {
               if (!c.visible) return;
-              
-              // Ensure component is in a clean state before validation
-              c.error = '';
-              if (c.errors) {
-                c.errors = [];
-              }
-              
-              // Use Form.io's checkValidity but with better isolation
-              // First, ensure the component has the correct data context
-              var originalData = c.data;
-              var originalValue = c.dataValue;
-              
-              // Run validation with the component's current data
-              var isValid = c.checkValidity?.(c.data, false, c.data);
-              
-              // Check for errors after validation
+              c.checkValidity?.(c.data, false, c.data);
               if (c.errors && c.errors.length > 0) {
-                console.log(`Row ${rowIndex} - Component ${c.key} has ${c.errors.length} errors:`, c.errors);
                 c.errors.forEach(function(err) {
                   rowErrors.push({
                     rowIndex: rowIndex,
@@ -1480,8 +1402,6 @@ export default class ReviewButton extends FieldComponent {
                     error: err
                   });
                 });
-              } else {
-                console.log(`Row ${rowIndex} - Component ${c.key} is valid`);
               }
             });
 
@@ -1492,7 +1412,6 @@ export default class ReviewButton extends FieldComponent {
 
             // Update panel state based on validation results
             if (rowErrors.length > 0) {
-              console.log(`Row ${rowIndex} has ${rowErrors.length} errors:`, rowErrors);
               rowsWithErrors.push(rowIndex + 1);
               allRowErrors.push.apply(allRowErrors, rowErrors);
 
@@ -1502,15 +1421,11 @@ export default class ReviewButton extends FieldComponent {
 
               // Create error map for quick lookup
               panelComponent._errorMap = {};
-              panelComponent._rowIndex = rowIndex; // Add row index to panel for debugging
               rowErrors.forEach(function(err) {
                 if (err.error && err.error.component && err.error.component.key) {
-                  // Use component key as the map key to ensure uniqueness per row
                   panelComponent._errorMap[err.error.component.key] = err.error;
-                  console.log(`Row ${rowIndex} - Added error for component ${err.error.component.key}:`, err.error);
                 }
               });
-              console.log(`Row ${rowIndex} - Final error map:`, panelComponent._errorMap);
             } else {
               // IMPORTANT: Explicitly clear all error states for valid rows
               panelComponent._customErrors = [];
@@ -1536,20 +1451,29 @@ export default class ReviewButton extends FieldComponent {
 
             // Setup hooks for this panel (for maintaining errors during redraws)
             setupPanelHooks(panelComponent, rowIndex);
+          });
 
-            // Apply highlighting for this specific row
-            setTimeout(() => {
-              if (panelComponent._hasErrors && panelComponent._errorMap && Object.keys(panelComponent._errorMap).length > 0) {
-                applyFieldErrors(panelComponent);
-              } else {
-                // Make absolutely sure no error highlighting remains on valid rows
-                panelComponent._hasErrors = false;
-                panelComponent._errorMap = {};
+          // Apply highlighting after validation
+          dataGrid.rows.forEach(function(row, rowIndex) {
+            var panelComponent = row.panel;
+            if (!panelComponent) return;
+
+            // Only highlight if there are actual errors in the error map
+            if (panelComponent._hasErrors && panelComponent._errorMap && Object.keys(panelComponent._errorMap).length > 0) {
+              setTimeout(() => {
                 if (panelComponent.element) {
-                  removeErrorHighlight(panelComponent.element);
+                  addErrorHighlight(panelComponent.element);
                 }
+              }, 50);
+            } else {
+              // Make absolutely sure no error highlighting remains on valid rows
+              panelComponent._hasErrors = false;
+              panelComponent._errorMap = {};
+              if (panelComponent.element) {
+                removeErrorHighlight(panelComponent.element);
               }
-            }, 50);
+            }
+          });
         }
 
         // Run initial validation
@@ -1571,6 +1495,9 @@ export default class ReviewButton extends FieldComponent {
 
                   if (row.panel._hasErrors) {
                     applyFieldErrors(row.panel);
+                    if (row.panel.element) {
+                      addErrorHighlight(row.panel.element);
+                    }
                   }
                 }
               });
@@ -1591,6 +1518,9 @@ export default class ReviewButton extends FieldComponent {
 
                   if (row.panel._hasErrors) {
                     applyFieldErrors(row.panel);
+                    if (row.panel.element) {
+                      addErrorHighlight(row.panel.element);
+                    }
                   }
                 }
               });
@@ -1614,6 +1544,9 @@ export default class ReviewButton extends FieldComponent {
                   setupPanelHooks(row.panel, idx);
                   if (row.panel._hasErrors) {
                     applyFieldErrors(row.panel);
+                    if (row.panel.element) {
+                      addErrorHighlight(row.panel.element);
+                    }
                   }
                 }
               });
@@ -1652,6 +1585,7 @@ export default class ReviewButton extends FieldComponent {
                     setTimeout(() => {
                       if (row.panel && row.panel.element) {
                         applyFieldErrors(row.panel);
+                        addErrorHighlight(row.panel.element);
                       }
                     }, 150);
                   }
@@ -1671,6 +1605,9 @@ export default class ReviewButton extends FieldComponent {
           // Only highlight if there are actual errors
           if (panelComponent._hasErrors && panelComponent._errorMap && Object.keys(panelComponent._errorMap).length > 0) {
             applyFieldErrors(panelComponent);
+            if (panelComponent.element) {
+              addErrorHighlight(panelComponent.element);
+            }
           } else {
             // Ensure valid rows have no highlighting
             panelComponent._hasErrors = false;
@@ -1779,11 +1716,9 @@ export default class ReviewButton extends FieldComponent {
                   
                   // Add variations for data grid paths
                   if (path.includes('[') && path.includes(']')) {
-                    // Add field name with row context to avoid cross-row contamination
                     const fieldName = path.split('.').pop();
-                    const rowContext = path.match(/(\w+\[\d+\])/)?.[1]; // e.g., "dataGrid[0]"
-                    if (fieldName && rowContext) {
-                      invalidFields.add(`${rowContext}.${fieldName}`); // e.g., "dataGrid[0].hardwareProduct"
+                    if (fieldName) {
+                      invalidFields.add(fieldName);
                     }
                     const pathWithoutIndex = path.replace(/\[\d+\]/, '[*]');
                     invalidFields.add(pathWithoutIndex);
@@ -1813,11 +1748,10 @@ export default class ReviewButton extends FieldComponent {
               invalidFields.add(path);
               // Also add variations of the path for better matching
               if (path.includes('[') && path.includes(']')) {
-                // Add field name with row context to avoid cross-row contamination
+                // For data grid paths like "datagrid[0].field", also add the field name alone
                 const fieldName = path.split('.').pop();
-                const rowContext = path.match(/(\w+\[\d+\])/)?.[1]; // e.g., "dataGrid[0]"
-                if (fieldName && rowContext) {
-                  invalidFields.add(`${rowContext}.${fieldName}`); // e.g., "dataGrid[0].hardwareProduct"
+                if (fieldName) {
+                  invalidFields.add(fieldName);
                 }
                 // Add the path without the array index for broader matching
                 const pathWithoutIndex = path.replace(/\[\d+\]/, '[*]');
@@ -1838,11 +1772,10 @@ export default class ReviewButton extends FieldComponent {
             invalidFields.add(errorPath);
             // Add variations for data grid paths
             if (errorPath.includes('[') && errorPath.includes(']')) {
-              // REMOVED: Adding just the field name causes error sharing between rows
-              // const fieldName = errorPath.split('.').pop();
-              // if (fieldName) {
-              //   invalidFields.add(fieldName);
-              // }
+              const fieldName = errorPath.split('.').pop();
+              if (fieldName) {
+                invalidFields.add(fieldName);
+              }
               const pathWithoutIndex = errorPath.replace(/\[\d+\]/, '[*]');
               invalidFields.add(pathWithoutIndex);
             }
@@ -1851,14 +1784,6 @@ export default class ReviewButton extends FieldComponent {
         
         console.log('Final invalid fields set for modal:', Array.from(invalidFields));
         console.log('Final invalid components set for modal:', Array.from(invalidComponents));
-        
-        // Debug: Check if we have DataGrid paths
-        const dataGridPaths = Array.from(invalidFields).filter(path => path.includes('[') && path.includes(']'));
-        console.log('DataGrid paths in invalidFields:', dataGridPaths);
-        
-        // Debug: Check specific paths for hardwareProduct
-        const hardwareProductPaths = Array.from(invalidFields).filter(path => path.includes('hardwareProduct'));
-        console.log('Hardware Product paths in invalidFields:', hardwareProductPaths);
 
         // Collect form data for review with invalid fields information
         // This will determine which fields to show based on current validation state
@@ -1922,10 +1847,6 @@ export default class ReviewButton extends FieldComponent {
         // Create and show the review modal
         const hasErrors = filteredInvalidFields.size > 0;
         const fieldErrorCount = filteredInvalidFields.size;
-        
-        // Set global reference for modal close handler
-        window.reviewButtonInstance = this;
-        
         const modal = createReviewModal(hasErrors, fieldErrorCount, reviewHtml, supportNumber);
 
         // Find screenshot component

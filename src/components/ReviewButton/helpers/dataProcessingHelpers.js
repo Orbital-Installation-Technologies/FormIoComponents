@@ -41,7 +41,7 @@ function isComponentInvalid(comp, invalidFields) {
       const arrayPart = arrayMatch[1];
       
       for (const invalidField of invalidFields) {
-        if (invalidField.startsWith(arrayPart + '.') && 
+        if (invalidField.includes(arrayPart) && 
             (invalidField.endsWith('.' + fieldName) || invalidField === fieldName)) {
           return true;
         }
@@ -54,12 +54,7 @@ function isComponentInvalid(comp, invalidFields) {
     for (const invalidField of invalidFields) {
       // Only match if the invalid field doesn't contain array notation
       if (!invalidField.includes('[') && !invalidField.includes(']')) {
-        // FIXED: Only match if the invalid field is a direct path match, not just field name
-        if (invalidField.endsWith('.' + componentPath) || invalidField === componentPath) {
-          return true;
-        }
-        // Also check if the invalid field is just the field name (for top-level fields)
-        if (invalidField === fieldName && componentPath === fieldName) {
+        if (invalidField.endsWith('.' + fieldName) || invalidField === fieldName) {
           return true;
         }
       }
