@@ -324,6 +324,10 @@ export const validateComponentsAndCollectResults = async (root, errorMap, warnin
   let invalidCount = 0;
 
   root.everyComponent((component) => {
+    if( component._visible === false){
+      if (typeof component.setPristine === 'function') component.setPristine(true);
+      if (typeof component.setDirty === 'function') component.setDirty(false);
+    }
     componentCount++;
     try {
       // Skip validation for hidden components
