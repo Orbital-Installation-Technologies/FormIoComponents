@@ -54,7 +54,6 @@ export default class BarcodeScanner extends FieldComponent {
   constructor(component, options, data) {
     super(component, options, data);
     this._firstOpen = true;
-    this.errorMessage = "";
     this._lastCodes = [];
     this._currentBarcodes = [];
     this._isVideoFrozen = false;
@@ -113,7 +112,7 @@ export default class BarcodeScanner extends FieldComponent {
         </div>
         <div ref="quaggaModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1000; flex-direction:column; align-items:center; justify-content:center; padding:20px; box-sizing:border-box;">
           <div ref="modalContainer" style="position:relative; background:black; border-radius:8px; overflow:hidden; display:flex; flex-direction:column; max-width:100%; max-height:100%;">
-            <button ref="closeModal" style="position:absolute; top:10px; right:10px; z-index:1001; background:rgba(255,255,255,0.8); border:none; border-radius:50%; width:36px; height:36px; display:flex; align-items:center; justify-content:center; font-size:18px; cursor:pointer;">×</button>
+            <button ref="closeModal" style="position:absolute; top:10px; right:10px; z-index:10000; background:rgba(255,255,255,0.9); border:none; border-radius:50%; width:40px; height:40px; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:bold; cursor:pointer; pointer-events:auto; box-shadow:0 2px 8px rgba(0,0,0,0.3);" title="Close">×</button>
 
             
             <!-- Container for Scandit's DataCaptureView -->
@@ -172,6 +171,20 @@ export default class BarcodeScanner extends FieldComponent {
   attach(element) {
     const attached = super.attach(element);
 
+    // Add global error handler for camera permission errors
+    this._unhandledRejectionHandler = (event) => {
+      if (event.reason && (
+          event.reason.name === 'NotAllowedError' || 
+          event.reason.message?.includes('Permission denied') ||
+          event.reason.message?.includes('permission')
+      )) {
+        console.warn('Camera permission error suppressed:', event.reason);
+        event.preventDefault(); // Prevent the error from appearing in console
+        event.stopPropagation();
+      }
+    };
+    window.addEventListener('unhandledrejection', this._unhandledRejectionHandler);
+
     this.loadRefs(element, {
       barcode: "single",
       scanButton: "single",
@@ -217,10 +230,19 @@ export default class BarcodeScanner extends FieldComponent {
         this.openScanditModal();
       });
 
-      this.refs.closeModal.addEventListener("click", () => {
-        this.stopScanner();
-        this._lastCodes = [];
-        this._isVideoFrozen = false;
+      this.refs.closeModal.addEventListener("click", async () => {
+        console.log("Close button clicked");
+        try {
+          await this.stopScanner();
+          this._lastCodes = [];
+          this._isVideoFrozen = false;
+          console.log("Scanner stopped successfully");
+        } catch (error) {
+          // Handle silently - don't expose to FormIO
+          console.warn("Error in close button handler (handled):", error);
+          // Force close the modal even if stopScanner fails
+          this._closeModal();
+        }
       });
 
       this.refs.freezeButton.addEventListener("click", () => {
@@ -286,9 +308,12 @@ export default class BarcodeScanner extends FieldComponent {
     const video = this.refs.scanditContainer.querySelector('video');
     if (video) video.style.display = '';
 
-    this.refs.freezeButton.innerHTML = '<i class="fa fa-camera" style="font-size: 24px;"></i>';
-    this.refs.freezeButton.style.background = "rgba(255,255,255,0.8)";
-    this.refs.freezeButton.style.display = "flex";
+    // Reset freeze button visibility and style
+    if (this.refs.freezeButton) {
+      this.refs.freezeButton.innerHTML = '<i class="fa fa-camera" style="font-size: 24px;"></i>';
+      this.refs.freezeButton.style.background = "rgba(255,255,255,0.8)";
+      this.refs.freezeButton.style.display = "flex";
+    }
 
     try {
       if (!this._dataCaptureContext) {
@@ -298,8 +323,9 @@ export default class BarcodeScanner extends FieldComponent {
         await this._setupCamera();
       }
     } catch (error) {
-      this.errorMessage = "Failed to initialize scanner";
-      console.error(this.errorMessage, error);
+      // Handle error silently - don't expose to FormIO
+      console.warn("Scanner initialization error (handled):", error);
+      // Don't set this.errorMessage as it triggers FormIO errors
     }
   }
 
@@ -345,6 +371,17 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   async _initializeScandit() {
+    // Temporarily suppress console errors during Scandit initialization
+    const originalConsoleError = console.error;
+    console.error = (...args) => {
+      const message = args.join(' ');
+      if (message.includes('NotAllowedError') || message.includes('Permission denied')) {
+        console.warn('[Suppressed Scandit error]:', ...args);
+      } else {
+        originalConsoleError.apply(console, args);
+      }
+    };
+
     try {
         if (!scanditConfigured) {
             await configure({
@@ -438,12 +475,27 @@ export default class BarcodeScanner extends FieldComponent {
         this._currentBarcodes = [];
         this._drawBoundingBoxes(this._currentBarcodes);
     } catch (error) {
-        this.errorMessage = "Failed to initialize barcode scanner";
-        console.error(this.errorMessage, error);
+        // Handle initialization errors silently - don't expose to FormIO
+        console.warn("Barcode scanner initialization error (handled):", error);
+    } finally {
+        // Restore original console.error
+        console.error = originalConsoleError;
     }
   }
 
   async _setupCamera() {
+    // Temporarily suppress console errors during camera setup
+    const originalConsoleError = console.error;
+    console.error = (...args) => {
+      // Only suppress camera permission errors
+      const message = args.join(' ');
+      if (message.includes('NotAllowedError') || message.includes('Permission denied')) {
+        console.warn('[Suppressed camera error]:', ...args);
+      } else {
+        originalConsoleError.apply(console, args);
+      }
+    };
+
     try {
 
         const cameraSettings = BarcodeBatch.recommendedCameraSettings;
@@ -466,22 +518,44 @@ export default class BarcodeScanner extends FieldComponent {
                 throw new Error(errorMsg);
             }
         } else {
-            this.errorMessage = "No camera available";
-            console.error(this.errorMessage);
+            // Handle silently without triggering FormIO errors
+            console.warn("No camera available");
         }
     } catch (error) {
-        this.errorMessage = `Failed to access camera`;
-        console.error(this.errorMessage, error);
-        this.refs.scanditContainer.innerHTML = `
-            <div style="
-                color: white;
-                text-align: center;
-                padding: 20px;
-                font-size: 1rem;
-            ">
-                🚫 Camera failed to start:<br>
-                ${error.name || error.message}
-            </div>`;
+        // Handle camera access errors silently - don't expose to FormIO's error system
+        console.warn("Camera access error (handled):", error);
+        
+        // Hide the freeze button since there's no camera
+        if (this.refs.freezeButton) {
+            this.refs.freezeButton.style.display = 'none';
+        }
+        
+        // Display error message while keeping modal structure intact
+        if (this.refs.scanditContainer) {
+            this.refs.scanditContainer.innerHTML = `
+                <div style="
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-height: 300px;
+                    min-width: 320px;
+                    padding: 40px 20px;
+                ">
+                    <div style="
+                        color: white;
+                        text-align: center;
+                        font-size: 1rem;
+                        max-width: 400px;
+                    ">
+                        <div style="font-size: 2.5rem; margin-bottom: 20px;">⚠️</div>
+                        <div style="font-weight: bold; margin-bottom: 10px;">Camera Access Denied</div>
+                        <div>Please allow access to the camera in your device settings and try again.</div>
+                    </div>
+                </div>`;
+        }
+    } finally {
+        // Restore original console.error
+        console.error = originalConsoleError;
     }
   }
 
@@ -522,7 +596,11 @@ export default class BarcodeScanner extends FieldComponent {
   async stopScanner() {
     try {
       if (this._camera) {
-        await this._camera.switchToDesiredState(FrameSourceState.Off);
+        try {
+          await this._camera.switchToDesiredState(FrameSourceState.Off);
+        } catch (cameraError) {
+          console.warn("Error stopping camera:", cameraError);
+        }
       }
 
       this._stopLiveScanningMode();
@@ -533,10 +611,13 @@ export default class BarcodeScanner extends FieldComponent {
       }
 
       this._clearBoundingBoxes();
-      this._closeModal();
-
+      
       this._isVideoFrozen = false;
     } catch (e) {
+      console.warn("Error in stopScanner:", e);
+    } finally {
+      // Always close the modal, even if cleanup fails
+      this._closeModal();
     }
   }
 
@@ -875,7 +956,7 @@ export default class BarcodeScanner extends FieldComponent {
 
             if (this._isVideoFrozen) {
               this._boundingBoxContext.save();
-              this._boundingBoxContext.strokeStyle = 'rgba(1, 255, 255, 1';
+              this._boundingBoxContext.strokeStyle = 'rgba(1, 255, 255, 1)';
               this._boundingBoxContext.fillStyle = 'rgba(1, 255, 255, 0.7)';
               this._boundingBoxContext.lineWidth = 3;
               this._boundingBoxContext.beginPath();
@@ -1012,7 +1093,10 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   _closeModal() {
-    if (!this.refs.quaggaModal) return;
+    if (!this.refs.quaggaModal) {
+      console.warn("Cannot close modal: quaggaModal ref not found");
+      return;
+    }
 
     try {
       if (!document.getElementById('barcode-modal-styles')) {
@@ -1033,29 +1117,23 @@ export default class BarcodeScanner extends FieldComponent {
         document.head.appendChild(style);
       }
 
-      requestAnimationFrame(() => {
-        try {
-          this.refs.quaggaModal.style.visibility = "hidden";
-        } catch (error) {
-          console.warn("Error in modal CSS transition:", error);
-          if (this.refs.quaggaModal) {
-            this.refs.quaggaModal.style.visibility = "hidden";
-            this.refs.quaggaModal.style.pointerEvents = "none";
-            setTimeout(() => {
-              if (this.refs.quaggaModal) {
-                this.refs.quaggaModal.style.display = "none";
-                this.refs.quaggaModal.style.visibility = "visible";
-                this.refs.quaggaModal.style.pointerEvents = "auto";
-              }
-            }, 50);
-          }
-        }
-      });
+      // Immediately hide the modal
+      this.refs.quaggaModal.style.display = "none";
+      this.refs.quaggaModal.style.visibility = "hidden";
+      this.refs.quaggaModal.style.pointerEvents = "none";
+      this.refs.quaggaModal.style.opacity = "0";
+      
+      console.log("Modal closed successfully");
     } catch (error) {
-      console.warn("Error closing modal:", error);
-      if (this.refs.quaggaModal) {
-        this.refs.quaggaModal.style.visibility = "hidden";
-        this.refs.quaggaModal.style.pointerEvents = "none";
+      // Handle silently - don't expose to FormIO
+      console.warn("Error closing modal (handled):", error);
+      // Last resort fallback
+      try {
+        if (this.refs.quaggaModal) {
+          this.refs.quaggaModal.style.display = "none";
+        }
+      } catch (e) {
+        console.warn("Critical error closing modal (handled):", e);
       }
     }
   }
@@ -1135,6 +1213,11 @@ export default class BarcodeScanner extends FieldComponent {
       this._resizeHandler = null;
     }
 
+    if (this._unhandledRejectionHandler) {
+      window.removeEventListener('unhandledrejection', this._unhandledRejectionHandler);
+      this._unhandledRejectionHandler = null;
+    }
+
     if (this._boundingBoxCanvas && this._boundingBoxCanvas.parentNode) {
       this._boundingBoxCanvas.parentNode.removeChild(this._boundingBoxCanvas);
       this._boundingBoxCanvas = null;
@@ -1177,6 +1260,11 @@ export default class BarcodeScanner extends FieldComponent {
     if (this._cameraMonitoringInterval) {
       clearInterval(this._cameraMonitoringInterval);
       this._cameraMonitoringInterval = null;
+    }
+
+    if (this._unhandledRejectionHandler) {
+      window.removeEventListener('unhandledrejection', this._unhandledRejectionHandler);
+      this._unhandledRejectionHandler = null;
     }
 
     this._barcodeBatch = null;
