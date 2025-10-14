@@ -56,7 +56,6 @@ export default class Gps extends FieldComponent {
         value="${latitude}"
         placeholder="Latitude"
         style="flex-grow: 1;"
-        readOnly
       >
       <input 
         ref="longitude" 
@@ -65,7 +64,6 @@ export default class Gps extends FieldComponent {
         value="${longitude}"
         placeholder="Longitude"
         style="flex-grow: 1;"
-        readOnly
       >
       <button 
         ref="gpsButton" 
@@ -148,6 +146,14 @@ export default class Gps extends FieldComponent {
         }
         this.updateValue(`${latitude},${longitude}`);
         this.fetchedInitially = true;
+        if (this.refs.latitude) {
+          this.refs.latitude.style.pointerEvents = 'none';
+          this.refs.latitude.style.setProperty('background-color', '#E9ECEF', 'important');
+        }
+        if (this.refs.longitude) {
+          this.refs.longitude.style.pointerEvents = 'none';
+          this.refs.longitude.style.setProperty('background-color', '#E9ECEF', 'important');
+        }
       },
       (error) => {
         alert("Geolocation error: " + error.message);
