@@ -296,6 +296,12 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   async openScanditModal() {
+    // Cancel any existing animation frames before starting
+    if (this._animationFrameId) {
+      cancelAnimationFrame(this._animationFrameId);
+      this._animationFrameId = null;
+    }
+
     this._openModal();
     this._lastCodes = [];
     this._isVideoFrozen = false;
@@ -318,6 +324,26 @@ export default class BarcodeScanner extends FieldComponent {
     try {
       if (!this._dataCaptureContext) {
         await this._initializeScandit();
+      } else {
+        // Context exists, just need to reconnect view and restart monitoring
+        // Reconnect the DataCaptureView to the container
+        if (this._dataCaptureView && this.refs.scanditContainer) {
+          this._dataCaptureView.connectToElement(this.refs.scanditContainer);
+        }
+        
+        // Recreate bounding box canvas if it doesn't exist
+        if (!this._boundingBoxCanvas || !this._boundingBoxCanvas.parentNode) {
+          this._createBoundingBoxOverlay();
+        } else {
+          // Just resize if it exists
+          this._resizeBoundingBoxCanvas();
+        }
+        
+        this._startLiveScanningMode();
+        this._startCameraMonitoring();
+        // Restart the drawing loop
+        this._currentBarcodes = [];
+        this._drawBoundingBoxes(this._currentBarcodes);
       }
       if (this._dataCaptureContext) {
         await this._setupCamera();
@@ -595,6 +621,12 @@ export default class BarcodeScanner extends FieldComponent {
 
   async stopScanner() {
     try {
+      // Cancel animation frame first to stop drawing
+      if (this._animationFrameId) {
+        cancelAnimationFrame(this._animationFrameId);
+        this._animationFrameId = null;
+      }
+
       if (this._camera) {
         try {
           await this._camera.switchToDesiredState(FrameSourceState.Off);
@@ -892,10 +924,15 @@ export default class BarcodeScanner extends FieldComponent {
 
       if (this._animationFrameId) {
         cancelAnimationFrame(this._animationFrameId);
+        this._animationFrameId = null;
       }
 
       const draw = () => {
         try {
+          // Additional safety check inside the animation frame
+          if (!this._boundingBoxContext || !this._boundingBoxCanvas) {
+            return;
+          }
 
           let trackedBarcodes = this._trackedBarcodes || {};
           const barcodeEntries = Object.entries(trackedBarcodes);
@@ -1204,6 +1241,11 @@ export default class BarcodeScanner extends FieldComponent {
 
 
   detach() {
+    // Cancel animation frame
+    if (this._animationFrameId) {
+      cancelAnimationFrame(this._animationFrameId);
+      this._animationFrameId = null;
+    }
 
     this._stopLiveScanningMode();
 
@@ -1228,6 +1270,11 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   destroy() {
+    // Cancel animation frame
+    if (this._animationFrameId) {
+      cancelAnimationFrame(this._animationFrameId);
+      this._animationFrameId = null;
+    }
 
     if (this._barcodeBatch) {
       this._barcodeBatch.removeFromContext();
