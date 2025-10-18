@@ -38,6 +38,7 @@ import {
 } from "./helpers/index.js";
 
 const FieldComponent = Components.components.field;
+const CONTAINER_TYPES = new Set(['panel', 'columns', 'well', 'fieldset', 'datagrid', 'datamap', 'form', 'editgrid', 'table', 'tabs', 'row', 'column', 'content', 'htmlelement']);
 
 export default class ReviewButton extends FieldComponent {
   static editForm = editForm;
@@ -1653,6 +1654,48 @@ export default class ReviewButton extends FieldComponent {
 
     }, 300);
   }
+  countVisibleErrors (invalidFields, invalidComponents){
+    var filteredInvalidFields = new Set();
+    let fieldErrorsCounter = 0;
+    let rowIndex = 0;
+    invalidComponents.forEach(comp => {
+      if( CONTAINER_TYPES.has(comp.component.type)){
+        const isRequired = comp?.component?.validate?.required === true;
+        const isReviewVisible = comp?.component?.reviewVisible === true;
+        if (!isRequired && !isReviewVisible) {
+          return ;
+        } else if ((isRequired || isReviewVisible) && comp.component?.type === 'datagrid' && comp.rows?.length === 0){
+          const index = invalidFields.findIndex(field => field.endsWith(comp.component?.key));
+          filteredInvalidFields.add(invalidFields[index]);
+          fieldErrorsCounter++;
+        }
+      } else {
+        if (comp.parent !== comp.root && CONTAINER_TYPES.has(comp.parent?.component?.type)){
+          const isRequired = comp?.parent?.component?.validate?.required === true;
+          const isReviewVisible = comp?.parent?.component?.reviewVisible === true;
+          if (!isRequired && !isReviewVisible) {
+            return;
+          }else{
+            if( comp.parent.component.type === 'datagrid'){
+              const index = invalidFields.findIndex(field => field.endsWith('['+rowIndex+'].'+comp.component?.key));
+              filteredInvalidFields.add(invalidFields[index]);
+              fieldErrorsCounter++;
+              rowIndex++;
+            }else{
+              const index = invalidFields.findIndex(field => field.endsWith(comp.component?.key));
+              filteredInvalidFields.add(invalidFields[index]);
+              fieldErrorsCounter++;
+            }
+          }
+        } else {
+          const index = invalidFields.findIndex(field => field.endsWith(comp.component?.key));
+          filteredInvalidFields.add(invalidFields[index]);
+          fieldErrorsCounter++;
+        }
+      }
+    });
+    return {filteredInvalidFields, fieldErrorsCounter};
+  }
 
   attach(element) {
     this.loadRefs(element, { button: "single" });
@@ -1813,51 +1856,13 @@ export default class ReviewButton extends FieldComponent {
           await collectReviewLeavesAndLabels(this.root, invalidFields);
 
         // Filter invalid fields - only count visible, invalid components
-        const filteredInvalidFields = new Set();
         const invalidFieldsArray = Array.from(invalidFields);
-        
-        invalidFields.forEach(field => {
-          const fieldParts = field.split('.');
-          const lastPart = fieldParts[fieldParts.length - 1];
 
-          if (isContainerType(lastPart.toLowerCase()) || lastPart.endsWith(']')) {
-            return;
-          }
-          
-          const isParentContainer = invalidFieldsArray.some(otherField => 
-            otherField !== field && otherField.startsWith(field + '.')
-          );
-          
-          if (isParentContainer) return;
-          
-          const hasShorterVersion = invalidFieldsArray.some(otherField => {
-            if (otherField === field || !field.includes('.')) return false;
-            
-            if (field.includes('[') && field.includes(']')) {
-              return false;
-            }
-            
-            if (field.includes('panel') || field.includes('fieldset') || field.includes('well') || field.includes('container')) {
-              const lastSegment = field.split('.').pop();
-              return otherField === lastSegment && !otherField.includes('[');
-            }
-            
-            return (field.endsWith('.' + otherField) || 
-                    (field.includes('.') && field === `form.data.${otherField}`) ||
-                    (field.includes('.') && field === `data.${otherField}`)) &&
-                   !otherField.includes('[');
-          });
-          
-          if (hasShorterVersion) return;
-          
-          // Check if the component is visible before counting it
-          const isVisible = this.isComponentVisible(field);
-          if (isVisible) {
-            filteredInvalidFields.add(field);
-          } else {
-            console.log('Filtering out hidden component from error count:', field);
-          }
-        });
+        const invalidData = this.countVisibleErrors(invalidFieldsArray, invalidComponents);
+        const filteredInvalidFields = invalidData.filteredInvalidFields;
+        const fieldErrorsCounter = invalidData.fieldErrorsCounter;
+        console.log("invalid Felds ====" , invalidFields);
+        console.log("filtered invalid Fields ====" , invalidData.filteredInvalidFields);
 
         // Render the review content
         const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, this.root, filteredInvalidFields, invalidComponents);
@@ -1868,8 +1873,7 @@ export default class ReviewButton extends FieldComponent {
 
         // Create and show the review modal
         const hasErrors = filteredInvalidFields.size > 0;
-        const fieldErrorCount = filteredInvalidFields.size;
-        const modal = createReviewModal(hasErrors, fieldErrorCount, reviewHtml, supportNumber);
+        const modal = createReviewModal(hasErrors, fieldErrorsCounter, reviewHtml, supportNumber);
 
         // Find screenshot component
         let screenshotComp = null;
