@@ -1861,8 +1861,6 @@ export default class ReviewButton extends FieldComponent {
         const invalidData = this.countVisibleErrors(invalidFieldsArray, invalidComponents);
         const filteredInvalidFields = invalidData.filteredInvalidFields;
         const fieldErrorsCounter = invalidData.fieldErrorsCounter;
-        console.log("invalid Felds ====" , invalidFields);
-        console.log("filtered invalid Fields ====" , invalidData.filteredInvalidFields);
 
         // Render the review content
         const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, this.root, filteredInvalidFields, invalidComponents);
