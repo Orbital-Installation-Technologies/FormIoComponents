@@ -603,10 +603,12 @@ export default class BarcodeScanner extends FieldComponent {
           if (allCodes.length > 0) {
             this.updateValue(allCodes.join(", "));
             this.refs.barcode.value = allCodes.join(", ");
+            this.validateAndSetDirty();
           }
         } else if (this._lastCodes.length === 1) {
           this.updateValue(this._lastCodes[0].code);
           this.refs.barcode.value = this._lastCodes[0].code;
+          this.validateAndSetDirty();
         }
       } else {
         this.refs.freezeButton.innerHTML = 'pause';
@@ -1056,6 +1058,7 @@ export default class BarcodeScanner extends FieldComponent {
         if (this.refs.barcode) {
           this.refs.barcode.value = barcode.data;
         }
+        this.validateAndSetDirty();
         this.stopScanner();
         break;
       }
