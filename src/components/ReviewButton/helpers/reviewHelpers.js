@@ -9,12 +9,13 @@
 export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, supportNumber) {
   const modal = document.createElement("div");
   modal.style.zIndex = "1000";
-  modal.className = "fixed top-0 left-0 w-full h-screen inset-0 bg-black bg-opacity-50 flex items-center justify-center";
+  modal.style.setProperty("overflow", "auto", "important");
+  modal.className = "fixed top-0 left-0 w-full h-full inset-0 bg-black bg-opacity-50 flex items-center justify-center";
 
   modal.innerHTML = `
-    <div class="bg-white p-6 rounded shadow-md w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <div class="bg-white p-6 rounded shadow-md w-full max-w-2xl" style="height: auto; max-height: 90vh; overflow: auto;">
       <h2 class="text-xl font-semibold mb-4">Review Form Data</h2>
-      <div idx="22" class="mb-4 text-sm" style="max-height:200px; overflow-y:auto; border:1px solid #ccc; padding:8px;">
+      <div idx="22" class="mb-4 text-sm" style="border:1px solid #ccc; padding:8px;">
         ${reviewHtml}
       </div>
       
