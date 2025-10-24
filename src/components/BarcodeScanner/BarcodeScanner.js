@@ -150,7 +150,7 @@ export default class BarcodeScanner extends FieldComponent {
               font-size: 24px;
               cursor: pointer;
             ">
-            photo_camera
+            pause
           </button>
         </div>
       </div>
@@ -316,7 +316,7 @@ export default class BarcodeScanner extends FieldComponent {
 
     // Reset freeze button visibility and style
     if (this.refs.freezeButton) {
-      this.refs.freezeButton.innerHTML = '<i class="fa fa-camera" style="font-size: 24px;"></i>';
+      this.refs.freezeButton.innerHTML = 'pause';
       this.refs.freezeButton.style.background = "rgba(255,255,255,0.8)";
       this.refs.freezeButton.style.display = "flex";
     }
