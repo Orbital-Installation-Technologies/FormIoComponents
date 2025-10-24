@@ -662,12 +662,6 @@ export default class ReviewButton extends FieldComponent {
         return true;
       }
       
-      // Check for any elements with file-related classes or attributes
-      const fileElements = comp.element.querySelectorAll('[class*="file"], [class*="upload"], [data-file], [data-upload]');
-      if (fileElements.length > 0) {
-        console.log('checkFileComponentHasValue: Found', fileElements.length, 'file-related elements');
-        return true;
-      }
       
       // Final fallback: check if the component has any meaningful content that suggests a file
       const hasFileContent = allText.trim().length > 0 && 
