@@ -1869,9 +1869,30 @@ export default class ReviewButton extends FieldComponent {
         const allData = this.root?.submission?.data ?? this.root?.data ?? {};
         const supportNumber = allData?.data?.billingCustomer || "Unavailable";
 
+        // Determine if support fields should be shown
+        let requireSupportFields = this.component.requireSupportFields !== false; // Default to true
+        
+        // If custom visibility logic is provided, evaluate it
+        if (!requireSupportFields && this.component.supportFieldsVisibilityLogic) {
+          try {
+            const customLogic = this.component.supportFieldsVisibilityLogic;
+            const data = allData;
+            // Evaluate the custom logic
+            const evalFunction = new Function('data', customLogic);
+            const customResult = evalFunction(data);
+            requireSupportFields = !!customResult;
+            console.log('Custom support fields visibility logic result:', requireSupportFields);
+          } catch (err) {
+            console.error('Error evaluating support fields visibility logic:', err);
+            requireSupportFields = false; // Default to false if there's an error
+          }
+        }
+
+        console.log('Support fields will be shown:', requireSupportFields);
+
         // Create and show the review modal
         const hasErrors = filteredInvalidFields.size > 0;
-        const modal = createReviewModal(hasErrors, fieldErrorsCounter, reviewHtml, supportNumber);
+        const modal = createReviewModal(hasErrors, fieldErrorsCounter, reviewHtml, supportNumber, requireSupportFields);
 
         // Find screenshot component
         let screenshotComp = null;
@@ -1884,16 +1905,16 @@ export default class ReviewButton extends FieldComponent {
         // Get form data for validation
         const { allData: formData } = collectFormDataForReview(this.root);
 
-        // Setup screenshot component if needed
+        // Setup screenshot component if needed and support fields are required
         console.log('Setting up screenshot component:', !!screenshotComp);
-        const screenshotControls = setupScreenshotComponent(modal, screenshotComp, validateModalForm, formData);
+        const screenshotControls = requireSupportFields ? setupScreenshotComponent(modal, screenshotComp, validateModalForm, formData, requireSupportFields) : null;
         console.log('Screenshot controls:', !!screenshotControls);
 
         // Setup modal event handlers
         setupModalEventHandlers(modal, screenshotComp, screenshotControls?.hide, validateModalForm, async (modalData) => {
           // Handle form submission
           await this.handleFormSubmission(modalData);
-        }, formData);
+        }, formData, requireSupportFields);
 
         // No caching - always start fresh
 
@@ -1901,7 +1922,7 @@ export default class ReviewButton extends FieldComponent {
         document.body.appendChild(modal);
 
         // Initial validation to set submit button state
-        validateModalForm(modal, screenshotComp, formData);
+        validateModalForm(modal, screenshotComp, formData, requireSupportFields);
 
         // Trigger initial change event to set correct visibility state (after screenshot setup)
         const verifiedSelect = modal.querySelector("#verified");
