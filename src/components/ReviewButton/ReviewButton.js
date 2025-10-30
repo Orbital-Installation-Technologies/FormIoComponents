@@ -65,8 +65,8 @@ export default class ReviewButton extends FieldComponent {
 
   init() {
     super.init();
-    this.root.on("submitDone", () => {
-      window.location.reload();
+    this.root.on("submitDone", (submission) => {
+      this.handleAfterSubmit(submission);
     });
 
     if (this.root) {
@@ -74,6 +74,83 @@ export default class ReviewButton extends FieldComponent {
       this.setupValidationEventHandler();
       this.exposeValidationMethods();
     }
+  }
+
+  handleAfterSubmit(submission) {
+    const action = this.component.afterSubmitAction || "reload";
+    
+    switch (action) {
+      case "redirect":
+        this.handleRedirect();
+        break;
+      case "customHtml":
+        this.handleCustomHtml(submission);
+        break;
+      case "reload":
+      default:
+        window.location.reload();
+        break;
+    }
+  }
+
+  handleRedirect() {
+    const url = this.component.redirectUrl;
+    if (!url) {
+      console.error("Redirect URL not configured");
+      window.location.reload();
+      return;
+    }
+    
+    // Validate URL format
+    if (!/^https?:\/\/.+/.test(url)) {
+      console.error("Invalid redirect URL format. Must start with http:// or https://");
+      window.location.reload();
+      return;
+    }
+    
+    window.location.href = url;
+  }
+
+  handleCustomHtml(submission) {
+    const customHtml = this.component.customSuccessHtml;
+    if (!customHtml) {
+      console.error("Custom HTML not configured");
+      window.location.reload();
+      return;
+    }
+    
+    // Get the form container element (the root element)
+    const formElement = this.root.element;
+    if (!formElement) {
+      console.error("Form element not found");
+      window.location.reload();
+      return;
+    }
+    
+    // Store submission data in window for access in custom HTML scripts
+    if (typeof window !== 'undefined') {
+      window.formioSubmissionData = submission?.data || this.root?.data || {};
+    }
+    
+    // Replace the form with custom HTML
+    formElement.innerHTML = customHtml;
+    
+    // Execute any scripts in the custom HTML
+    const scripts = formElement.querySelectorAll('script');
+    scripts.forEach(oldScript => {
+      const newScript = document.createElement('script');
+      
+      // Copy attributes
+      Array.from(oldScript.attributes).forEach(attr => {
+        newScript.setAttribute(attr.name, attr.value);
+      });
+      
+      // Copy content
+      newScript.textContent = oldScript.textContent;
+      
+      // Replace old script with new one to execute it
+      oldScript.parentNode.replaceChild(newScript, oldScript);
+    });
   }
 
   registerFormValidationMethods() {
