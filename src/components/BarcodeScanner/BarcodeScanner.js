@@ -165,6 +165,9 @@ export default class BarcodeScanner extends FieldComponent {
       setTimeout(() => {
         this.setCustomValidity(this.errors, true);
       }, 500);
+    } else {
+      // Ensure error state is cleared and DOM is updated!
+      this.setCustomValidity([], true); 
     }
   }
 
