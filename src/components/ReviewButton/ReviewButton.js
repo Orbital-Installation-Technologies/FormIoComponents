@@ -84,7 +84,16 @@ export default class ReviewButton extends FieldComponent {
         this.handleRedirect();
         break;
       case "customHtml":
-        this.handleCustomHtml(submission);
+        // Ensure the DOM and Form.io root are ready before injecting HTML
+        const tryHandleCustomHtml = () => {
+          if (this.root?.element) {
+            this.handleCustomHtml(submission);
+          } else {
+            console.warn("Root element not ready, retrying...");
+            setTimeout(tryHandleCustomHtml, 200);
+          }
+        };
+        tryHandleCustomHtml();
         break;
       case "reload":
       default:
