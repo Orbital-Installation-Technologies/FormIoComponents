@@ -32,22 +32,14 @@ export default class Gps extends FieldComponent {
     this.errorMessage = "";
     this.fetchedInitially = false;
   }
-// Parse common formats into { lat: number|null, lon: number|null }
 
-
-// Validation rules; returns array of errors (each: { key, message })
   validateLatLon(lat, lon, refs, { requireBoth = true } = {}) {
-
     const errors = [];
-
     const { latitudeRef, longitudeRef } = refs;
-
     if (!lat && !lon) {
       errors.push({ key: 'gps_missing', message: 'GPS Coordinates are required' , type: "custom"});
-
       return errors;
     }
-
     if (requireBoth) {
       if (!lat) {
         errors.push({ key: 'lat_missing', message: 'Latitude is required' , type: "custom"});
@@ -56,34 +48,27 @@ export default class Gps extends FieldComponent {
         errors.push({ key: 'lon_missing', message: 'Longitude is required' , type: "custom"});
       }
     }
-
     if (lat !== null && (lat < -90 || lat > 90)) {
       errors.push({ key: 'lat_out_of_range', message: 'Latitude must be between -90 and 90.' , type: "custom"});
     }
-
     if (lon !== null && (lon < -180 || lon > 180)) {
       errors.push({ key: 'lon_out_of_range', message: 'Longitude must be between -180 and 180.' , type: "custom"});
     }
-
     return errors;
   }
 
   init() {
     super.init();
   }
-
   get inputInfo() {
     return super.inputInfo;
   }
-
   render(content) {
     const value = this.getValue();
     const [latitude, longitude] = value ? value.split(",") : ["", ""];
-
     // Determine validation state for rendering highlights
     var latitudeClass = "form-control"
     var longitudeClass = "form-control";
-
     if (this.errorMessage) {
       if (this.errorMessage.toLowerCase().includes('latitude')) {
         latitudeClass += " is-invalid";
@@ -96,7 +81,6 @@ export default class Gps extends FieldComponent {
         longitudeClass += " is-invalid";
       }
     }
-
     let component = `
     <div style="display: flex; flex-direction: column; gap: 8px;">
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">`;
@@ -132,14 +116,10 @@ export default class Gps extends FieldComponent {
       </div>`;
     }
     component += `</div>`;
-
     return super.render(component);
   }
-
   // In your class extending FieldComponent:
   validate(required, value) {
-    console.log("Gps.validate called!", required, value);
-
     const [latitude, longitude] = (value || "").split(",");
     const latNum = latitude ? parseFloat(latitude) : null;
     const lonNum = longitude ? parseFloat(longitude) : null;
@@ -149,7 +129,6 @@ export default class Gps extends FieldComponent {
       { latitudeRef: this.refs.latitude, longitudeRef: this.refs.longitude },
       { requireBoth: true }
     );
-
     if (errors.length > 0) {
       // Remove/add class after value update (and any potential rerender)
       this.refs.latitude.classList.toggle("is-invalid", errors.some(e=>e.key.includes("lat") || e.key === "gps_missing"));
@@ -157,7 +136,6 @@ export default class Gps extends FieldComponent {
 
       this.errorMessage = errors[0].message;
       this.setCustomValidity(errors[0].key, errors[0].message);
-
       return errors.map(e => ({ message: e.message, key: e.key, type: 'custom' }));
     }else{
       // Clear error
@@ -165,45 +143,38 @@ export default class Gps extends FieldComponent {
       this.setCustomValidity('', '');
       return [];
     }
-
   }
+  
   isValid() {
-    // 1. Get errors from validate. This works if you have a proper validate() implementation.
     const errors = this.validate(this.component.validate?.required, this.getValue());
-
-    // 2. Manually assign to the internal _errors and _visibleErrors arrays:
     this._errors = errors;
     this._visibleErrors = errors;
 
-    // 3. Update UI error feedback as needed (for display only)
     if (errors.length > 0) {
       this.setCustomValidity(errors[0].key, errors[0].message);
     } else {
       this.setCustomValidity('', '');
     }
-
-    // 4. Return Formio-standard isValid boolean:
     return errors.length === 0;
   }
+  
   checkValidity(data, dirty, rowData) {
     const errors = this.validate(this.component.validate?.required, this.getValue());
     return errors.length === 0;
   }
+  
   attach(element) {
     const attached = super.attach(element);
-
     this.loadRefs(element, {
       latitude: "single",
       longitude: "single",
       gpsButton: "single",
     });
-
     const latitudeField = this.refs.latitude;
     const longitudeField = this.refs.longitude;
 
     if (!latitudeField || !longitudeField) return attached;
 
-    // Initialize values
     const value = this.getValue();
     if (value) {
       const [lat, lon] = value.split(",");
@@ -212,18 +183,14 @@ export default class Gps extends FieldComponent {
     }
 
     if (!this.component.disabled) {
-
       const handleChange = () => {
         const lat = latitudeField.value;
         const lon = longitudeField.value;
-      
         const errors = this.validate(true, `${lat},${lon}`);
-
         this.errorMessage = errors.length ? errors[0].message : "";
         this.setCustomValidity(errors.length ? errors[0].key : "", this.errorMessage);
-
         this.updateValue(`${lat},${lon}`, { modified: true });
-        // Reacquire refs AFTER updateValue if needed
+
         this.loadRefs(this.element, {
           latitude: "single",
           longitude: "single"
@@ -243,6 +210,7 @@ export default class Gps extends FieldComponent {
     }
     return attached;
   }
+  
   getLocation() {
     if (!navigator.geolocation) {
       alert("Geolocation is not supported in this browser.");
