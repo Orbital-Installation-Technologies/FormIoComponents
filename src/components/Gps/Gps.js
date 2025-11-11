@@ -171,13 +171,17 @@ export default class Gps extends FieldComponent {
           this.setError(null);
           this.updateState();
         }
+        const maxDigits = this.getMaxVisibleDigits(this.refs.latitude);  // both have the same size
+        const truncateDigits = val => val ? val.toString().slice(0, maxDigits) : "";
+
+
+        this.updateValue(`${latitude},${longitude}`);
         if (this.refs.latitude) {
-          this.refs.latitude.value = latitude;
+          this.refs.latitude.value = truncateDigits(latitude);
         }
         if (this.refs.longitude) {
-          this.refs.longitude.value = longitude;
+          this.refs.longitude.value = truncateDigits(longitude);
         }
-        this.updateValue(`${latitude},${longitude}`);
         this.fetchedInitially = true;
         if (this.refs.latitude) {
           this.refs.latitude.style.pointerEvents = 'none';
