@@ -78,6 +78,9 @@ export const getNestedValue = (obj, path) => {
 export const isAddressComponent = (component) =>
   component.component?.type === 'address' || component.type === 'address';
 
+export const isGpsComponent = (component) =>
+  component.component?.type === 'gps' || component.type === 'gps';
+
 /**
  * Check if a component is datagrid-like
  */
@@ -418,8 +421,23 @@ export const validateComponentsAndCollectResults = async (root, errorMap, warnin
         return;
       }
 
+      // ---------- GPS components ----------
+      if (isGpsComponent(component)) {
+        const isValid = component.isValid();
+        const errorsNow = component.validate(true, component.getValue());
+
+        if (!isValid) {
+          component.setCustomValidity(errorsNow, true);
+          invalidCount++;
+        }
+        if (includeWarnings && component.warnings?.length) {
+          processComponentWarnings(component, warningMap, results);
+        }
+        return;
+      }
       // ---------- Other components ----------
       const isValid = component.checkValidity();
+      console.log("component =======", component);
       console.log('Component validation:', {
         key: component.key,
         path: component.path,
