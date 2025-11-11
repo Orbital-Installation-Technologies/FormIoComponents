@@ -437,7 +437,6 @@ export const validateComponentsAndCollectResults = async (root, errorMap, warnin
       }
       // ---------- Other components ----------
       const isValid = component.checkValidity();
-      console.log("component =======", component);
       console.log('Component validation:', {
         key: component.key,
         path: component.path,
