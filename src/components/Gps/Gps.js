@@ -83,7 +83,18 @@ export default class Gps extends FieldComponent {
 
     return super.render(component);
   }
-
+ getMaxVisibleDigits(input) {
+    if (!input) return 0;
+    const style = window.getComputedStyle(input);
+    const fontSize = parseFloat(style.fontSize);
+    const padding =
+      parseFloat(style.paddingLeft || 0) +
+      parseFloat(style.paddingRight || 0);
+    const width = input.clientWidth - padding;
+    const avgDigitWidth = fontSize * 0.6; // average for '0'..'9' in most sans-serif fonts
+    return Math.floor(width / avgDigitWidth);
+  }
+  
   attach(element) {
     const attached = super.attach(element);
 
@@ -93,35 +104,57 @@ export default class Gps extends FieldComponent {
       gpsButton: "single",
     });
 
+    const latitudeField = this.refs.latitude;
+    const longitudeField = this.refs.longitude;
+
+    if (!latitudeField || !longitudeField) return attached;
+
+    // Initialize values
     const value = this.getValue();
-    if (this.refs.latitude && this.refs.longitude && value) {
-      const [latitude, longitude] = value.split(",");
-      this.refs.latitude.value = latitude;
-      this.refs.longitude.value = longitude;
+    if (value) {
+      const [lat, lon] = value.split(",");
+      latitudeField.value = lat || "";
+      longitudeField.value = lon || "";
     }
+
 
     if (!this.component.disabled) {
-      if (this.refs.latitude && this.refs.longitude) {
-        this.refs.latitude.addEventListener("change", () => {
-          const latitude = this.refs.latitude.value;
-          const longitude = this.refs.longitude.value;
-          this.updateValue(`${latitude},${longitude}`);
-        });
 
-        this.refs.longitude.addEventListener("change", () => {
-          const latitude = this.refs.latitude.value;
-          const longitude = this.refs.longitude.value;
-          this.updateValue(`${latitude},${longitude}`);
-        });
-      }
+      const handleChange = () => {
+        const maxDigits = this.getMaxVisibleDigits(latitudeField);  // both have the same size
 
-      if (this.refs.gpsButton) {
-        this.refs.gpsButton.addEventListener("click", () => {
-          this.getLocation();
+        const truncateDigits = val => val ? val.toString().slice(0, maxDigits) : "";
+
+        const lat = latitudeField.value;
+        const lon = longitudeField.value;
+
+        const errors = this.validate(true, `${lat},${lon}`);
+
+        this.errorMessage = errors.length ? errors[0].message : "";
+        this.setCustomValidity(errors.length ? errors[0].key : "", this.errorMessage);
+
+        this.updateValue(`${lat},${lon}`, { modified: true });
+        // Reacquire refs AFTER updateValue if needed
+        this.loadRefs(this.element, {
+          latitude: "single",
+          longitude: "single"
         });
-      }
+        this.updateState();
+        this.refs.latitude.value = truncateDigits(lat);
+        this.refs.longitude.value = truncateDigits(lon);
+
+      };
+
+      // Attach a single handler to both fields
+      latitudeField.addEventListener("change", handleChange);
+      longitudeField.addEventListener("change", handleChange);
     }
 
+    if (this.refs.gpsButton) {
+      this.refs.gpsButton.addEventListener("click", () => {
+        this.getLocation();
+      });
+    }
     return attached;
   }
 
