@@ -37,7 +37,7 @@ export default class Gps extends FieldComponent {
     const errors = [];
     const { latitudeRef, longitudeRef } = refs;
     if (!lat && !lon) {
-      errors.push({ key: 'gps_missing', message: 'GPS Coordinates are required' , type: "custom"});
+      errors.push({ key: 'gps_missing', message: 'GPS Coordinates is required' , type: "custom"});
       return errors;
     }
     if (requireBoth) {
@@ -112,7 +112,7 @@ export default class Gps extends FieldComponent {
     if (this.errorMessage) {
       component += `
       <div class="formio-errors">
-        <div class="form-text error">${this.errorMessage}</div>
+        <div ref="messageContainer" class="form-text error">${this.errorMessage}</div>
       </div>`;
     }
     component += `</div>`;
@@ -144,7 +144,7 @@ export default class Gps extends FieldComponent {
       return [];
     }
   }
-  
+
   isValid() {
     const errors = this.validate(this.component.validate?.required, this.getValue());
     this._errors = errors;
@@ -157,12 +157,12 @@ export default class Gps extends FieldComponent {
     }
     return errors.length === 0;
   }
-  
+
   checkValidity(data, dirty, rowData) {
     const errors = this.validate(this.component.validate?.required, this.getValue());
     return errors.length === 0;
   }
-  
+
   attach(element) {
     const attached = super.attach(element);
     this.loadRefs(element, {
@@ -210,7 +210,7 @@ export default class Gps extends FieldComponent {
     }
     return attached;
   }
-  
+
   getLocation() {
     if (!navigator.geolocation) {
       alert("Geolocation is not supported in this browser.");
