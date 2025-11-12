@@ -672,7 +672,7 @@ export function clearFieldErrors(comp) {
 export function isFieldNowValid(comp, value) {
   if (!comp) return false;
 
-  const compType = comp.type || comp.component.type;
+  const compType = comp.type || comp.component?.type;
 
   if (compType === 'file') {
     let hasFile = hasActualFileData(value) ||
