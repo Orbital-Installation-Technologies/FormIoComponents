@@ -342,6 +342,7 @@ export async function collectReviewLeavesAndLabels(root, invalidFields = new Set
   const indexByPathMap = new Map();
   const suppressLabelForKey = new Set(['data']);
   const queue = [];
+  const processedPaths = new Set();
 
   const enqueueAll = (f) => {
     if (!f || !f.everyComponent) {
@@ -440,7 +441,7 @@ export async function collectReviewLeavesAndLabels(root, invalidFields = new Set
     }
 
     // Handle leaf components
-    handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer, createCustomComponentForReview, invalidFields);
+    handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer, createCustomComponentForReview, invalidFields, leaves, queue, processedPaths);
   }
 
   // Process remaining components
@@ -784,7 +785,7 @@ function handleContainerComponent(comp, safePath, topIndexFor, indexByPathMap, q
   comp.components.forEach((ch) => queue.push(ch));
 }
 
-function handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer, createCustomComponentForReview, invalidFields) {
+function handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer, createCustomComponentForReview, invalidFields, leaves, queue, processedPaths) {
   const parent = comp?.parent;
   const parentType = parent?.component?.type;
   const parentsToBeHandled = ['datatable', 'datagrid', 'tagpad', 'datamap', 
@@ -850,8 +851,12 @@ function handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathM
       }
       
       comp.components.forEach(childComp => {
-        if (childComp && !processedPaths.has(safePath(childComp))) {
-          queue.push(childComp);
+        if (childComp) {
+          const childPath = safePath(childComp);
+          if (!processedPaths.has(childPath)) {
+            processedPaths.add(childPath);
+            queue.push(childComp);
+          }
         }
       });
     }
