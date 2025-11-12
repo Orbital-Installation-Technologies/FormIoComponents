@@ -63,7 +63,6 @@ export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, suppor
 export function validateModalForm(modal, screenshotComp, formData = null, requireSupportFields = true) {
   let hasErrors = false;
 
-  // Only validate support fields if they're required
   if (requireSupportFields) {
     const verifiedElement = modal.querySelector("#verified");
     const selectedVerificationType = verifiedElement ? verifiedElement.value : "Empty";
@@ -88,7 +87,6 @@ export function validateModalForm(modal, screenshotComp, formData = null, requir
     }
   }
 
-  // Only validate screenshot if support fields are required and it's visible
   if (requireSupportFields) {
     const verifiedElement = modal.querySelector("#verified");
     const selectedVerificationType = verifiedElement ? verifiedElement.value : "Empty";
@@ -97,9 +95,6 @@ export function validateModalForm(modal, screenshotComp, formData = null, requir
     
     if ((selectedVerificationType === "App" || selectedVerificationType === "Support") && isScreenshotVisible) {
       const uploadedFiles = screenshotComp ? (screenshotComp.getValue() || []) : [];
-      console.log('Screenshot validation - uploadedFiles:', uploadedFiles);
-      console.log('Screenshot validation - screenshotComp:', !!screenshotComp);
-      console.log('Screenshot validation - getValue result:', screenshotComp ? screenshotComp.getValue() : 'no component');
 
       if (uploadedFiles.length === 0) {
         const screenshotContainer = modal.querySelector("#screenshotContainer");
@@ -111,12 +106,10 @@ export function validateModalForm(modal, screenshotComp, formData = null, requir
         modal.querySelector("#screenshotContainer").style.border = "";
       }
     } else {
-      // Clear screenshot validation when not required
       const screenshotContainer = modal.querySelector("#screenshotContainer");
       if (screenshotContainer) {
         screenshotContainer.style.border = "";
         screenshotContainer.classList.remove("invalid-field");
-        // Also clear any validation on child elements
         const childElements = screenshotContainer.querySelectorAll("*");
         childElements.forEach(el => {
           el.style.border = "";
@@ -139,7 +132,6 @@ export function validateModalForm(modal, screenshotComp, formData = null, requir
     }
   }
 
-  // Check if form has meaningful data
   let hasFormData = true;
   if (formData) {
     hasFormData = checkFormHasData(formData);
@@ -169,7 +161,6 @@ function checkFormHasData(formData) {
     return false;
   }
 
-  // Check if there's actual data in the form
   const hasData = Object.values(formData).some(value => {
     if (value === null || value === undefined || value === '') {
       return false;
@@ -206,7 +197,6 @@ export function setupScreenshotComponent(modal, screenshotComp, validateModalFor
   screenshotContainer.appendChild(compEl);
   screenshotComp.attach(compEl);
 
-  // Ensure the screenshot component is initially visible
   screenshotComp.component.hidden = false;
   if (typeof screenshotComp.setVisible === "function") {
     screenshotComp.setVisible(true);
@@ -247,13 +237,11 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
   const notesOptionalWrapper = modal.querySelector("#notesOptionalWrapper");
   const notesRequiredWrapper = modal.querySelector("#notesRequiredWrapper");
 
-  // Verification type change handler
   if (verifiedSelect) {
     verifiedSelect.onchange = () => {
       const value = verifiedSelect.value;
       const needShot = value === "App" || value === "Support";
       
-      // Show/hide wrapper divs
       if (screenshotWrapper) {
         screenshotWrapper.style.display = needShot ? "block" : "none";
       }
@@ -264,20 +252,14 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
         notesRequiredWrapper.style.display = value === "Not Verified" ? "block" : "none";
       }
       
-      // Show/hide screenshot component itself
-      console.log('needShot:', needShot, 'hideScreenshot:', !!hideScreenshot, 'show function:', hideScreenshot && typeof hideScreenshot.show === 'function');
       if (needShot && hideScreenshot && typeof hideScreenshot.show === 'function') {
         hideScreenshot.show();
-        console.log('Screenshot component shown');
       } else if (!needShot && hideScreenshot && typeof hideScreenshot.hide === 'function') {
         hideScreenshot.hide();
-        console.log('Screenshot component hidden');
-        // Clear any validation styling when hiding
         const screenshotContainer = modal.querySelector("#screenshotContainer");
         if (screenshotContainer) {
           screenshotContainer.style.border = "";
           screenshotContainer.classList.remove("invalid-field");
-          // Also clear any validation on child elements
           const childElements = screenshotContainer.querySelectorAll("*");
           childElements.forEach(el => {
             el.style.border = "";
@@ -286,12 +268,10 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
         }
       }
       
-      // Trigger validation to update submit button state
       validateModalForm(modal, screenshotComp, formData, requireSupportFields);
     };
   }
 
-  // Cancel button handler
   modal.querySelector("#cancelModal").onclick = async () => {
     if (hideScreenshot && typeof hideScreenshot === 'function') {
       hideScreenshot();
@@ -299,7 +279,6 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
     document.body.removeChild(modal);
   };
 
-  // Submit button handler
   const submitButton = modal.querySelector("#submitModal");
   if (submitButton) {
     submitButton.onclick = async () => {
@@ -316,10 +295,7 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
       if (screenshotComp) {
         uploadedFiles = screenshotComp.getValue() || [];
       }
-      console.log('Submit button - uploadedFiles:', uploadedFiles);
-      console.log('Submit button - screenshotComp:', !!screenshotComp);
 
-      // Final validation checks only if support fields are required
       if (requireSupportFields) {
         if (selectedVerificationType === "Not Verified" && !notesRequired.trim()) {
           alert("Please explain why not verified.");
@@ -346,7 +322,6 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
     };
   }
 
-  // Add input listeners for real-time validation
   const addInputListeners = (element) => {
     if (!element) return;
 
@@ -359,8 +334,6 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
 
   addInputListeners(modal);
 }
-
-// Caching removed - always start fresh
 
 /**
  * Updates form values with modal data
@@ -428,7 +401,6 @@ export function updateFormValuesBeforeReview(root) {
         });
       }
     } catch (e) {
-      console.error("Error updating datagrid/datatable values:", e);
     }
   }
 

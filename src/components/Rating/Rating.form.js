@@ -1,4 +1,3 @@
-import { Components } from "@formio/js";
 import RatingEditDisplay from "./Rating.edit.display.js";
 const baseEditForm = Formio.Components.baseEditForm
 

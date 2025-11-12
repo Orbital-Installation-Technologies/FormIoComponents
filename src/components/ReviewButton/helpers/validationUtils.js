@@ -3,7 +3,6 @@
  * Extracted to improve maintainability and reusability
  */
 
-// Constants
 const CONTAINER_TYPES = new Set(['panel', 'columns', 'well', 'fieldset', 'datamap', 'editgrid', 'table', 'tabs', 'row', 'column', 'content', 'htmlelement']);
 const FLATTEN_TYPES = new Set(['columns', 'fieldset', 'tabs', 'tagpad', 'survey', 'panel', 'well', 'container', 'datagrid', 'datatable']);
 
@@ -11,7 +10,7 @@ const FLATTEN_TYPES = new Set(['columns', 'fieldset', 'tabs', 'tagpad', 'survey'
  * Check if a component type is a container type
  */
 export const isContainerType = (t, exclude = []) => {
-  if (!t) return false; // Early exit if no type
+  if (!t) return false;
 
   if (!exclude || exclude.length === 0) {
     return Array.isArray(t)
@@ -31,7 +30,7 @@ export const isContainerType = (t, exclude = []) => {
  * Check if a container should be flattened
  */
 export const shouldFlattenContainer = (t) => {
-  if (!t) return false; // Early exit if no type
+  if (!t) return false;
 
   if (Array.isArray(t)) {
     return t.some(type => type && FLATTEN_TYPES.has(type.toLowerCase()));
@@ -157,7 +156,6 @@ export const recordComponentValidationResult = (
 
   fieldResults[key] = { isValid, errors: errs, label, path };
 
-  // Stop if valid to avoid nesting
   if (isValid) return;
 
   results.isValid = false;
@@ -174,14 +172,6 @@ export const recordComponentValidationResult = (
  * Process component errors
  */
 export const processComponentErrors = (component, errorMap, results, showErrors) => {
-  console.log("processComponentErrors", {
-    componentKey: component.key,
-    componentPath: component.path,
-    componentLabel: component.component?.label,
-    errors: component.errors,
-    showErrors
-  });
-  
   results.isValid = false;
   results.errorCount++;
 
@@ -191,22 +181,17 @@ export const processComponentErrors = (component, errorMap, results, showErrors)
 
   const errors = component.errors;
   if (!errors || !errors.length) {
-    console.log("No errors found for component:", componentKey);
-    return;     // this early check will skip almost all work
+    return;
   }
   
-  if (errors && errors.length) {
-    console.log("Processing errors for component:", componentKey, "errors:", errors);
-    // Get or create the entry once
-    let entry = errorMap.get(componentPath);
-    if (!entry) {
-      entry = { label: componentLabel, errors: [] };
-      errorMap.set(componentPath, entry);
-    }
-    errors.forEach(error => {
-             entry.errors.push(error);
-    });
+  let entry = errorMap.get(componentPath);
+  if (!entry) {
+    entry = { label: componentLabel, errors: [] };
+    errorMap.set(componentPath, entry);
   }
+  errors.forEach(error => {
+    entry.errors.push(error);
+  });
 
   results.invalidComponents.push({
     component,
@@ -214,14 +199,7 @@ export const processComponentErrors = (component, errorMap, results, showErrors)
     label: componentLabel
   });
 
-  console.log("Added invalid component:", {
-    path: componentPath,
-    label: componentLabel,
-    totalInvalidComponents: results.invalidComponents.length
-  });
-
   if (showErrors && errors && errors.length) {
-    console.log("Setting custom validity for component:", componentKey, "errors:", errors);
     component.setCustomValidity(errors, true);
   }
 };
@@ -263,18 +241,16 @@ export const validateSelectedComponents = async (components, results, options, c
 
     let isValid = true;
 
-    // Normalize invalid address value
     if (isAddress && dataValue === '[object Object]') {
       component.dataValue = {};
     }
 
     if (component.checkValidity) {
       if (isAddress && componentDefinition?.validate?.required) {
-         const addressValue = dataValue?.formattedPlace;
-         const isAddressEmpty = !addressValue || addressValue.trim() === '';
-          
+        const addressValue = dataValue?.formattedPlace;
+        const isAddressEmpty = !addressValue || addressValue.trim() === '';
 
-        if (isAddressEmpty)  {
+        if (isAddressEmpty) {
           isValid = false;
 
           const addressError = `${componentDefinition?.label || key} is required.`;
@@ -282,11 +258,11 @@ export const validateSelectedComponents = async (components, results, options, c
 
           if (!component.errors.includes(addressError)) component.errors.push(addressError);
           if (component.setCustomValidity) {
-                component.setCustomValidity(component.errors, true);
+            component.setCustomValidity(component.errors, true);
           }
 
           if (component.redraw) {
-                component.redraw();
+            component.redraw();
           }
 
         } else {
@@ -313,11 +289,6 @@ export const validateSelectedComponents = async (components, results, options, c
  * Validate components and collect results
  */
 export const validateComponentsAndCollectResults = async (root, errorMap, warningMap, results, opts) => {
-  console.log("validateComponentsAndCollectResults called with:", {
-    includeWarnings: opts?.includeWarnings,
-    showErrors: opts?.showErrors,
-    errorMapSize: errorMap.size
-  });
   const { includeWarnings, showErrors } = opts || {};
 
   let componentCount = 0;
@@ -330,38 +301,27 @@ export const validateComponentsAndCollectResults = async (root, errorMap, warnin
     }
     componentCount++;
     try {
-      // Skip validation for hidden components
       if (component.component?.hidden === true || component.hidden === true) return;
       
-      // Skip validation for disabled components unless they're marked review visible
       if (component.disabled === true || component.component?.disabled === true) {
         if (component.component?.reviewVisible !== true) return;
       }
       
       if (!component.visible || !component.checkValidity) return;
 
-      // ---------- Address components ----------
       if (isAddressComponent(component)) {
         if (component.dataValue === '[object Object]') component.dataValue = {};
         const isValid = component.checkValidity();
-        console.log('Address component validation:', {
-          key: component.key,
-          path: component.path,
-          isValid,
-          dataValue: component.dataValue
-        });
         if (!isValid) {
-          console.log("Address component is invalid:", component.key, component.path);
           processComponentErrors(component, errorMap, results, showErrors);
           invalidCount++;
         }
         if (includeWarnings && component.warnings?.length) {
-          //processComponentWarnings(component, warningMap, results);
+          processComponentWarnings(component, warningMap, results);
         }
         return;
       }
 
-      // ---------- File components ----------
       const componentType = component.type || component.component?.type;
       if (componentType === 'file') {
         const isRequired = component.component?.validate?.required || component.validate?.required;
@@ -418,17 +378,8 @@ export const validateComponentsAndCollectResults = async (root, errorMap, warnin
         return;
       }
 
-      // ---------- Other components ----------
       const isValid = component.checkValidity();
-      console.log('Component validation:', {
-        key: component.key,
-        path: component.path,
-        type: component.type || component.component?.type,
-        isValid,
-        required: component.component?.validate?.required
-      });
       if (!isValid) {
-        console.log("Component is invalid:", component.key, component.path);
         processComponentErrors(component, errorMap, results, showErrors);
         invalidCount++;
       }
@@ -438,12 +389,6 @@ export const validateComponentsAndCollectResults = async (root, errorMap, warnin
     } catch (err) {
       console.error(`Error validating component ${component.key}:`, err);
     }
-  });
-  
-  console.log('Validation summary:', {
-    totalComponents: componentCount,
-    invalidComponents: invalidCount,
-    errorMapSize: errorMap.size
   });
 };
 
@@ -459,10 +404,8 @@ export const isFormValid = async (root) => {
 
     root.everyComponent((c) => {
       try {
-        // Skip validation for hidden components
         if (c.component?.hidden === true || c.hidden === true) return;
         
-        // Skip validation for disabled components unless they're marked review visible
         if (c.disabled === true || c.component?.disabled === true) {
           if (c.component?.reviewVisible !== true) return;
         }
@@ -473,7 +416,6 @@ export const isFormValid = async (root) => {
         const type = c.type || comp?.type;
         const componentKey = c.key || comp.key;
 
-        // Address component check
         const isAddress = type === 'address';
         if (isAddress && c.dataValue === '[object Object]') {
           c.dataValue = {};
@@ -483,12 +425,10 @@ export const isFormValid = async (root) => {
           const addressValue = c.dataValue?.formattedPlace;
           const isAddressEmpty = !addressValue || addressValue.trim() === '';   
           if (isAddressEmpty) {
-               isValid = false;
-               return;
+            isValid = false;
+            return;
           }
-        } 
-        // File component check
-        else if (type === 'file' && (comp.validate?.required || c.validate?.required)) {
+        } else if (type === 'file' && (comp.validate?.required || c.validate?.required)) {
           const hasValue = 
             hasActualFileData(c.dataValue) ||
             hasActualFileData(c.data) ||
@@ -500,9 +440,7 @@ export const isFormValid = async (root) => {
             isValid = false;
             return;
           }
-        } 
-        // Other components
-        else if (!c.checkValidity()) {
+        } else if (!c.checkValidity()) {
           isValid = false;
           return;
         }
@@ -552,7 +490,6 @@ export const safelyUpdateComponent = (component, context) => {
 export const updateDatagridValues = (datagrid) => {
   if (!datagrid) return;
 
-  // --- Update the datagrid's own value ---
   const hasUpdateValue = datagrid.updateValue && typeof datagrid.updateValue === 'function';
   if (hasUpdateValue) {
     try {
@@ -562,33 +499,27 @@ export const updateDatagridValues = (datagrid) => {
     }
   }
 
- // --- Handle datatable savedRows ---
   const isDatatable = datagrid.component?.type === 'datatable';
 
   if (isDatatable && Array.isArray(datagrid.savedRows)) {
-    const savedRows = datagrid.savedRows;
-    savedRows.forEach(row => {
-        if (row && Array.isArray(row.components)) {
-        const rowComponents = row.components;
-          rowComponents.forEach(component => {
-            safelyUpdateComponent(component, 'datatable row component');
-          });
-        }
-      });
-    return; // nothing else to do for datatable
+    datagrid.savedRows.forEach(row => {
+      if (row && Array.isArray(row.components)) {
+        row.components.forEach(component => {
+          safelyUpdateComponent(component, 'datatable row component');
+        });
+      }
+    });
+    return;
   }
 
-  // --- Handle datagrid rows ---
   if (Array.isArray(datagrid.rows)) {
-    const rows = datagrid.rows;
-    rows.forEach(row => {
-        if (row && typeof row === 'object') {
-          const values = Object.values(row);
-          values.forEach(component => {
-            safelyUpdateComponent(component, 'datagrid row component');
-          });
-        }
-      });
+    datagrid.rows.forEach(row => {
+      if (row && typeof row === 'object') {
+        Object.values(row).forEach(component => {
+          safelyUpdateComponent(component, 'datagrid row component');
+        });
+      }
+    });
   }
 };
 
@@ -597,7 +528,7 @@ export const updateDatagridValues = (datagrid) => {
  */
 export const updateFormValues = async (root) => {
   try {
-    await Promise.resolve(); // if you don't need exactly to wait for 100ms, this can do the work
+    await Promise.resolve();
 
     const allDatagrids = [];
 
@@ -687,9 +618,7 @@ export const findComponentsToValidate = (keys, root) => {
 export function clearFieldErrors(comp) {
   if (!comp) return;
 
-  // Clear component error state
   comp.error = '';
-  // Use setCustomValidity to safely clear errors
   if (comp.setCustomValidity) {
     comp.setCustomValidity([], false);
   }
@@ -697,44 +626,38 @@ export function clearFieldErrors(comp) {
 
   if (!comp.element) return;
 
-  // Remove error classes from component element
   comp.element.classList.remove('has-error', 'has-message', 'formio-error-wrapper');
 
-  // Remove error class from form-group
-  var formGroup = comp.element.closest('.form-group') || comp.element.querySelector('.form-group') || comp.element;
+  const formGroup = comp.element.closest('.form-group') || comp.element.querySelector('.form-group') || comp.element;
   if (formGroup) {
     formGroup.classList.remove('has-error');
   }
 
-  // Remove error styling from input element
-  var input = comp.element.querySelector('input, select, textarea, .choices__inner');
+  const input = comp.element.querySelector('input, select, textarea, .choices__inner');
   if (input) {
     input.classList.remove('is-invalid', 'form-control-danger');
     input.style.removeProperty('border-color');
     input.style.removeProperty('border-width');
   }
 
-  // Remove all error message elements
-  var errMsgs = comp.element.querySelectorAll('.formio-errors, .invalid-feedback, .error');
-  errMsgs.forEach(function(msg) {
+  const errMsgs = comp.element.querySelectorAll('.formio-errors, .invalid-feedback, .error');
+  errMsgs.forEach(msg => {
     if (msg && msg.parentNode) {
       msg.parentNode.removeChild(msg);
     }
   });
 
-  // Also check in parent elements for error messages
   if (formGroup) {
-    var parentErrMsgs = formGroup.querySelectorAll('.formio-errors, .invalid-feedback');
-    parentErrMsgs.forEach(function(msg) {
+    const parentErrMsgs = formGroup.querySelectorAll('.formio-errors, .invalid-feedback');
+    parentErrMsgs.forEach(msg => {
       if (msg && msg.parentNode) {
         msg.parentNode.removeChild(msg);
       }
     });
   }
 
-  // Trigger a redraw to update the component display
   if (comp.redraw) {
-    setTimeout(function() {
+    setTimeout(() => {
       comp.redraw();
     }, 50);
   }
@@ -749,19 +672,17 @@ export function clearFieldErrors(comp) {
 export function isFieldNowValid(comp, value) {
   if (!comp) return false;
 
-  var compType = comp.type || comp.component.type;
+  const compType = comp.type || comp.component.type;
 
-  // SPECIAL CASE: File fields
   if (compType === 'file') {
-    var hasFile = hasActualFileData(value) ||
+    let hasFile = hasActualFileData(value) ||
       hasActualFileData(comp.dataValue) ||
       (comp.files && comp.files.length > 0);
 
-    // Check DOM file inputs as fallback
     if (!hasFile && comp.element) {
-      var fileInputs = comp.element.querySelectorAll('input[type="file"]');
-      for (var i = 0; i < fileInputs.length; i++) {
-        if (fileInputs[i]?.files && fileInputs[i].files.length > 0) {
+      const fileInputs = comp.element.querySelectorAll('input[type="file"]');
+      for (const input of fileInputs) {
+        if (input?.files && input.files.length > 0) {
           hasFile = true;
           break;
         }
@@ -771,97 +692,80 @@ export function isFieldNowValid(comp, value) {
     return hasFile;
   }
 
-  // NON-FILE FIELDS
-  else {
-    // Check if field is required
-    var isRequired = comp.component?.validate?.required || comp.validate?.required;
+  const isRequired = comp.component?.validate?.required || comp.validate?.required;
 
-    if (!isRequired) {
-      return true; // Non-required fields are always valid
-    }
-
-    // Get the current value from multiple sources
-    var currentValue = value;
-    if (currentValue === null || currentValue === undefined || currentValue === '') {
-      currentValue = comp.dataValue;
-    }
-    if (currentValue === null || currentValue === undefined || currentValue === '') {
-      if (comp.getValue) {
-        currentValue = comp.getValue();
-      }
-    }
-    if (currentValue === null || currentValue === undefined || currentValue === '') {
-      var dataKey = comp.component?.key;
-      if (dataKey && comp.data) {
-        currentValue = comp.data[dataKey];
-      }
-    }
-
-    // SPECIAL CASE: Radio buttons - check DOM state
-    if (compType === 'radio' && comp.element) {
-      var checkedRadio = comp.element.querySelector('input[type="radio"]:checked');
-      if (checkedRadio && checkedRadio.value) {
-        currentValue = checkedRadio.value;
-      }
-    }
-
-    // SPECIAL CASE: Selectboxes (checkboxes) - check for any selected values
-    if (compType === 'selectboxes') {
-      if (typeof currentValue === 'object' && currentValue !== null) {
-        // Check if any checkbox is checked
-        var hasChecked = Object.keys(currentValue).some(function(key) {
-          return currentValue[key] === true;
-        });
-        if (hasChecked) {
-          return true; // At least one checkbox is selected
-        }
-      }
-    }
-
-    // Check if field has a value
-    var hasValue = false;
-    if (currentValue !== null && currentValue !== undefined && currentValue !== '') {
-      if (Array.isArray(currentValue)) {
-        hasValue = currentValue.length > 0;
-      } else if (typeof currentValue === 'object') {
-        hasValue = Object.keys(currentValue).length > 0;
-      } else if (typeof currentValue === 'string') {
-        hasValue = currentValue.trim().length > 0;
-      } else if (typeof currentValue === 'number') {
-        hasValue = true; // Numbers are always valid even if 0
-      } else if (typeof currentValue === 'boolean') {
-        hasValue = true; // Booleans are always valid
-      } else {
-        hasValue = true;
-      }
-    }
-
-    if (!hasValue) {
-      return false;
-    }
-
-    // If it has a value, run full validation to check other rules (e.g., format, length)
-    if (comp.checkValidity) {
-      // Save current state
-      var oldErrors = comp.errors ? [].concat(comp.errors) : [];
-      // Use setCustomValidity to safely clear errors
-      if (comp.setCustomValidity) {
-        comp.setCustomValidity([], false);
-      }
-
-      var validationResult = comp.checkValidity(comp.data, false, comp.data);
-      var isValid = validationResult === true || (comp.errors && comp.errors.length === 0);
-
-      // Restore errors if validation failed
-      if (!isValid && comp.setCustomValidity) {
-        comp.setCustomValidity(oldErrors, true);
-      }
-
-      return isValid;
-    }
-
-    return hasValue;
+  if (!isRequired) {
+    return true;
   }
+
+  let currentValue = value;
+  if (currentValue === null || currentValue === undefined || currentValue === '') {
+    currentValue = comp.dataValue;
+  }
+  if (currentValue === null || currentValue === undefined || currentValue === '') {
+    if (comp.getValue) {
+      currentValue = comp.getValue();
+    }
+  }
+  if (currentValue === null || currentValue === undefined || currentValue === '') {
+    const dataKey = comp.component?.key;
+    if (dataKey && comp.data) {
+      currentValue = comp.data[dataKey];
+    }
+  }
+
+  if (compType === 'radio' && comp.element) {
+    const checkedRadio = comp.element.querySelector('input[type="radio"]:checked');
+    if (checkedRadio && checkedRadio.value) {
+      currentValue = checkedRadio.value;
+    }
+  }
+
+  if (compType === 'selectboxes') {
+    if (typeof currentValue === 'object' && currentValue !== null) {
+      const hasChecked = Object.keys(currentValue).some(key => currentValue[key] === true);
+      if (hasChecked) {
+        return true;
+      }
+    }
+  }
+
+  let hasValue = false;
+  if (currentValue !== null && currentValue !== undefined && currentValue !== '') {
+    if (Array.isArray(currentValue)) {
+      hasValue = currentValue.length > 0;
+    } else if (typeof currentValue === 'object') {
+      hasValue = Object.keys(currentValue).length > 0;
+    } else if (typeof currentValue === 'string') {
+      hasValue = currentValue.trim().length > 0;
+    } else if (typeof currentValue === 'number' || typeof currentValue === 'boolean') {
+      hasValue = true;
+    } else {
+      hasValue = true;
+    }
+  }
+
+  if (!hasValue) {
+    return false;
+  }
+
+  if (comp.checkValidity) {
+    const oldErrors = comp.errors ? [].concat(comp.errors) : [];
+    if (comp.setCustomValidity) {
+      comp.setCustomValidity([], false);
+    }
+
+    const validationResult = comp.checkValidity(comp.data, false, comp.data);
+    const isValid = validationResult === true || (comp.errors && comp.errors.length === 0);
+
+    if (!isValid && comp.setCustomValidity) {
+      comp.setCustomValidity(oldErrors, true);
+    }
+
+    return isValid;
+  }
+
+  return hasValue;
 }
 
 /**
@@ -876,9 +780,8 @@ export function validateFileComponentWithRelaxedRequired(comp) {
   if (!isFile) return false;
   
   const isRequired = !!(comp.component?.validate?.required || comp.validate?.required);
-  if (!isRequired) return true; // Not required, so always valid
+  if (!isRequired) return true;
   
-  // Check multiple data sources for file presence
   const candidates = [
     comp.dataValue,
     comp.getValue?.(),
@@ -893,7 +796,6 @@ export function validateFileComponentWithRelaxedRequired(comp) {
   
   let hasVal = candidates.some(v => hasActualFileData(v));
   
-  // Fallback to DOM <input type="file">
   if (!hasVal && comp.element) {
     const inputs = comp.element.querySelectorAll?.('input[type="file"]');
     for (const el of inputs) {
@@ -905,10 +807,9 @@ export function validateFileComponentWithRelaxedRequired(comp) {
   }
   
   if (hasVal) {
-    // Clear errors immediately and force component update
     clearFieldErrors(comp);
     return true;
   }
   
-  return false; // No files found, so invalid if required
+  return false;
 }
