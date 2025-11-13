@@ -1,4 +1,4 @@
-import './css/CustomDropdown.css';
+import '../css/CustomDropdown.css';
 
 /**
  * Helper functions for ReviewButton component
