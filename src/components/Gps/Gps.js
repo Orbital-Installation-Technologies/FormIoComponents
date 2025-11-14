@@ -40,7 +40,7 @@ export default class Gps extends FieldComponent {
     const lonMissing = lon === null || lon === undefined || Number.isNaN(lon);
     if (latMissing && lonMissing) {
        if (required) {
-         errors.push({ key: 'gps_missing', message: 'GPS Coordinates are required', type: 'custom' });
+         errors.push({ key: 'gps_missing', message: 'GPS Coordinates is required', type: 'custom' });
        }
        return errors;
     }
