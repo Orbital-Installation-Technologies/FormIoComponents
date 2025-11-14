@@ -33,25 +33,29 @@ export default class Gps extends FieldComponent {
     this.fetchedInitially = false;
   }
 
-  validateLatLon(lat, lon, refs, { requireBoth = true } = {}) {
+  validateLatLon(lat, lon, refs, { requireBoth = true, required = true } = {}) {
     const errors = [];
     const { latitudeRef, longitudeRef } = refs;
-    if (!lat && !lon) {
-      errors.push({ key: 'gps_missing', message: 'GPS Coordinates is required' , type: "custom"});
-      return errors;
+    const latMissing = lat === null || lat === undefined || Number.isNaN(lat);
+    const lonMissing = lon === null || lon === undefined || Number.isNaN(lon);
+    if (latMissing && lonMissing) {
+       if (required) {
+         errors.push({ key: 'gps_missing', message: 'GPS Coordinates are required', type: 'custom' });
+       }
+       return errors;
     }
     if (requireBoth) {
-      if (!lat) {
-        errors.push({ key: 'lat_missing', message: 'Latitude is required' , type: "custom"});
-      }
-      if (!lon) {
-        errors.push({ key: 'lon_missing', message: 'Longitude is required' , type: "custom"});
+      if (latMissing) {
+           errors.push({ key: 'lat_missing', message: 'Latitude is required', type: 'custom' });
+        }
+      if (lonMissing) {
+          errors.push({ key: 'lon_missing', message: 'Longitude is required', type: 'custom' });
       }
     }
-    if (lat !== null && (lat < -90 || lat > 90)) {
+    if (!latMissing && (lat < -90 || lat > 90)) {
       errors.push({ key: 'lat_out_of_range', message: 'Latitude must be between -90 and 90.' , type: "custom"});
     }
-    if (lon !== null && (lon < -180 || lon > 180)) {
+    if (!lonMissing && (lon < -180 || lon > 180)) {
       errors.push({ key: 'lon_out_of_range', message: 'Longitude must be between -180 and 180.' , type: "custom"});
     }
     return errors;
@@ -123,12 +127,12 @@ export default class Gps extends FieldComponent {
     const [latitude, longitude] = (value || "").split(",");
     const latNum = latitude ? parseFloat(latitude) : null;
     const lonNum = longitude ? parseFloat(longitude) : null;
-
     const errors = this.validateLatLon(
       latNum, lonNum,
       { latitudeRef: this.refs.latitude, longitudeRef: this.refs.longitude },
-      { requireBoth: true }
+      { requireBoth: true, required: !!required }
     );
+
     if (errors.length > 0) {
       // Remove/add class after value update (and any potential rerender)
       this.refs.latitude.classList.toggle("is-invalid", errors.some(e=>e.key.includes("lat") || e.key === "gps_missing"));
