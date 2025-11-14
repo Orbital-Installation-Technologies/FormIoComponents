@@ -30,29 +30,24 @@ function renderNode(node, depth = 0, rootInstance = null, invalidFields = new Se
   return sortedEntries.map(([k, v], index) => {
     const isAddressComponentRender = v.__comp?.component?.type === 'address' || v.__comp?.type === 'address';
 
-    // Apply new visibility logic in rendering
     if (v.__comp?._visible == false || v.__comp?.type === 'datasource') {
       return '';
     }
     
-    // Don't show hidden components
     if (v.__comp?.component?.hidden === true || v.__comp?.hidden === true) {
       return '';
     }
     
-    // If disabled, only show if marked review visible
     if (v.__comp?.disabled === true || v.__comp?.component?.disabled === true) {
       if (v.__comp?.component?.reviewVisible !== true) {
         return '';
       }
     }
     
-    // For non-disabled components, show if required (and invalid) or review visible
     const isRequired = v.__comp?.component?.validate?.required === true;
     const isReviewVisible = v.__comp?.component?.reviewVisible === true;
       const isInvalid = isFieldInvalid(v.__comp, k, invalidFields) || invalidComponents.has(v.__comp);
     
-    // Show required fields only if they are invalid or marked review visible
     if (isRequired && !isInvalid && !isReviewVisible) {
       return '';
     }
@@ -109,10 +104,10 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
     const isContainerB = (isPanelB || isWellB) && !isFlattenedB;
 
     if (isContainerA && !isContainerB) {
-      return -1; // Container comes first
+      return -1;
     }
     if (!isContainerA && isContainerB) {
-      return 1; // Container comes first
+      return 1;
     }
 
     const isTagpadA = a.comp?.component?.type === 'tagpad' || a.comp?.type === 'tagpad' ||
@@ -138,7 +133,7 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
       const bDepth = (b.path.match(/\./g) || []).length;
 
       if (aDepth !== bDepth) {
-        return aDepth - bDepth; // Shorter paths (parent components) come first
+        return aDepth - bDepth;
       }
 
       return a.path.localeCompare(b.path);
@@ -257,12 +252,9 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
     let ptr = root;
     let containerPath = '';
 
-    const isPanelAtRoot = parts.length === 1 && isParentComponent(comp);
-
     for (let i = 0; i < parts.length; i++) {
       const seg = parts[i];
       if (!seg) {
-        console.warn('Empty segment found in path parts:', parts);
         continue;
       }
 
@@ -270,7 +262,6 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
       const key = seg.replace(/\[\d+\]/g, '');
 
       if (!key) {
-        console.warn('Empty key after processing segment:', seg);
         continue;
       }
 
@@ -280,7 +271,6 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
         const node = ensureNode(ptr, key, comp);
 
         if (!node) {
-          console.error('Failed to create node for key:', key);
           continue;
         }
 
@@ -351,12 +341,6 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
         }
           
       } catch (error) {
-        console.error('Error processing path segment:', {
-          segment: seg,
-          key,
-          path: normalizedPath,
-          error: error.message
-        });
         continue;
       }
     }
@@ -382,29 +366,24 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
     return sortedEntries.map(([k, v], index) => {
       const isAddressComponentRender = v.__comp?.component?.type === 'address' || v.__comp?.type === 'address';
 
-      // Apply new visibility logic in rendering
       if (v.__comp?._visible == false || v.__comp?.type === 'datasource') {
         return '';
       }
       
-      // Don't show hidden components
       if (v.__comp?.component?.hidden === true || v.__comp?.hidden === true) {
         return '';
       }
       
-      // If disabled, only show if marked review visible
       if (v.__comp?.disabled === true || v.__comp?.component?.disabled === true) {
         if (v.__comp?.component?.reviewVisible !== true) {
           return '';
         }
       }
       
-      // For non-disabled components, show if required (and invalid) or review visible
       const isRequired = v.__comp?.component?.validate?.required === true;
       const isReviewVisible = v.__comp?.component?.reviewVisible === true;
       const isInvalid = isFieldInvalid(v.__comp, k, invalidFields) || invalidComponents.has(v.__comp);
       
-      // Show required fields only if they are invalid or marked review visible
       if (isRequired && !isInvalid && !isReviewVisible) {
         return '';
       }
@@ -511,7 +490,7 @@ function renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath,
     if (foundComponent) {
       v.__label = foundComponent.component.component?.label || foundComponent.component.label || k;
     } else {
-      v.__label = k; // Fallback to key if not found
+      v.__label = k;
     }
   }
 
@@ -521,7 +500,7 @@ function renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath,
   const isDataTableComponent = v.__comp?.component?.type === 'datatable' || v.__comp?.type === 'datatable';
   const isTableComponent = v.__comp?.component?.type === 'table' || v.__comp?.type === 'table';
   const isContainerComponent = 
-      !isDataGridComponent && !isDataTableComponent && !isTableComponent && // Don't treat data grids/tables as containers
+      !isDataGridComponent && !isDataTableComponent && !isTableComponent &&
       ((isContainerType([v.__comp?.component?.type, v.__comp?.type, v.__value?._type]) ) || 
       Array.isArray(v.__value?._row));
 
@@ -530,7 +509,6 @@ function renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath,
   let headerStyle = ""
   const header = `<div idx="12" style="${headerStyle}">`;
 
-  // Handle data tables and tables specifically
   if (isDataTableComponent && v.__comp) {
     const comp = v.__comp;
     const mockValue = { _type: 'datatable' };
@@ -560,7 +538,6 @@ function renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath,
     return renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, header, invalidComponents);
   }
   
-  // Show datagrid label even when there are no rows
   if (isDataGridWithNoRows) {
     return `${header}<div style="margin-bottom:10px;"><strong>${displayLabel}</strong></div><div style="font-style: italic; color: #666;">No data to display</div></div>`;
   }
@@ -715,13 +692,6 @@ function renderContainerComponent(v, k, depth, rootInstance, invalidFields, base
  * Renders data grid rows
  */
 function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, header, invalidComponents = new Set()) {
-  console.log('renderDataGridRows called with:', {
-    datagridKey: k,
-    invalidFields: Array.from(invalidFields),
-    invalidComponents: Array.from(invalidComponents).map(c => c?.key || c?.component?.key),
-    rowsCount: Object.keys(v.__rows || {}).length
-  });
-
   const presentKeys = new Set();
   Object.values(v.__rows).forEach(r => {
     Object.keys(r.__children || {}).forEach(cKey => presentKeys.add(cKey));
@@ -742,12 +712,6 @@ function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, 
     const haveMultiCols = orderedKeys.length > 1;
     const rowHasErrors = isRowInvalid(row, k, rowIdx, invalidFields, invalidComponents);
     const rowLabelStyle = rowHasErrors ? 'background-color:rgb(255 123 123); border-radius: 3px;' : '';
-    
-    console.log('Row rendering:', {
-      rowIdx,
-      rowHasErrors,
-      rowLabelStyle: rowLabelStyle ? 'RED BACKGROUND' : 'NO STYLING'
-    });
 
     const padRow = `padding-left:10px; border-left:1px dotted #ccc;`;
     const padCol = `padding-left:10px; border-left:1px dotted #ccc;`;
@@ -832,25 +796,14 @@ function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, 
 function isRowInvalid(row, datagridKey, rowIdx, invalidFields, invalidComponents = new Set()) {
   if (!row.__children) return false;
 
-
   const hasDirectInvalid = Object.keys(row.__children).some(colKey => {
     const cell = row.__children[colKey];
     const cellPath = `${datagridKey}[${rowIdx}].${colKey}`;
     const isInvalid = isFieldInvalid(cell.__comp, cellPath, invalidFields) || invalidComponents.has(cell.__comp);
-    
-    if (isInvalid) {
-      console.log('Found invalid cell:', {
-        colKey,
-        cellPath,
-        component: cell.__comp?.key || cell.__comp?.component?.key
-      });
-    }
-    
     return isInvalid;
   });
 
   if (hasDirectInvalid) {
-    console.log('Row has direct invalid cells');
     return true;
   }
 
@@ -858,24 +811,13 @@ function isRowInvalid(row, datagridKey, rowIdx, invalidFields, invalidComponents
     const cell = row.__children[colKey];
     const cellPath = `${datagridKey}[${rowIdx}].${colKey}`;
     const isNestedInvalid = isRowInvalidRecursive(cell, cellPath, invalidFields, invalidComponents);
-    
-    if (isNestedInvalid) {
-      console.log('Found nested invalid cell:', {
-        colKey,
-        cellPath,
-        component: cell.__comp?.key || cell.__comp?.component?.key
-      });
-    }
-    
     return isNestedInvalid;
   });
 
   if (hasNestedInvalid) {
-    console.log('Row has nested invalid cells');
     return true;
   }
 
-  console.log('Row is valid');
   return false;
 }
 
@@ -883,19 +825,7 @@ function isRowInvalid(row, datagridKey, rowIdx, invalidFields, invalidComponents
  * Recursively checks if a row is invalid
  */
 function isRowInvalidRecursive(node, currentPath, invalidFields, invalidComponents = new Set()) {
-  console.log('Checking node recursively:', {
-    currentPath,
-    hasComp: !!node.__comp,
-    compKey: node.__comp?.key || node.__comp?.component?.key,
-    hasChildren: !!node.__children,
-    childrenKeys: node.__children ? Object.keys(node.__children) : []
-  });
-
   if (node.__comp && (isFieldInvalid(node.__comp, currentPath, invalidFields) || invalidComponents.has(node.__comp))) {
-    console.log('Found invalid component in recursive check:', {
-      currentPath,
-      compKey: node.__comp?.key || node.__comp?.component?.key
-    });
     return true;
   }
 
@@ -904,24 +834,13 @@ function isRowInvalidRecursive(node, currentPath, invalidFields, invalidComponen
       const childNode = node.__children[childKey];
       const childPath = `${currentPath}.${childKey}`;
       const isChildInvalid = isRowInvalidRecursive(childNode, childPath, invalidFields, invalidComponents);
-      
-      if (isChildInvalid) {
-        console.log('Found invalid child in recursive check:', {
-          childKey,
-          childPath,
-          compKey: childNode.__comp?.key || childNode.__comp?.component?.key
-        });
-      }
-      
       return isChildInvalid;
     });
     
     if (hasInvalidChild) {
-      console.log('Node has invalid children');
       return true;
     }
   }
 
-  console.log('Node is valid in recursive check');
   return false;
 }

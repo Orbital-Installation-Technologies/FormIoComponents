@@ -3,36 +3,29 @@
  * Contains logic for rendering HTML and formatting values for display
  */
 
-import { isContainerType, shouldFlattenContainer } from "./validationUtils.js";
-
 /**
  * Formats a value for display based on component type
  */
 export function formatValue(value, comp) {
   if (value && (value._type === 'table' || value._type === 'datatable') && (Array.isArray(comp.table) || Array.isArray(comp.dataValue) || Array.isArray(comp.rows))) {
     const customTableForReview = (component, data = {}) => {
-      var label = component.label;
-      var key = component.key;
-      var customTable = null;
-      var customPanel = null;
-      var customColumn = null;
-      var rowData = [];
-      var value = {};
-      var column = [];
-      var finalTable = [];
+      const label = component.label;
+      const key = component.key;
+      let customTable = null;
+      let rowData = [];
+      let value = {};
+      let column = [];
+      let finalTable = {};
       
-      // Handle both regular tables and data tables
-      var rows = component.table || component.components || component.columns;
-      var dataRows = [];
+      let rows = component.table || component.components || component.columns;
+      let dataRows = [];
       
-      // For data tables, get the actual data
       if (component._type === 'datatable' || component.type === 'datatable') {
         dataRows = Array.isArray(component.dataValue) ? component.dataValue :
                   Array.isArray(component.rows) ? component.rows :
                   Array.isArray(component.data) ? component.data :
                   Array.isArray(data[key]) ? data[key] : [];
                   
-        // If we have data but no column definitions, create them from data keys
         if (dataRows.length > 0 && (!rows || rows.length === 0)) {
           const firstRow = dataRows[0];
           if (typeof firstRow === 'object') {
@@ -41,21 +34,14 @@ export function formatValue(value, comp) {
         }
       }
       
-      // First, collect all the original data structure
-      var originalRows = [];
+      const originalRows = [];
       
-      // Handle data tables differently from regular tables
       if (component._type === 'datatable' || component.type === 'datatable') {
-        // For data tables, use traditional table layout: columns=fields, rows=data records
-        // Don't transpose - just create the structure directly
         customTable = [];
         
-        // Use the order from dataRows keys, not from rows configuration
         const dataRowKeys = dataRows.length > 0 ? Object.keys(dataRows[0]) : [];
         
-        // Create column definitions based on dataRowKeys order
         const orderedColumns = dataRowKeys.map(key => {
-          // Find the corresponding component definition
           const colDef = rows.find(col => {
             const fieldComp = col.component || col;
             return fieldComp.key === key;
@@ -69,7 +55,6 @@ export function formatValue(value, comp) {
               type: fieldComp.type || 'textfield'
             };
           } else {
-            // Fallback if no component definition found
             return {
               key: key,
               label: key,
@@ -80,8 +65,7 @@ export function formatValue(value, comp) {
         
         const columnLabels = orderedColumns.map(col => col.label);
         
-        // Create each data row using ordered columns
-        dataRows.forEach((rowDataObj, rowIndex) => {
+        dataRows.forEach((rowDataObj) => {
           rowData = [];
           if (orderedColumns && Array.isArray(orderedColumns)) {
             orderedColumns.forEach(col => {
@@ -103,7 +87,6 @@ export function formatValue(value, comp) {
           }
         });
         
-        // Store column labels for header generation
         finalTable = {
           _label: label,
           _key: key,
@@ -114,7 +97,6 @@ export function formatValue(value, comp) {
         
         return finalTable;
       } else {
-        // Regular table processing
         [...rows].reverse().map((row) => {
           if (Array.isArray(row)) {
             rowData = [];
@@ -134,9 +116,8 @@ export function formatValue(value, comp) {
               }
               if (column.length > 0) {
                 rowData.push({ _row: column });
-              }
-              else{
-                rowData.push({  });
+              } else {
+                rowData.push({});
               }
             });
             if (rowData.length > 0) {
@@ -146,21 +127,18 @@ export function formatValue(value, comp) {
         });
       }
       
-      // Now transpose: turn rows into columns
       if (originalRows.length > 0) {
         customTable = [];
         const maxColumns = Math.max(...originalRows.map(row => row._row ? row._row.length : 0));
         
-        // For each original column index, create a new row
         for (let colIndex = 0; colIndex < maxColumns; colIndex++) {
           const newRowData = [];
           
-          // For each original row, take the cell at colIndex and make it a column in the new row
           originalRows.forEach((originalRow) => {
             if (originalRow._row && originalRow._row[colIndex]) {
               newRowData.push(originalRow._row[colIndex]);
             } else {
-              newRowData.push({  }); // Empty cell
+              newRowData.push({});
             }
           });
           
@@ -171,7 +149,7 @@ export function formatValue(value, comp) {
       finalTable = {
         _label: label,
         _key: key,
-        _row: customTable || customPanel || customColumn
+        _row: customTable
       };
       return finalTable;
     };
@@ -181,7 +159,7 @@ export function formatValue(value, comp) {
 
   if (comp?.type === 'textarea' || comp?.component?.type === 'textarea' || (value && typeof value === 'string' && value.includes('\n')))  {
     if (value === null || value === undefined || value === '') return '';
-    const formattedValue = String(value).replace(/\n/g, '<br/>'); // Preserve line breaks
+    const formattedValue = String(value).replace(/\n/g, '<br/>');
     return `__TEXTAREA__${formattedValue}__TEXTAREA__`;
   }
 
@@ -203,7 +181,6 @@ export function formatValue(value, comp) {
 
   const isFileComponent = comp?.component?.type === 'file';
 
-  // Handle file components first to avoid conflicts with other type checks
   if (isFileComponent) {
     if (Array.isArray(value)) {
       return formatArrayValue(value, isFileComponent);
@@ -264,9 +241,7 @@ function renderTableHtml(customTable, comp) {
   let tableHtml = '';
   tableHtml += `<table style="width:100%;border-collapse:collapse;">`;
   
-  // Handle data tables with headers
   if (customTable._isDataTable && customTable._columnLabels) {
-    // Add header row for data tables
     tableHtml += `<thead style="background-color:#f8f9fa;">`;
     tableHtml += `<tr>`;
     customTable._columnLabels.forEach(label => {
@@ -275,7 +250,6 @@ function renderTableHtml(customTable, comp) {
     tableHtml += `</tr>`;
     tableHtml += `</thead>`;
     
-    // Add data rows
     tableHtml += `<tbody>`;
     customTable._row.forEach(rowObj => {
       tableHtml += `<tr>`;
@@ -304,7 +278,6 @@ function renderTableHtml(customTable, comp) {
     });
     tableHtml += `</tbody>`;
   } else {
-    // Regular table processing (transposed with field labels)
     customTable._row.forEach(rowObj => {
       tableHtml += `<tr>`;
       if (Array.isArray(rowObj._row)) {
@@ -345,7 +318,6 @@ function renderTableHtml(customTable, comp) {
 function renderSurveyHtml(comp, value) {
   let surveyHTML = '<div idx="7" style="padding-left: 10px;">';
   const padStyle = typeof pad !== 'undefined' ? pad : '';
-  const depthLevel = typeof depth !== 'undefined' ? depth : 0;
   comp.component.questions.forEach((question, index) => {
     if (value[question.value]) {
       surveyHTML += `<div idx="8" style="${padStyle}padding-left: 10px; border-left:1px dotted #ccc;">
@@ -398,18 +370,13 @@ function formatSelectboxesValue(value) {
 function formatSelectValue(value, comp) {
   if (!value || value === '') return '';
   
-  // Get the component definition - could be in comp.component or comp itself
   const componentDef = comp.component || comp;
-  
-  // Get choices array from the component
   const choices = componentDef.data?.values || componentDef.values || componentDef.choices || [];
   
   if (!Array.isArray(choices) || choices.length === 0) {
-    // If no choices found, return the value as-is
     return value;
   }
   
-  // Handle multiple values (for multi-select)
   if (Array.isArray(value)) {
     return value.map(v => {
       const choice = choices.find(c => c.value === v);
@@ -417,7 +384,6 @@ function formatSelectValue(value, comp) {
     }).join(', ');
   }
   
-  // Handle single value
   const choice = choices.find(c => c.value === value);
   return choice ? choice.label : value;
 }
@@ -460,7 +426,7 @@ function formatCurrencyValue(value) {
 function formatPasswordValue(value) {
   if (value === null || value === undefined || value === '') return '';
   const passwordLength = String(value).length;
-  return '•'.repeat(passwordLength); // Show one dot per character
+  return '•'.repeat(passwordLength);
 }
 
 /**
@@ -474,7 +440,7 @@ function formatDateTimeValue(value, comp) {
     
     if (comp?.type === 'time' || comp?.component?.type === 'time') {
       if (typeof value === 'string' && /^\d{1,2}:\d{2}(:\d{2})?$/.test(value)) {
-        const today = new Date().toISOString().split('T')[0]; // Get today in YYYY-MM-DD format
+        const today = new Date().toISOString().split('T')[0];
         date = new Date(`${today}T${value}`);
       } else {
         date = new Date(value);
@@ -483,7 +449,7 @@ function formatDateTimeValue(value, comp) {
       date = new Date(value);
     }
     
-    if (isNaN(date.getTime())) return value; // Return original value if not a valid date
+    if (isNaN(date.getTime())) return value;
     
     if (comp?.type === 'datetime' || comp?.component?.type === 'datetime') {
       return date.toLocaleString('en-US', {
@@ -509,7 +475,7 @@ function formatDateTimeValue(value, comp) {
     }
   } catch (e) {
     console.warn('Error formatting date/time value:', e);
-    return value; // Return original value if formatting fails
+    return value;
   }
 }
 
@@ -536,23 +502,10 @@ export function isFieldInvalid(comp, path, invalidFields) {
   
   if (!fieldPath) return false;
 
-  // Debug logging for hardware product
-  if (fieldPath && (fieldPath.includes('hardwareProduct') || fieldPath.includes('Hardware'))) {
-    console.log('isFieldInvalid check for Hardware Product:', {
-      fieldPath,
-      invalidFields: Array.from(invalidFields),
-      comp: comp?.key || comp?.component?.key,
-      compValue: comp?.dataValue || comp?.getValue?.()
-    });
-  }
-
-  // Direct path match
   if (invalidFields.has(fieldPath)) {
-    console.log('Direct path match found for:', fieldPath);
     return true;
   }
 
-  // Try various path variations
   const pathVariations = [
     fieldPath,
     `form.data.${fieldPath}`,
@@ -565,12 +518,10 @@ export function isFieldInvalid(comp, path, invalidFields) {
 
   for (const variation of pathVariations) {
     if (invalidFields.has(variation)) {
-      console.log('Path variation match found:', variation, 'for field:', fieldPath);
       return true;
     }
   }
 
-  // For array fields, check if any invalid field matches the same array index and field name
   if (fieldPath.includes('[') && fieldPath.includes(']')) {
     const fieldName = fieldPath.split('.').pop();
     const arrayMatch = fieldPath.match(/(\w+\[\d+\])/);
@@ -579,39 +530,29 @@ export function isFieldInvalid(comp, path, invalidFields) {
       const arrayPart = arrayMatch[1];
       
       for (const invalidField of invalidFields) {
-        // Direct match with exact path
         if (invalidField === fieldPath) {
-          console.log('Direct array field match found:', invalidField, 'for field:', fieldPath);
           return true;
         }
-        // Match with same array part and exact field name - must match the specific row index
         if (invalidField.includes(arrayPart) && invalidField.endsWith('.' + fieldName)) {
-          console.log('Array field match found:', invalidField, 'for field:', fieldPath);
           return true;
         }
       }
     }
   } else {
-    // For non-array fields, check if any invalid field ends with this field name
     const fieldName = fieldPath.split('.').pop();
     
     for (const invalidField of invalidFields) {
-      // Direct match
       if (invalidField === fieldPath) {
-        console.log('Direct field match found:', invalidField, 'for field:', fieldPath);
         return true;
       }
-      // Match if the invalid field doesn't contain array notation
       if (!invalidField.includes('[') && !invalidField.includes(']')) {
         if (invalidField.endsWith('.' + fieldName) || invalidField === fieldName) {
-          console.log('Field name match found:', invalidField, 'for field:', fieldPath);
           return true;
         }
       }
     }
   }
 
-  console.log('No match found for field:', fieldPath);
   return false;
 }
 
@@ -620,61 +561,37 @@ export function isFieldInvalid(comp, path, invalidFields) {
  */
 export function getInvalidStyle(comp, path, basePath = '', invalidFields, invalidComponents = new Set()) {
   if ((!invalidFields || invalidFields.size === 0) && (!invalidComponents || invalidComponents.size === 0)) {
-    console.log('getInvalidStyle: No invalid fields or components provided');
     return '';
   }
 
-  console.log('getInvalidStyle called:', {
-    comp: comp?.key || comp?.component?.key,
-    path,
-    basePath,
-    invalidFields: Array.from(invalidFields || []),
-    invalidComponents: Array.from(invalidComponents || [])
-  });
-
-  // Check if component is directly in invalid components set
   if (invalidComponents && invalidComponents.has(comp)) {
-    console.log('getInvalidStyle: Component is directly invalid:', comp?.key);
     return 'background-color:rgb(255 123 123); border-radius: 3px;';
   }
 
-  // Use the improved isFieldInvalid function for more precise matching
   if (invalidFields && isFieldInvalid(comp, path, invalidFields)) {
-    console.log('getInvalidStyle: Returning red background for path:', path);
     return 'background-color:rgb(255 123 123); border-radius: 3px;';
   }
 
-  // Also check with basePath if provided
   if (basePath && invalidFields) {
     const fullPath = `${basePath}.${path}`;
     if (isFieldInvalid(comp, fullPath, invalidFields)) {
-      console.log('getInvalidStyle: Returning red background for full path:', fullPath);
       return 'background-color:rgb(255 123 123); border-radius: 3px;';
     }
   }
 
-  console.log('getInvalidStyle: No styling applied for path:', path);
   return '';
 }
 
-/**
- * Adds visual error highlighting to a row (red border + pink background)
- * @param {HTMLElement} element - The element to highlight
- */
-export function addErrorHighlight(element) {
-  if (!element) return;
-
-  // Find the row container (tries multiple selectors)
-  var rowContainer = element.closest('.formio-component-panel') ||
+function findRowContainer(element) {
+  let rowContainer = element.closest('.formio-component-panel') ||
     element.closest('[ref="row"]') ||
     element.closest('.formio-component-columns') ||
     element.closest('.list-group-item') ||
     element.parentElement;
 
-  // Fallback: traverse up to find container
   if (!rowContainer || !rowContainer.classList) {
-    var parent = element;
-    for (var i = 0; i < 5; i++) {
+    let parent = element;
+    for (let i = 0; i < 5; i++) {
       if (parent && parent.classList && (
         parent.classList.contains('formio-component') ||
         parent.hasAttribute('data-noattach') ||
@@ -687,7 +604,18 @@ export function addErrorHighlight(element) {
     }
   }
 
-  // Apply error styling
+  return rowContainer;
+}
+
+/**
+ * Adds visual error highlighting to a row (red border + pink background)
+ * @param {HTMLElement} element - The element to highlight
+ */
+export function addErrorHighlight(element) {
+  if (!element) return;
+
+  const rowContainer = findRowContainer(element);
+
   if (rowContainer && rowContainer.style) {
     rowContainer.classList.add('has-error', 'alert', 'alert-danger');
     rowContainer.style.setProperty('border-left', '4px solid #d9534f', 'important');
@@ -705,29 +633,8 @@ export function addErrorHighlight(element) {
 export function removeErrorHighlight(element) {
   if (!element) return;
 
-  // Find the row container (same logic as addErrorHighlight)
-  var rowContainer = element.closest('.formio-component-panel') ||
-    element.closest('[ref="row"]') ||
-    element.closest('.formio-component-columns') ||
-    element.closest('.list-group-item') ||
-    element.parentElement;
+  const rowContainer = findRowContainer(element);
 
-  if (!rowContainer || !rowContainer.classList) {
-    var parent = element;
-    for (var i = 0; i < 5; i++) {
-      if (parent && parent.classList && (
-        parent.classList.contains('formio-component') ||
-        parent.hasAttribute('data-noattach') ||
-        parent.classList.contains('row')
-      )) {
-        rowContainer = parent;
-        break;
-      }
-      parent = parent.parentElement;
-    }
-  }
-
-  // Remove error styling
   if (rowContainer && rowContainer.style) {
     rowContainer.classList.remove('has-error', 'alert', 'alert-danger');
     rowContainer.style.removeProperty('border-left');
@@ -783,22 +690,19 @@ export function applyFieldErrors(panel) {
     return;
   }
 
-  var attemptCount = 0;
-  var maxAttempts = 10;
+  let attemptCount = 0;
+  const maxAttempts = 10;
 
-  // Try applying errors with retries (in case DOM isn't ready)
-  var tryApplyErrors = function() {
-    var appliedCount = 0;
+  const tryApplyErrors = function() {
+    let appliedCount = 0;
 
     panel.everyComponent(function(comp) {
-      var compKey = comp.component && comp.component.key;
+      const compKey = comp.component && comp.component.key;
       if (compKey) {
         if (panel._errorMap[compKey]) {
-          var err = panel._errorMap[compKey];
+          const err = panel._errorMap[compKey];
 
-          // Set component error state
           comp.error = err.message;
-          // Use setCustomValidity to safely set errors
           if (comp.setCustomValidity) {
             comp.setCustomValidity([err], true);
           }
@@ -807,79 +711,66 @@ export function applyFieldErrors(panel) {
           if (comp.element) {
             comp.element.classList.add('has-error', 'has-message', 'formio-error-wrapper');
 
-            var formGroup = comp.element.closest('.form-group') || comp.element.querySelector('.form-group') || comp.element;
+            const formGroup = comp.element.closest('.form-group') || comp.element.querySelector('.form-group') || comp.element;
             formGroup.classList.add('has-error');
 
-          // Get component type
-          var compType = comp.type || comp.component.type;
+            const compType = comp.type || comp.component.type;
 
-          var input = comp.element.querySelector('input, select, textarea, .choices');
-          if (input) {
-            // Apply red border to input
-            input.classList.add('is-invalid', 'form-control-danger');
-            input.style.borderColor = '#d9534f';
-            input.style.borderWidth = '2px';
+            const input = comp.element.querySelector('input, select, textarea, .choices');
+            if (input) {
+              input.classList.add('is-invalid', 'form-control-danger');
+              input.style.borderColor = '#d9534f';
+              input.style.borderWidth = '2px';
 
-            // Create and insert error message
-            var errMsg = document.createElement('div');
-            errMsg.className = 'formio-errors invalid-feedback';
-            errMsg.style.display = 'block';
-            errMsg.style.color = '#d9534f';
-            errMsg.innerHTML = '<p style="margin:0;">' + err.message + '</p>';
+              const errMsg = document.createElement('div');
+              errMsg.className = 'formio-errors invalid-feedback';
+              errMsg.style.display = 'block';
+              errMsg.style.color = '#d9534f';
+              errMsg.innerHTML = '<p style="margin:0;">' + err.message + '</p>';
 
-            var existing = comp.element.querySelector('.formio-errors');
-            if (existing) existing.remove();
+              const existing = comp.element.querySelector('.formio-errors');
+              if (existing) existing.remove();
 
-            // FIXED: Special handling for barcode fields
-            var insertPoint;
-            if (compType === 'barcode') {
-              // For barcode fields, find the wrapper that contains both input and button
-              var barcodeWrapper = input.closest('.input-group') ||
-                input.closest('.form-group') ||
-                input.parentElement;
+              let insertPoint;
+              if (compType === 'barcode') {
+                const barcodeWrapper = input.closest('.input-group') ||
+                  input.closest('.form-group') ||
+                  input.parentElement;
 
-              // Insert error message AFTER the wrapper (below the field)
-              if (barcodeWrapper && barcodeWrapper.parentElement) {
-                insertPoint = barcodeWrapper.parentElement;
-                // Insert after the barcode wrapper
-                if (barcodeWrapper.nextSibling) {
-                  insertPoint.insertBefore(errMsg, barcodeWrapper.nextSibling);
+                if (barcodeWrapper && barcodeWrapper.parentElement) {
+                  insertPoint = barcodeWrapper.parentElement;
+                  if (barcodeWrapper.nextSibling) {
+                    insertPoint.insertBefore(errMsg, barcodeWrapper.nextSibling);
+                  } else {
+                    insertPoint.appendChild(errMsg);
+                  }
                 } else {
+                  insertPoint = comp.element;
                   insertPoint.appendChild(errMsg);
                 }
+              } else if (compType === 'radio') {
+                const radioContainer = comp.element.querySelector('.form-radio') ||
+                  comp.element.querySelector('.radio') ||
+                  comp.element.querySelector('[role="radiogroup"]') ||
+                  formGroup;
+
+                if (radioContainer) {
+                  radioContainer.appendChild(errMsg);
+                } else {
+                  comp.element.appendChild(errMsg);
+                }
               } else {
-                // Fallback
-                insertPoint = comp.element;
+                insertPoint = input.parentElement || comp.element;
                 insertPoint.appendChild(errMsg);
               }
-            } else if (compType === 'radio') {
-              // For radio buttons, find the container that holds ALL radio options
-              var radioContainer = comp.element.querySelector('.form-radio') ||
-                comp.element.querySelector('.radio') ||
-                comp.element.querySelector('[role="radiogroup"]') ||
-                formGroup;
 
-              // Insert error message AFTER all radio options
-              if (radioContainer) {
-                radioContainer.appendChild(errMsg);
-              } else {
-                // Fallback: append to the component element
-                comp.element.appendChild(errMsg);
-              }
-            } else {
-              // For other field types, use the standard approach
-              insertPoint = input.parentElement || comp.element;
-              insertPoint.appendChild(errMsg);
+              appliedCount++;
             }
-
-            appliedCount++;
-          }
           }
         }
       }
     });
 
-    // Retry if not all errors were applied
     if (appliedCount < Object.keys(panel._errorMap).length && attemptCount < maxAttempts) {
       attemptCount++;
       setTimeout(tryApplyErrors, 200);
