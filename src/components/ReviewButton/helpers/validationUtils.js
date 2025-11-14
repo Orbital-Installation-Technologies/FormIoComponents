@@ -57,7 +57,7 @@ export const hasActualFileData = (value) => {
   if (typeof value === 'string') {
     const trimmed = value.trim();
     return trimmed.length > 0 && (
-      trimmed.startsWith('data:') || trimmed.startsWith('http') || 
+      trimmed.startsWith('data:') || trimmed.startsWith('http') ||
       trimmed.startsWith('/') || trimmed.includes('.')
     );
   }
@@ -184,7 +184,7 @@ export const processComponentErrors = (component, errorMap, results, showErrors)
     errors: component.errors,
     showErrors
   });
-  
+
   results.isValid = false;
   results.errorCount++;
 
@@ -197,7 +197,7 @@ export const processComponentErrors = (component, errorMap, results, showErrors)
     console.log("No errors found for component:", componentKey);
     return;     // this early check will skip almost all work
   }
-  
+
   if (errors && errors.length) {
     console.log("Processing errors for component:", componentKey, "errors:", errors);
     // Get or create the entry once
@@ -275,7 +275,7 @@ export const validateSelectedComponents = async (components, results, options, c
       if (isAddress && componentDefinition?.validate?.required) {
          const addressValue = dataValue?.formattedPlace;
          const isAddressEmpty = !addressValue || addressValue.trim() === '';
-          
+
 
         if (isAddressEmpty)  {
           isValid = false;
@@ -335,12 +335,12 @@ export const validateComponentsAndCollectResults = async (root, errorMap, warnin
     try {
       // Skip validation for hidden components
       if (component.component?.hidden === true || component.hidden === true) return;
-      
+
       // Skip validation for disabled components unless they're marked review visible
       if (component.disabled === true || component.component?.disabled === true) {
         if (component.component?.reviewVisible !== true) return;
       }
-      
+
       if (!component.visible || !component.checkValidity) return;
 
       // ---------- Address components ----------
@@ -423,13 +423,17 @@ export const validateComponentsAndCollectResults = async (root, errorMap, warnin
 
       // ---------- GPS components ----------
       if (isGpsComponent(component)) {
-        const isValid = component.isValid();
-        const errorsNow = component.validate(true, component.getValue());
-
-        if (!isValid) {
-          component.setCustomValidity(errorsNow, true);
-          invalidCount++;
-        }
+           const isRequired = !!(component.component?.validate?.required || component.validate?.required);
+           const gpsErrors = component.validate(isRequired, component.getValue());
+           const isValid = gpsErrors.length === 0;
+           if (!isValid) {
+             const errorMessages = gpsErrors.map(err => (typeof err === 'string' ? err : err?.message)).filter(Boolean);
+             component.setCustomValidity(errorMessages, true);
+             processComponentErrors(component, errorMap, results, showErrors);
+             invalidCount++;
+           } else if (typeof component.setCustomValidity === 'function') {
+             component.setCustomValidity([], false);
+           }
         if (includeWarnings && component.warnings?.length) {
           processComponentWarnings(component, warningMap, results);
         }
@@ -456,7 +460,7 @@ export const validateComponentsAndCollectResults = async (root, errorMap, warnin
       console.error(`Error validating component ${component.key}:`, err);
     }
   });
-  
+
   console.log('Validation summary:', {
     totalComponents: componentCount,
     invalidComponents: invalidCount,
@@ -478,12 +482,12 @@ export const isFormValid = async (root) => {
       try {
         // Skip validation for hidden components
         if (c.component?.hidden === true || c.hidden === true) return;
-        
+
         // Skip validation for disabled components unless they're marked review visible
         if (c.disabled === true || c.component?.disabled === true) {
           if (c.component?.reviewVisible !== true) return;
         }
-        
+
         if (!c.checkValidity || c.visible === false) return;
 
         const comp = c.component;
@@ -498,15 +502,15 @@ export const isFormValid = async (root) => {
 
         if (isAddress && comp.validate?.required) {
           const addressValue = c.dataValue?.formattedPlace;
-          const isAddressEmpty = !addressValue || addressValue.trim() === '';   
+          const isAddressEmpty = !addressValue || addressValue.trim() === '';
           if (isAddressEmpty) {
                isValid = false;
                return;
           }
-        } 
+        }
         // File component check
         else if (type === 'file' && (comp.validate?.required || c.validate?.required)) {
-          const hasValue = 
+          const hasValue =
             hasActualFileData(c.dataValue) ||
             hasActualFileData(c.data) ||
             (rootData && componentKey && hasActualFileData(rootData[componentKey])) ||
@@ -517,7 +521,7 @@ export const isFormValid = async (root) => {
             isValid = false;
             return;
           }
-        } 
+        }
         // Other components
         else if (!c.checkValidity()) {
           isValid = false;
@@ -669,7 +673,7 @@ export const generateErrorSummary = (errorMap, results) => {
     return;
   }
 
-  const errorList = Array.from(errorMap.entries()).map(([path, error]) => 
+  const errorList = Array.from(errorMap.entries()).map(([path, error]) =>
     `• ${error.label}: ${error.errors.join(', ')}`
   );
 
@@ -888,13 +892,13 @@ export function isFieldNowValid(comp, value) {
  */
 export function validateFileComponentWithRelaxedRequired(comp) {
   if (!comp) return false;
-  
+
   const isFile = (comp.type || comp.component?.type) === 'file';
   if (!isFile) return false;
-  
+
   const isRequired = !!(comp.component?.validate?.required || comp.validate?.required);
   if (!isRequired) return true; // Not required, so always valid
-  
+
   // Check multiple data sources for file presence
   const candidates = [
     comp.dataValue,
@@ -907,25 +911,25 @@ export function validateFileComponentWithRelaxedRequired(comp) {
     comp.uploadedFiles,
     comp.fileList
   ];
-  
+
   let hasVal = candidates.some(v => hasActualFileData(v));
-  
+
   // Fallback to DOM <input type="file">
   if (!hasVal && comp.element) {
     const inputs = comp.element.querySelectorAll?.('input[type="file"]');
     for (const el of inputs) {
-      if (el?.files && el.files.length > 0) { 
-        hasVal = true; 
-        break; 
+      if (el?.files && el.files.length > 0) {
+        hasVal = true;
+        break;
       }
     }
   }
-  
+
   if (hasVal) {
     // Clear errors immediately and force component update
     clearFieldErrors(comp);
     return true;
   }
-  
+
   return false; // No files found, so invalid if required
 }
