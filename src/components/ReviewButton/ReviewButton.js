@@ -79,7 +79,16 @@ export default class ReviewButton extends FieldComponent {
         this.handleRedirect();
         break;
       case "customHtml":
-        this.handleCustomHtml(submission);
+        // Ensure the DOM and Form.io root are ready before injecting HTML
+        const tryHandleCustomHtml = () => {
+          if (this.root?.element) {
+            this.handleCustomHtml(submission);
+          } else {
+            console.warn("Root element not ready, retrying...");
+            setTimeout(tryHandleCustomHtml, 200);
+          }
+        };
+        tryHandleCustomHtml();
         break;
       case "reload":
       default:
@@ -1568,7 +1577,74 @@ export default class ReviewButton extends FieldComponent {
         }, formData, requireSupportFields);
 
         document.body.appendChild(modal);
+        
+        const dropdown = document.querySelector('.custom-dropdown');
+        const selected = dropdown ? dropdown.querySelector('.dropdown-selected') : null;
+        const list = dropdown ? dropdown.querySelector('.dropdown-list') : null;
 
+        selected?.addEventListener('click', () => {
+          list.classList.toggle('open');
+        });
+
+        list?.addEventListener('click', function(e) {
+          if (e.target.tagName === 'LI') {
+            selected.textContent = e.target.textContent;
+            selected.setAttribute('data-value', e.target.textContent);
+            list.classList.remove('open');
+            // Trigger initial change event to set correct visibility state (after screenshot setup)
+            // Setup modal event handlers
+            const verifiedSelect = modal.querySelector("#verified");
+            const screenshotWrapper = modal.querySelector("#screenshotWrapper");
+            const notesOptionalWrapper = modal.querySelector("#notesOptionalWrapper");
+            const notesRequiredWrapper = modal.querySelector("#notesRequiredWrapper");
+            const hideScreenshot = screenshotControls?.hide;
+            // Verification type change handler
+            if (verifiedSelect) {
+                const value = verifiedSelect.getAttribute('data-value');
+                const needShot = value === "App" || value === "Support";
+
+                // Show/hide wrapper divs
+                if (screenshotWrapper) {
+                  screenshotWrapper.style.display = needShot ? "block" : "none";
+                }
+                if (notesOptionalWrapper) {
+                  notesOptionalWrapper.style.display = needShot ? "block" : "none";
+                }
+                if (notesRequiredWrapper) {
+                  notesRequiredWrapper.style.display = value === "Not Verified" ? "block" : "none";
+                }
+
+                // Show/hide screenshot component itself
+                console.log('needShot:', needShot, 'hideScreenshot:', !!hideScreenshot, 'show function:', hideScreenshot && typeof hideScreenshot.show === 'function');
+                if (needShot && hideScreenshot && typeof hideScreenshot.show === 'function') {
+                  hideScreenshot.show();
+                  console.log('Screenshot component shown');
+                } else if (!needShot && hideScreenshot && typeof hideScreenshot.hide === 'function') {
+                  hideScreenshot.hide();
+                  console.log('Screenshot component hidden');
+                  // Clear any validation styling when hiding
+                  const screenshotContainer = modal.querySelector("#screenshotContainer");
+                  if (screenshotContainer) {
+                    screenshotContainer.style.border = "";
+                    screenshotContainer.classList.remove("invalid-field");
+                    // Also clear any validation on child elements
+                    const childElements = screenshotContainer.querySelectorAll("*");
+                    childElements.forEach(el => {
+                      el.style.border = "";
+                      el.classList.remove("invalid-field");
+                    });
+                  }
+                }
+            }
+          }
+        });
+
+        document.addEventListener('mousedown', function(e) {
+          if (!dropdown?.contains(e.target)) {
+            list?.classList.remove('open');
+          }
+        });
+        // Initial validation to set submit button state
         validateModalForm(modal, screenshotComp, formData, requireSupportFields);
 
         const verifiedSelect = modal.querySelector("#verified");

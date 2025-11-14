@@ -1,3 +1,5 @@
+import '../css/CustomDropdown.css';
+
 /**
  * Helper functions for ReviewButton component
  * Contains reusable logic for modal creation, validation, data processing, and UI rendering
@@ -25,15 +27,17 @@ export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, suppor
           <label class="block font-medium mb-1">Support Number</label>
           <input type="text" id="supportNumber" class="w-full border rounded p-2 text-sm bg-gray-100" value="${supportNumber}" disabled />
         </div>
-        <div class="text-sm w-1/2">
-          <label class="block font-medium mb-1">Verified</label>
-          <select id="verified" class="w-full border rounded p-2 text-sm">
-            <option value="Empty">Select verification type</option>
-            <option value="App">App</option>
-            <option value="Support">Support</option>
-            <option value="Not Verified">Not Verified</option>
-          </select>
+        <div class="custom-dropdown">
+          <label class="dropdown-label">Verified</label>
+          <div id="verified" class="dropdown-selected w-full border rounded p-2 text-sm" tabindex="0" data-value="Empty">Select verification type </div>
+          <ul class="dropdown-list" >
+            <li data-value="Empty">Select verification type</li>
+            <li data-value="App">App</li>
+            <li data-value="Support">Support</li>
+            <li data-value="Not Verified">Not Verified</li>
+          </ul>
         </div>
+        <div id="selected-value"></div>
       </div>` : ''}
       ${!hasErrors && showSupportFields ? `
       <div idx="23" class="mb-4 text-sm w-full" id="screenshotWrapper" style="display: none;">
@@ -65,8 +69,8 @@ export function validateModalForm(modal, screenshotComp, formData = null, requir
 
   if (requireSupportFields) {
     const verifiedElement = modal.querySelector("#verified");
-    const selectedVerificationType = verifiedElement ? verifiedElement.value : "Empty";
-
+    const selectedVerificationType = verifiedElement ? verifiedElement.getAttribute('data-value') : "Empty";
+    
     if (verifiedElement && selectedVerificationType === "Empty") {
       verifiedElement.style.border = "2px solid red";
       verifiedElement.classList.add("invalid-field");
@@ -89,7 +93,7 @@ export function validateModalForm(modal, screenshotComp, formData = null, requir
 
   if (requireSupportFields) {
     const verifiedElement = modal.querySelector("#verified");
-    const selectedVerificationType = verifiedElement ? verifiedElement.value : "Empty";
+    const selectedVerificationType = verifiedElement ? verifiedElement.getAttribute('data-value') : "Empty";
     const screenshotWrapper = modal.querySelector("#screenshotWrapper");
     const isScreenshotVisible = screenshotWrapper && screenshotWrapper.style.display !== "none";
     
@@ -286,7 +290,7 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
       if (hasErrors) return;
 
       const verifiedElement = modal.querySelector("#verified");
-      const selectedVerificationType = verifiedElement ? verifiedElement.value : "Empty";
+      const selectedVerificationType = verifiedElement ? verifiedElement.getAttribute('data-value') : "Empty";
       const notesRequired = modal.querySelector("#notesRequired")?.value || "";
       const notesOptional = modal.querySelector("#notesOptional")?.value || "";
       const supportNumber = modal.querySelector("#supportNumber")?.value || "Unavailable";

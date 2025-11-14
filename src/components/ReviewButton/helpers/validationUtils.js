@@ -56,7 +56,7 @@ export const hasActualFileData = (value) => {
   if (typeof value === 'string') {
     const trimmed = value.trim();
     return trimmed.length > 0 && (
-      trimmed.startsWith('data:') || trimmed.startsWith('http') || 
+      trimmed.startsWith('data:') || trimmed.startsWith('http') ||
       trimmed.startsWith('/') || trimmed.includes('.')
     );
   }
@@ -76,6 +76,9 @@ export const getNestedValue = (obj, path) => {
  */
 export const isAddressComponent = (component) =>
   component.component?.type === 'address' || component.type === 'address';
+
+export const isGpsComponent = (component) =>
+  component.component?.type === 'gps' || component.type === 'gps';
 
 /**
  * Check if a component is datagrid-like
@@ -306,7 +309,7 @@ export const validateComponentsAndCollectResults = async (root, errorMap, warnin
       if (component.disabled === true || component.component?.disabled === true) {
         if (component.component?.reviewVisible !== true) return;
       }
-      
+
       if (!component.visible || !component.checkValidity) return;
 
       if (isAddressComponent(component)) {
@@ -378,6 +381,25 @@ export const validateComponentsAndCollectResults = async (root, errorMap, warnin
         return;
       }
 
+      // ---------- GPS components ----------
+      if (isGpsComponent(component)) {
+           const isRequired = !!(component.component?.validate?.required || component.validate?.required);
+           const gpsErrors = component.validate(isRequired, component.getValue());
+           const isValid = gpsErrors.length === 0;
+           if (!isValid) {
+             const errorMessages = gpsErrors.map(err => (typeof err === 'string' ? err : err?.message)).filter(Boolean);
+             component.setCustomValidity(errorMessages, true);
+             processComponentErrors(component, errorMap, results, showErrors);
+             invalidCount++;
+           } else if (typeof component.setCustomValidity === 'function') {
+             component.setCustomValidity([], false);
+           }
+        if (includeWarnings && component.warnings?.length) {
+          processComponentWarnings(component, warningMap, results);
+        }
+        return;
+      }
+
       const isValid = component.checkValidity();
       if (!isValid) {
         processComponentErrors(component, errorMap, results, showErrors);
@@ -409,7 +431,7 @@ export const isFormValid = async (root) => {
         if (c.disabled === true || c.component?.disabled === true) {
           if (c.component?.reviewVisible !== true) return;
         }
-        
+
         if (!c.checkValidity || c.visible === false) return;
 
         const comp = c.component;
@@ -423,7 +445,7 @@ export const isFormValid = async (root) => {
 
         if (isAddress && comp.validate?.required) {
           const addressValue = c.dataValue?.formattedPlace;
-          const isAddressEmpty = !addressValue || addressValue.trim() === '';   
+          const isAddressEmpty = !addressValue || addressValue.trim() === '';
           if (isAddressEmpty) {
             isValid = false;
             return;
@@ -583,7 +605,7 @@ export const generateErrorSummary = (errorMap, results) => {
     return;
   }
 
-  const errorList = Array.from(errorMap.entries()).map(([path, error]) => 
+  const errorList = Array.from(errorMap.entries()).map(([path, error]) =>
     `• ${error.label}: ${error.errors.join(', ')}`
   );
 
@@ -775,10 +797,10 @@ export function isFieldNowValid(comp, value) {
  */
 export function validateFileComponentWithRelaxedRequired(comp) {
   if (!comp) return false;
-  
+
   const isFile = (comp.type || comp.component?.type) === 'file';
   if (!isFile) return false;
-  
+
   const isRequired = !!(comp.component?.validate?.required || comp.validate?.required);
   if (!isRequired) return true;
   
@@ -793,19 +815,19 @@ export function validateFileComponentWithRelaxedRequired(comp) {
     comp.uploadedFiles,
     comp.fileList
   ];
-  
+
   let hasVal = candidates.some(v => hasActualFileData(v));
   
   if (!hasVal && comp.element) {
     const inputs = comp.element.querySelectorAll?.('input[type="file"]');
     for (const el of inputs) {
-      if (el?.files && el.files.length > 0) { 
-        hasVal = true; 
-        break; 
+      if (el?.files && el.files.length > 0) {
+        hasVal = true;
+        break;
       }
     }
   }
-  
+
   if (hasVal) {
     clearFieldErrors(comp);
     return true;
