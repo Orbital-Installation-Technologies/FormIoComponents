@@ -65,28 +65,6 @@ export default class BarcodeScanner extends FieldComponent {
     this._manualErrors = [];
     this._allowErrorClear = false;
 
-    // Track errors mutations so we can log when something clears them.
-    // Capture the initial errors value before redefining the property.
-    const initialErrors = Array.isArray(this.errors) ? [...this.errors] : this.errors;
-    this._trackedErrors = initialErrors;
-    Object.defineProperty(this, "errors", {
-      configurable: true,
-      enumerable: true,
-      get: () => this._trackedErrors,
-      set: (value) => {
-        const previous = this._trackedErrors;
-        const changed = !this._areErrorsEqual(previous, value);
-        if (changed) {
-          console.log("[BarcodeScanner][errors setter] errors changed", {
-            previous,
-            next: value,
-            stack: new Error().stack,
-          });
-        }
-        this._trackedErrors = value;
-      },
-    });
-
     let envKey;
     if (typeof process !== 'undefined' && process?.env && process.env.NEXT_PUBLIC_SCANDIT_KEY) {
       envKey = process?.env?.NEXT_PUBLIC_SCANDIT_KEY;
@@ -177,7 +155,6 @@ export default class BarcodeScanner extends FieldComponent {
     const valid = this.checkValidity(this.data, true);
     if (!valid) {
       setTimeout(() => {
-        console.log("[BarcodeScanner][L166] setCustomValidity(errors, true) invoked with errors:", this.errors);
         this._allowErrorClear = false;
         this.setCustomValidity(this.errors, true);
       }, 500);
@@ -1198,6 +1175,7 @@ export default class BarcodeScanner extends FieldComponent {
       (Array.isArray(errors) && errors.length === 0);
     const allowClear = this._allowErrorClear || this._manualErrors.length === 0;
 
+    if (isClearing && !allowClear) {
       if (this._manualErrors.length) {
         super.setCustomValidity(this._manualErrors, dirty);
       }
@@ -1220,23 +1198,4 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
 
-  _areErrorsEqual(a, b) {
-    if (a === b) {
-      return true;
-    }
-    if (!Array.isArray(a) || !Array.isArray(b)) {
-      return false;
-    }
-    if (a.length !== b.length) {
-      return false;
-    }
-    for (let i = 0; i < a.length; i++) {
-      if (a[i] !== b[i]) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-    if (isClearing && !allowClear) {
 }
