@@ -297,7 +297,9 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
 
   // Cancel button handler
   modal.querySelector("#cancelModal").onclick = async () => {
-    hideScreenshot();
+    if (hideScreenshot && typeof hideScreenshot === 'function') {
+      hideScreenshot();
+    }
     document.body.removeChild(modal);
   };
 
@@ -342,7 +344,9 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
         uploadedFiles
       });
 
-      hideScreenshot();
+      if (hideScreenshot && typeof hideScreenshot === 'function') {
+        hideScreenshot();
+      }
       document.body.removeChild(modal);
     };
   }
