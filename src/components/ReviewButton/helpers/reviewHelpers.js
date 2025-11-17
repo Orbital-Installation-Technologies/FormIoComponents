@@ -1,6 +1,3 @@
-
-
-
 /**
  * Creates and configures the review modal DOM element
  */
