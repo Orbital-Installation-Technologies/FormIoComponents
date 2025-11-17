@@ -1,3 +1,4 @@
+
 /**
  * Creates and configures the review modal DOM element
  */
@@ -12,13 +13,12 @@ export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, suppor
   const modal = document.createElement("div");
 
   modal.style.zIndex = "1000";
-  modal.style.setProperty("overflow", "auto", "important");
-  modal.className = "fixed top-0 left-0 w-full h-full inset-0 bg-black bg-opacity-50 flex items-center justify-center";
+  modal.className = "fixed top-0 left-0 w-full h-screen inset-0 bg-black bg-opacity-50 flex items-center justify-center";
 
   modal.innerHTML = `
-    <div class="bg-white p-6 rounded shadow-md w-full max-w-2xl" style="height: auto; max-height: 90vh; overflow: auto;">
+    <div class="bg-white p-6 rounded shadow-md w-full max-w-2xl max-h-[90vh] overflow-y-auto">
       <h2 class="text-xl font-semibold mb-4">Review Form Data</h2>
-      <div idx="22" class="mb-4 text-sm" style="border:1px solid #ccc; padding:8px;">
+      <div idx="22" class="mb-4 text-sm" style="max-height:200px; overflow-y:auto; border:1px solid #ccc; padding:8px;">
         ${reviewHtml}
       </div>
       ${hasErrors ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
@@ -43,7 +43,6 @@ export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, suppor
         </div>
         <div id="selected-value"></div>
       </div>` : ''}
-  ${!hasErrors && showSupportFields ? `
       <div idx="23" class="mb-4 text-sm w-full" id="screenshotWrapper" style="display: none;">
         <label for="screenshotContainer">Screenshot Upload<span class="text-red-500">(Required)*</label>
         <div id="screenshotContainer"></div>
@@ -55,12 +54,12 @@ export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, suppor
       <div idx="25" class="mb-4 text-sm w-full" id="notesRequiredWrapper" style="display: none;">
         <label class="block font-medium mb-1">Explain why not verified<span class="text-red-500">(Required)*</span></label>
         <textarea id="notesRequired" class="w-full border rounded p-2 text-sm"></textarea>
-` : ''}
+      </div>
       <div class="mt-4 flex justify-end space-x-4">
         <button class="px-4 py-2 btn btn-primary rounded" id="cancelModal">${hasErrors ? 'Close' : 'Cancel'}</button>
         ${!hasErrors ? '<button class="px-4 py-2 btn btn-primary rounded" id="submitModal">Submit</button>' : ''}
       </div>
-    </div>`;
+    `;
 
   return modal;
 }
@@ -71,7 +70,7 @@ export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, suppor
 export function validateModalForm(modal, screenshotComp, formData = null, requireSupportFields = true) {
   let hasErrors = false;
 
-   // Only validate support fields if they're required
+  // Only validate support fields if they're required
   if (requireSupportFields) {
     const verifiedElement = modal.querySelector("#verified");
     const selectedVerificationType = verifiedElement ? verifiedElement.getAttribute('data-value') : "Empty";
@@ -119,30 +118,30 @@ export function validateModalForm(modal, screenshotComp, formData = null, requir
     } else {
       // Clear screenshot validation when not required
       const screenshotContainer = modal.querySelector("#screenshotContainer");
-    if (screenshotContainer) {
-      screenshotContainer.style.border = "";
-      screenshotContainer.classList.remove("invalid-field");
-      // Also clear any validation on child elements
-      const childElements = screenshotContainer.querySelectorAll("*");
-      childElements.forEach(el => {
-        el.style.border = "";
-        el.classList.remove("invalid-field");
-      });
+      if (screenshotContainer) {
+        screenshotContainer.style.border = "";
+        screenshotContainer.classList.remove("invalid-field");
+        // Also clear any validation on child elements
+        const childElements = screenshotContainer.querySelectorAll("*");
+        childElements.forEach(el => {
+          el.style.border = "";
+          el.classList.remove("invalid-field");
+        });
+      }
     }
-  } 
 
-  if (selectedVerificationType === "Not Verified") {
-    const notesRequiredElement = modal.querySelector("#notesRequired");
-    if (notesRequiredElement && !notesRequiredElement.value.trim()) {
-      notesRequiredElement.style.border = "2px solid red";
-      notesRequiredElement.classList.add("invalid-field");
-      hasErrors = true;
-    } else if (notesRequiredElement) {
-      notesRequiredElement.style.border = "";
-      notesRequiredElement.classList.remove("invalid-field");
+    if (selectedVerificationType === "Not Verified") {
+      const notesRequiredElement = modal.querySelector("#notesRequired");
+      if (notesRequiredElement && !notesRequiredElement.value.trim()) {
+        notesRequiredElement.style.border = "2px solid red";
+        notesRequiredElement.classList.add("invalid-field");
+        hasErrors = true;
+      } else if (notesRequiredElement) {
+        notesRequiredElement.style.border = "";
+        notesRequiredElement.classList.remove("invalid-field");
+      }
     }
   }
-    
   // Check if form has meaningful data
   let hasFormData = true;
   if (formData) {
@@ -201,7 +200,7 @@ export function setupScreenshotComponent(modal, screenshotComp, validateModalFor
   if (!screenshotComp) return null;
   const screenshotContainer = modal.querySelector("#screenshotContainer");
   if (!screenshotContainer) return null;
-  
+
   const html = screenshotComp.render();
   const tmp = document.createElement("div");
   tmp.innerHTML = html;
@@ -298,9 +297,7 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
 
   // Cancel button handler
   modal.querySelector("#cancelModal").onclick = async () => {
-    if (hideScreenshot && typeof hideScreenshot === 'function') {
-      hideScreenshot();
-    }
+    hideScreenshot();
     document.body.removeChild(modal);
   };
 
@@ -345,9 +342,7 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
         uploadedFiles
       });
 
-      if (hideScreenshot && typeof hideScreenshot === 'function') {
-        hideScreenshot();
-      }
+      hideScreenshot();
       document.body.removeChild(modal);
     };
   }
