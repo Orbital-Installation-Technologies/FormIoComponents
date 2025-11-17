@@ -33,6 +33,7 @@ export default class BarcodeScanner extends FieldComponent {
         iconSize: '2rem',
         color: 'blue',
         numberOfIcons: 1,
+        allowMultipleBarcodes: true, // Allow multiple barcodes to be scanned
       },
       ...extend,
     );
@@ -62,12 +63,16 @@ export default class BarcodeScanner extends FieldComponent {
     this._usingBatch = false;
     this._dataCaptureView = null;
     this._drawingPending = false;
+    this._autoFreezeTimeout = null;
+    this._showingConfirmation = false;
+    this._pendingBarcodes = []; // All detected barcodes waiting for confirmation
+    this._selectedBarcodeIndices = new Set(); // For tracking checkbox selections
 
     let envKey;
     if (typeof process !== 'undefined' && process?.env && process.env.NEXT_PUBLIC_SCANDIT_KEY) {
       envKey = process?.env?.NEXT_PUBLIC_SCANDIT_KEY;
     }
-    this._licenseKey = envKey || 'undefined'
+    this._licenseKey = envKey || 'Au8G/21VRMq5Lvn7WaAk+zVFZTuJBRkTUBAg0ffx98NbZe+mNG10R6Ijzj2/XQ26BVoZJWBzCp8Eb4OGwQ9ZyMYtdylQcDI1STqNz9NO5OptVRRZtFGuFPcOJ2OjBdOrOxsrfzFszQEhIbuc1RtVI0esLsGWE1nhzjkXQ2flTbOUo//+aUcytCvX0FP0nYEI913wnW34WX/5Zqj08aAka3HMn2B24cchIWYl+X3m+O6Y6kN5WAlGBTDINqDqbC25mgDxe2G2kYQeb3b0Ls0Qsb2+hT+pH/Ry+ZUGTmJ5ZMsB1hkl5kcVHgKF5+lZkY9A3ApxiUh5ic/p2HzUIEfVLCDAa5Wvpi61CAeL3iGPtBBMI01SQl4t3RSnFbUb3GzAWhlGffUjvbIgR66YsjzcwnXn/f0oU/MPsMsYs/kyDnlzi+P1ZwminBd7xNmNJ2kAJQrBWZ8GHO5g0NbsmMJL59U2Wgopvxus6lyrS/fyr3wB1VjXMggEdZRIkQKdhesJXp912VK62679cU66i33J61R90eqAohJ0lfr5iITlMj7epRZ3Yx23crUeydQX7LmyONuDFLCEMu9fJHiAphzmSBmQRJfkfwGyIYdn+WRmBU09XB6TBG1aa9WvvD5mgY4zjgYJzkdYvv3MFL0NOFX8aukKVU1H8WiBzgFuVfgRq1aMBNkr1ZshXh9waOKQ67Siu2KebPxv2Qb2hgcnBkMv0CJVeVLqN5rgxzJvdBQyhKNWR++SBgNffwV2Ex4Wwc003npe2maC9X9QWjI7MjOxUcshAAn5ZdOWgyJYupgpoUxU/LasmQ=='
   }
 
   init() {
@@ -91,6 +96,46 @@ export default class BarcodeScanner extends FieldComponent {
       document.head.appendChild(link);
     }
 
+    // Add styles for confirmation dialog animations
+    if (!document.getElementById('barcode-confirmation-styles')) {
+      const style = document.createElement('style');
+      style.id = 'barcode-confirmation-styles';
+      style.textContent = `
+        @keyframes slideUp {
+          from {
+            transform: translate(-50%, -40%);
+            opacity: 0;
+          }
+          to {
+            transform: translate(-50%, -50%);
+            opacity: 1;
+          }
+        }
+
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        .barcode-confirmation-dialog {
+          animation: slideUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        @media (max-width: 480px) {
+          [ref="confirmationDialog"] {
+            padding: 24px !important;
+            max-width: 95vw !important;
+          }
+          [ref="confirmButton"],
+          [ref="rescanButton"] {
+            padding: 12px 16px !important;
+            font-size: 14px !important;
+          }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
     return super.render(`
       <div style="display:flex; flex-direction:column; gap:8px;">
         <div style="display:flex; align-items:center; justify-content:space-between;">
@@ -105,9 +150,14 @@ export default class BarcodeScanner extends FieldComponent {
             ${cameraSVG}
           </button>
         </div>
-        <div ref="quaggaModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1000; flex-direction:column; align-items:center; justify-content:center; padding:20px; box-sizing:border-box;">
-          <div ref="modalContainer" style="position:relative; background:black; border-radius:8px; overflow:hidden; display:flex; flex-direction:column; max-width:100%; max-height:100%;">
-            <button ref="closeModal" style="position:absolute; top:10px; right:10px; z-index:10000; background:rgba(255,255,255,0.9); border:none; border-radius:50%; width:40px; height:40px; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:bold; cursor:pointer; pointer-events:auto; box-shadow:0 2px 8px rgba(0,0,0,0.3);" title="Close">×</button>
+        <div ref="quaggaModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:1000; flex-direction:column; align-items:center; justify-content:center; padding:20px; box-sizing:border-box;">
+          <div ref="modalContainer" style="position:relative; background:black; border-radius:12px; overflow:hidden; display:flex; flex-direction:column; max-width:100%; max-height:100%; box-shadow:0 10px 40px rgba(0,0,0,0.5);">
+            <button ref="closeModal" style="position:absolute; top:12px; right:12px; z-index:10000; background:rgba(255,255,255,0.95); border:none; border-radius:50%; width:40px; height:40px; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:bold; cursor:pointer; pointer-events:auto; box-shadow:0 2px 8px rgba(0,0,0,0.3); transition:background 0.2s ease;" title="Close">×</button>
+
+            <!-- Instructions Overlay -->
+            <div ref="scannerInstructions" style="position:absolute; top:0; left:0; right:0; background:linear-gradient(180deg, rgba(0,0,0,0.6) 0%, transparent 100%); z-index:100; padding:16px 20px; color:white; text-align:center; font-size:14px; pointer-events:none;">
+              <div style="font-weight:500;">Point camera at barcode</div>
+            </div>
 
             <div
               ref="scanditContainer"
@@ -117,33 +167,144 @@ export default class BarcodeScanner extends FieldComponent {
                 overflow: hidden;
                 min-width: 320px;
                 min-height: 240px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
               ">
+              <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); text-align:center; color:rgba(255,255,255,0.4); pointer-events:none; z-index:5;">
+                <div style="font-size:32px; margin-bottom:8px;">📱</div>
+                <div style="font-size:12px;">Loading camera...</div>
+              </div>
             </div>
           </div>
-          
-          <button
-            ref="freezeButton"
-            style="
-              position: absolute;
-              bottom: 20px;
-              left: 50%;
-              transform: translateX(-50%);
-              z-index: 9999;
-              background: rgba(255,255,255,0.8);
-              border: none;
-              border-radius: 50%;
-              width: 60px;
-              height: 60px;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-              font-family: 'Material Symbols Outlined';
-              font-size: 24px;
-              cursor: pointer;
-            ">
-            pause
-          </button>
+
+          <!-- Confirmation Dialog -->
+          <div ref="confirmationDialog" style="
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            z-index: 10001;
+            display: none;
+            flex-direction: column;
+            gap: 24px;
+            animation: slideUp 0.3s ease-out;
+          " style="@keyframes slideUp { from { transform: translate(-50%, -40%); opacity: 0; } to { transform: translate(-50%, -50%); opacity: 1; } }">
+
+            <!-- Single Mode Content -->
+            <div ref="singleModeContent" style="display: none; width: 100%;">
+              <div style="text-align:center; margin-bottom: 16px;">
+                <h3 style="margin:0 0 8px 0; font-size:20px; font-weight:600; color:#1a1a1a;">Confirm Barcode</h3>
+                <p style="margin:0; font-size:13px; color:#666;">Please verify the scanned data</p>
+              </div>
+
+              <div ref="barcodeDataDisplay" style="
+                background: #f5f5f5;
+                border-left: 4px solid #007bff;
+                border-radius: 6px;
+                padding: 16px;
+                font-family: 'Courier New', monospace;
+                font-size: 14px;
+                word-break: break-all;
+                color: #1a1a1a;
+                margin-bottom: 12px;
+              "></div>
+
+              <div ref="barcodeTypeDisplay" style="
+                font-size: 12px;
+                color: #666;
+                text-align: center;
+                margin-bottom: 20px;
+              "></div>
+
+              <div style="display:flex; gap:12px; flex-direction:column;">
+                <button ref="confirmButton" style="
+                  background: #007bff;
+                  color: white;
+                  border: none;
+                  border-radius: 8px;
+                  padding: 14px 24px;
+                  font-size: 16px;
+                  font-weight: 600;
+                  cursor: pointer;
+                  transition: background 0.2s ease;
+                  box-shadow: 0 2px 8px rgba(0, 123, 255, 0.3);
+                " onmouseover="this.style.background='#0056b3'" onmouseout="this.style.background='#007bff'">
+                  ✓ Confirm Barcode
+                </button>
+                <button ref="rescanButton" style="
+                  background: #f5f5f5;
+                  color: #333;
+                  border: 1px solid #ddd;
+                  border-radius: 8px;
+                  padding: 14px 24px;
+                  font-size: 16px;
+                  font-weight: 600;
+                  cursor: pointer;
+                  transition: background 0.2s ease;
+                " onmouseover="this.style.background='#e8e8e8'" onmouseout="this.style.background='#f5f5f5'">
+                  ✕ Rescan
+                </button>
+              </div>
+            </div>
+
+            <!-- Multi-Select Mode Content -->
+            <div ref="multiSelectModeContent" style="display: none; width: 100%;">
+              <div style="text-align:center; margin-bottom: 16px;">
+                <h3 style="margin:0 0 4px 0; font-size:20px; font-weight:600; color:#1a1a1a;">Select Barcodes</h3>
+                <p ref="multiSelectCount" style="margin:0; font-size:13px; color:#666;"></p>
+              </div>
+
+              <div ref="barcodeListContainer" style="
+                max-height: 300px;
+                overflow-y: auto;
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                margin-bottom: 20px;
+                display: flex;
+                flex-direction: column;
+              "></div>
+
+              <div style="display:flex; gap:12px; flex-direction:column;">
+                <button ref="multiConfirmButton" style="
+                  background: #28a745;
+                  color: white;
+                  border: none;
+                  border-radius: 8px;
+                  padding: 14px 24px;
+                  font-size: 16px;
+                  font-weight: 600;
+                  cursor: pointer;
+                  transition: background 0.2s ease;
+                  box-shadow: 0 2px 8px rgba(40, 167, 69, 0.3);
+                " onmouseover="this.style.background='#218838'" onmouseout="this.style.background='#28a745'">
+                  ✓ Confirm Selection
+                </button>
+                <button ref="multiRescanButton" style="
+                  background: #f5f5f5;
+                  color: #333;
+                  border: 1px solid #ddd;
+                  border-radius: 8px;
+                  padding: 14px 24px;
+                  font-size: 16px;
+                  font-weight: 600;
+                  cursor: pointer;
+                  transition: background 0.2s ease;
+                " onmouseover="this.style.background='#e8e8e8'" onmouseout="this.style.background='#f5f5f5'">
+                  ✕ Rescan
+                </button>
+              </div>
+            </div>
+
+          </div>
         </div>
       </div>
     `);
@@ -182,7 +343,21 @@ export default class BarcodeScanner extends FieldComponent {
       quaggaModal: "single",
       scanditContainer: "single",
       closeModal: "single",
-      freezeButton: "single",
+      confirmationDialog: "single",
+      // Single barcode mode refs
+      singleModeContent: "single",
+      confirmButton: "single",
+      rescanButton: "single",
+      barcodeDataDisplay: "single",
+      barcodeTypeDisplay: "single",
+      // Multiple barcodes mode refs
+      multiSelectModeContent: "single",
+      barcodeListContainer: "single",
+      multiSelectCount: "single",
+      multiConfirmButton: "single",
+      multiRescanButton: "single",
+      // Common refs
+      scannerInstructions: "single",
     });
 
     if (
@@ -191,7 +366,9 @@ export default class BarcodeScanner extends FieldComponent {
       !this.refs.quaggaModal ||
       !this.refs.scanditContainer ||
       !this.refs.closeModal ||
-      !this.refs.freezeButton
+      !this.refs.confirmationDialog ||
+      !this.refs.confirmButton ||
+      !this.refs.rescanButton
     ) {
       return attached;
     }
@@ -231,8 +408,22 @@ export default class BarcodeScanner extends FieldComponent {
         }
       });
 
-      this.refs.freezeButton.addEventListener("click", () => {
-        this._toggleFreezeVideo();
+      // Single mode listeners
+      this.refs.confirmButton.addEventListener("click", () => {
+        this._confirmBarcode();
+      });
+
+      this.refs.rescanButton.addEventListener("click", async () => {
+        await this._rescanBarcode();
+      });
+
+      // Multi-select mode listeners
+      this.refs.multiConfirmButton.addEventListener("click", () => {
+        this._confirmMultiSelect();
+      });
+
+      this.refs.multiRescanButton.addEventListener("click", async () => {
+        await this._rescanBarcode();
       });
     }
 
@@ -282,9 +473,17 @@ export default class BarcodeScanner extends FieldComponent {
       this._animationFrameId = null;
     }
 
+    // Clear any pending auto-freeze
+    if (this._autoFreezeTimeout) {
+      clearTimeout(this._autoFreezeTimeout);
+      this._autoFreezeTimeout = null;
+    }
+
     this._openModal();
     this._lastCodes = [];
     this._isVideoFrozen = false;
+    this._showingConfirmation = false;
+    this._pendingBarcode = null;
 
     if (this._uploadedImageElement && this._uploadedImageElement.parentNode) {
       this._uploadedImageElement.parentNode.removeChild(this._uploadedImageElement);
@@ -436,6 +635,11 @@ export default class BarcodeScanner extends FieldComponent {
                 const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
                 this._currentBarcodes = barcodes;
                 this._drawBoundingBoxes(this._currentBarcodes);
+
+                // Trigger auto-freeze and confirmation when barcode is detected
+                if (barcodes.length > 0 && !this._isVideoFrozen && !this._showingConfirmation) {
+                    this._autoFreezeAndConfirm();
+                }
             }
         });
 
@@ -575,11 +779,270 @@ export default class BarcodeScanner extends FieldComponent {
     } catch (e) {}
   }
 
+  _autoFreezeAndConfirm() {
+    if (this._showingConfirmation) {
+      return;
+    }
+
+    // Get detected barcodes
+    let detectedBarcodes = [];
+
+    if (this._usingBatch && this._trackedBarcodes) {
+      const barcodes = Object.values(this._trackedBarcodes);
+      if (barcodes.length > 0) {
+        detectedBarcodes = barcodes.map(tb => tb.barcode);
+      }
+    }
+
+    if (detectedBarcodes.length === 0) {
+      return;
+    }
+
+    // Clear existing timeout to wait for more barcodes
+    if (this._autoFreezeTimeout) {
+      clearTimeout(this._autoFreezeTimeout);
+      this._autoFreezeTimeout = null;
+    }
+
+    // If multiple barcodes, wait longer for more to be detected (2 seconds)
+    // If single barcode, freeze faster (1.2 seconds)
+    const delayTime = detectedBarcodes.length > 1 ? 2000 : 1200;
+
+    // Set a timeout to auto-freeze after stable detection
+    this._autoFreezeTimeout = setTimeout(() => {
+      this._autoFreezeTimeout = null;
+
+      if (this._trackedBarcodes && Object.values(this._trackedBarcodes).length > 0) {
+        this._isVideoFrozen = true;
+
+        if (this._camera) {
+          this._camera.switchToDesiredState(FrameSourceState.Off);
+        }
+
+        // Get the barcodes and show appropriate confirmation dialog
+        const detectedBarcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
+        this._showConfirmationDialog(detectedBarcodes);
+      }
+    }, delayTime);
+  }
+
+  _showConfirmationDialog(barcodes) {
+    if (!this.refs.confirmationDialog || !barcodes || barcodes.length === 0) {
+      return;
+    }
+
+    // Hide all mode contents
+    this.refs.singleModeContent.style.display = 'none';
+    this.refs.multiSelectModeContent.style.display = 'none';
+
+    this._showingConfirmation = true;
+    this._pendingBarcodes = barcodes;
+
+    // INTELLIGENT MODE DETECTION:
+    // If only 1 barcode detected → Show single mode
+    // If multiple barcodes detected → Show multi-select with checkboxes
+
+    if (barcodes.length === 1) {
+      // Single barcode detected - show simple confirmation
+      const barcode = barcodes[0];
+
+      if (this.refs.barcodeDataDisplay) {
+        this.refs.barcodeDataDisplay.textContent = barcode.data;
+      }
+      if (this.refs.barcodeTypeDisplay) {
+        this.refs.barcodeTypeDisplay.textContent = `Type: ${barcode.symbology || 'Unknown'}`;
+      }
+
+      this.refs.singleModeContent.style.display = 'block';
+    } else {
+      // Multiple barcodes detected - show checkbox selection
+      this._showMultiSelectDialog(barcodes);
+    }
+
+    // Show dialog
+    this.refs.confirmationDialog.style.display = 'flex';
+
+    // Fade in animation
+    this.refs.confirmationDialog.style.opacity = '0';
+    setTimeout(() => {
+      this.refs.confirmationDialog.style.transition = 'opacity 0.3s ease-out';
+      this.refs.confirmationDialog.style.opacity = '1';
+    }, 10);
+  }
+
+  _showMultiSelectDialog(barcodes) {
+    if (!this.refs.multiSelectModeContent) {
+      return;
+    }
+
+    // Clear previous checkboxes
+    this.refs.barcodeListContainer.innerHTML = '';
+    this._selectedBarcodeIndices.clear();
+
+    // Select first barcode by default
+    this._selectedBarcodeIndices.add(0);
+
+    // Create checkbox for each barcode
+    barcodes.forEach((barcode, index) => {
+      const label = document.createElement('label');
+      label.style.cssText = `
+        display: flex;
+        align-items: center;
+        padding: 12px 16px;
+        border-bottom: 1px solid #f0f0f0;
+        cursor: pointer;
+        transition: background 0.2s ease;
+      `;
+      label.onmouseover = () => label.style.background = '#f9f9f9';
+      label.onmouseout = () => label.style.background = 'transparent';
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = index === 0; // First selected by default
+      checkbox.style.cssText = 'margin-right: 12px; cursor: pointer; width: 18px; height: 18px;';
+      checkbox.onchange = (e) => {
+        if (e.target.checked) {
+          this._selectedBarcodeIndices.add(index);
+        } else {
+          this._selectedBarcodeIndices.delete(index);
+        }
+      };
+
+      const dataDisplay = document.createElement('div');
+      dataDisplay.style.cssText = 'flex: 1; font-family: Courier New, monospace; font-size: 13px;';
+      dataDisplay.innerHTML = `
+        <div style="word-break: break-all; margin-bottom: 4px;">${barcode.data}</div>
+        <div style="font-size: 11px; color: #999;">${barcode.symbology || 'Unknown'}</div>
+      `;
+
+      label.appendChild(checkbox);
+      label.appendChild(dataDisplay);
+      this.refs.barcodeListContainer.appendChild(label);
+    });
+
+    // Update count
+    if (this.refs.multiSelectCount) {
+      this.refs.multiSelectCount.textContent = `${barcodes.length} barcode${barcodes.length !== 1 ? 's' : ''} found`;
+    }
+
+    this.refs.multiSelectModeContent.style.display = 'block';
+  }
+
+  _hideConfirmationDialog() {
+    if (!this.refs.confirmationDialog) {
+      return;
+    }
+
+    this.refs.confirmationDialog.style.opacity = '0';
+    setTimeout(() => {
+      this.refs.confirmationDialog.style.display = 'none';
+      this.refs.confirmationDialog.style.opacity = '1';
+      this._showingConfirmation = false;
+      this._pendingBarcode = null;
+    }, 300);
+  }
+
+  _confirmBarcode() {
+    if (this._pendingBarcodes.length === 0) {
+      return;
+    }
+
+    // For single barcode, save just that one
+    const barcode = this._pendingBarcodes[0];
+    this.setValue(barcode.data);
+    if (this.refs.barcode) {
+      this.refs.barcode.value = barcode.data;
+    }
+    this.validateAndSetDirty();
+
+    // Close everything
+    this._hideConfirmationDialog();
+    setTimeout(() => {
+      this.stopScanner();
+    }, 300);
+  }
+
+  async _rescanBarcode() {
+    this._hideConfirmationDialog();
+
+    // Resume scanning
+    this._isVideoFrozen = false;
+
+    if (this._camera) {
+      try {
+        await this._camera.switchToDesiredState(FrameSourceState.On);
+      } catch (error) {
+        console.warn("Error resuming camera:", error);
+      }
+    }
+
+    // Resume bounding box drawing
+    if (this._barcodeBatch) {
+      try {
+        await this._barcodeBatch.setEnabled(true);
+      } catch (error) {
+        console.warn("Error re-enabling barcode batch:", error);
+      }
+    }
+
+    // Resume camera monitoring
+    this._startCameraMonitoring();
+
+    // Resume drawing bounding boxes
+    this._drawBoundingBoxes(this._currentBarcodes || []);
+
+    // Clear auto-freeze timeout if exists
+    if (this._autoFreezeTimeout) {
+      clearTimeout(this._autoFreezeTimeout);
+      this._autoFreezeTimeout = null;
+    }
+  }
+
+  _confirmMultiSelect() {
+    if (this._pendingBarcodes.length === 0) {
+      return;
+    }
+
+    // Get selected barcodes
+    const selectedBarcodes = [];
+    this._selectedBarcodeIndices.forEach(index => {
+      if (this._pendingBarcodes[index]) {
+        selectedBarcodes.push(this._pendingBarcodes[index].data);
+      }
+    });
+
+    if (selectedBarcodes.length > 0) {
+      const value = selectedBarcodes.join(", ");
+      this.setValue(value);
+      if (this.refs.barcode) {
+        this.refs.barcode.value = value;
+      }
+      this.validateAndSetDirty();
+    }
+
+    this._hideConfirmationDialog();
+    setTimeout(() => {
+      this.stopScanner();
+    }, 300);
+  }
+
   async stopScanner() {
     try {
+      // Hide confirmation dialog if shown
+      if (this.refs.confirmationDialog && this.refs.confirmationDialog.style.display !== 'none') {
+        this.refs.confirmationDialog.style.display = 'none';
+        this.refs.confirmationDialog.style.opacity = '1';
+      }
+
       if (this._animationFrameId) {
         cancelAnimationFrame(this._animationFrameId);
         this._animationFrameId = null;
+      }
+
+      // Clear auto-freeze timeout
+      if (this._autoFreezeTimeout) {
+        clearTimeout(this._autoFreezeTimeout);
+        this._autoFreezeTimeout = null;
       }
 
       if (this._camera) {
@@ -599,6 +1062,8 @@ export default class BarcodeScanner extends FieldComponent {
 
       this._clearBoundingBoxes();
       this._isVideoFrozen = false;
+      this._showingConfirmation = false;
+      this._pendingBarcode = null;
     } catch (e) {
       console.warn("Error in stopScanner:", e);
     } finally {

@@ -1,6 +1,6 @@
 {
   "name": "formiocomponents",
-  "version": "1.1.1",
+  "version": "1.1.0",
   "description": "",
   "main": "src/app-prod.js",
   "scripts": {
@@ -26,6 +26,7 @@
     "@formio/premium": "^3.0.6",
     "@scandit/web-datacapture-barcode": "^7.6.1",
     "@scandit/web-datacapture-core": "^7.6.1",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "formiocomponents": "file:formiocomponents-1.1.0.tgz"
   }
 }
