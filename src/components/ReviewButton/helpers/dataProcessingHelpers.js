@@ -141,7 +141,6 @@ export function createCustomComponentForReview(component, invalidFields = new Se
     const columnLabels = colDefs.map(c => c.label || c.component?.label || c.key || '');
 
     let dataRows = [];
-    const componentPath = component.path || component.key || '';
     if (Array.isArray(component.table) && component.table.length > 0 && Array.isArray(component.table[0])) {
       dataRows = component.table.map(rowArr => {
         const rowObj = {};
@@ -174,7 +173,7 @@ export function createCustomComponentForReview(component, invalidFields = new Se
         const val = typeof rowObj === 'object' ? rowObj[colKey] : '';
         rowData.push({
           _children: {
-            _label: `Row ${dataRowIdx + 1}`, // Label for the data row
+            _label: `Row ${dataRowIdx + 1}`,
             _key: `${colKey}_row_${dataRowIdx}`,
             _type: col.type || col.component?.type,
             _leaf: true,
@@ -186,7 +185,7 @@ export function createCustomComponentForReview(component, invalidFields = new Se
       // Create a table row for this field
       tableRows.push({ 
         _row: rowData,
-        _fieldLabel: colLabel, // Store the field label for potential use
+        _fieldLabel: colLabel,
         _fieldKey: colKey
       });
     });
@@ -202,22 +201,18 @@ export function createCustomComponentForReview(component, invalidFields = new Se
     
     if (shouldFlattenContainer(componentType)) {
       const childItems = children.filter(child => {
-        // Apply same visibility logic for container children
         if (child?.component?.hidden === true || child?.hidden === true) {
-          return false; // Don't show hidden components
+          return false;
         }
         
         if (child?.disabled === true || child?.component?.disabled === true) {
-          // If disabled, only show if marked review visible
           return child?.component?.reviewVisible === true;
         }
         
-        // For non-disabled components, show if required (and invalid) or review visible
         const isRequired = child?.component?.validate?.required === true;
         const isReviewVisible = child?.component?.reviewVisible === true;
         const isInvalid = isComponentInvalid(child, invalidFields);
         
-        // Show required fields only if they are invalid or marked review visible
         if (isRequired && !isInvalid && !isReviewVisible) {
           return false;
         }
@@ -240,22 +235,18 @@ export function createCustomComponentForReview(component, invalidFields = new Se
     }
     
     const containerItems = children.filter(child => {
-      // Apply same visibility logic for container children
       if (child?.component?.hidden === true || child?.hidden === true) {
-        return false; // Don't show hidden components
+        return false;
       }
       
       if (child?.disabled === true || child?.component?.disabled === true) {
-        // If disabled, only show if marked review visible
         return child?.component?.reviewVisible === true;
       }
       
-      // For non-disabled components, show if required (and invalid) or review visible
       const isRequired = child?.component?.validate?.required === true;
       const isReviewVisible = child?.component?.reviewVisible === true;
       const isInvalid = isComponentInvalid(child, invalidFields);
       
-      // Show required fields only if they are invalid or marked review visible
       if (isRequired && !isInvalid && !isReviewVisible) {
         return false;
       }
@@ -295,8 +286,6 @@ export function createCustomComponentForReview(component, invalidFields = new Se
  * Collects all review leaves and labels from the form
  */
 export async function collectReviewLeavesAndLabels(root, invalidFields = new Set()) {
-  console.log('collectReviewLeavesAndLabels called with invalidFields:', Array.from(invalidFields));
-  
   const stats = {
     leafComponents: 0,
     containers: 0
@@ -390,38 +379,25 @@ export async function collectReviewLeavesAndLabels(root, invalidFields = new Set
     // 5. Otherwise, don't show it
     
     if (comp?.component?.hidden === true || comp?.hidden === true) {
-      continue; // Don't show hidden components
+      continue;
     }
     
     if (comp?.disabled === true || comp?.component?.disabled === true) {
-      // If disabled, only show if marked review visible
       if (comp?.component?.reviewVisible !== true) {
         continue;
       }
     }
     
-    // For non-disabled components, show if required (and invalid) or review visible
     const isRequired = comp?.component?.validate?.required === true;
     const isReviewVisible = comp?.component?.reviewVisible === true;
     const isInvalid = isComponentInvalid(comp, invalidFields);
     
-    console.log('Processing component:', {
-      key: comp.key,
-      path: comp.path,
-      isRequired,
-      isReviewVisible,
-      isInvalid,
-      invalidFields: Array.from(invalidFields)
-    });
-    
     // Show required fields only if they are invalid or marked review visible
     if (isRequired && !isInvalid && !isReviewVisible) {
-      console.log('Skipping required field (not invalid, not review visible):', comp.key);
       continue;
     }
     
     if (!isRequired && !isReviewVisible && !isAddressComponentEarly && !isEditGridComponentEarly) {
-      console.log('Skipping non-required field (not review visible, not address, not editgrid):', comp.key);
       continue;
     }
 
@@ -465,7 +441,7 @@ export async function collectReviewLeavesAndLabels(root, invalidFields = new Set
     }
 
     // Handle leaf components
-    handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer, createCustomComponentForReview, invalidFields);
+    handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer, createCustomComponentForReview, invalidFields, leaves, queue, processedPaths);
   }
 
   // Process remaining components
@@ -809,7 +785,7 @@ function handleContainerComponent(comp, safePath, topIndexFor, indexByPathMap, q
   comp.components.forEach((ch) => queue.push(ch));
 }
 
-function handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer, createCustomComponentForReview, invalidFields) {
+function handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer, createCustomComponentForReview, invalidFields, leaves, queue, processedPaths) {
   const parent = comp?.parent;
   const parentType = parent?.component?.type;
   const parentsToBeHandled = ['datatable', 'datagrid', 'tagpad', 'datamap', 
@@ -875,8 +851,12 @@ function handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathM
       }
       
       comp.components.forEach(childComp => {
-        if (childComp && !processedPaths.has(safePath(childComp))) {
-          queue.push(childComp);
+        if (childComp) {
+          const childPath = safePath(childComp);
+          if (!processedPaths.has(childPath)) {
+            processedPaths.add(childPath);
+            queue.push(childComp);
+          }
         }
       });
     }
@@ -889,16 +869,11 @@ function handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathM
     !isContentComponent &&
     !isGridChild &&
     comp.visible !== false &&
-    // Apply new visibility logic
-    !(comp?.component?.hidden === true || comp?.hidden === true) && // Don't show hidden components
+    !(comp?.component?.hidden === true || comp?.hidden === true) &&
     (
-      // Show if review visible
       comp.component?.reviewVisible === true ||
-      // Show if required and invalid (or review visible)
       (comp?.component.validate?.required === true && isComponentInvalid(comp, invalidFields)) ||
-      // Show special component types
       isTagpadComponent || isFormComponent || isPanelComponent || isContainerComponent || isAddressComponentMain ||
-      // Show disabled components only if review visible
       (comp?.disabled === true && comp?.component?.reviewVisible === true)
     )
   ) {
@@ -955,7 +930,6 @@ function processRemainingComponents(root, safePath, topIndexFor, pushLeaf, index
           indexByPathMap.set(panelPath, panelFormIndex);
 
           const isWell = containerType === 'well';
-          const containerLabel = comp.component?.label || comp.key || (isWell ? 'Well' : 'Panel');
 
           pushLeaf({
             comp: comp,
