@@ -191,11 +191,6 @@ export default class Gps extends FieldComponent {
 
     if (!latitudeField || !longitudeField) return attached;
 
-    const latitudeField = this.refs.latitude;
-    const longitudeField = this.refs.longitude;
-
-    if (!latitudeField || !longitudeField) return attached;
-
     // Initialize values
     const value = this.getValue();
     if (value) {
