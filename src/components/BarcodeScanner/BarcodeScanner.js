@@ -1931,6 +1931,11 @@ export default class BarcodeScanner extends FieldComponent {
       this._boundingBoxContext = null;
     }
 
+    if (this._autoFreezeTimeout) {
+      clearTimeout(this._autoFreezeTimeout);
+      this._autoFreezeTimeout = null;
+    }
+
     return super.detach();
   }
 
@@ -2360,6 +2365,11 @@ export default class BarcodeScanner extends FieldComponent {
     if (this._cameraMonitoringInterval) {
       clearInterval(this._cameraMonitoringInterval);
       this._cameraMonitoringInterval = null;
+    }
+
+    if (this._autoFreezeTimeout) {
+      clearTimeout(this._autoFreezeTimeout);
+      this._autoFreezeTimeout = null;
     }
 
     if (this._unhandledRejectionHandler) {
