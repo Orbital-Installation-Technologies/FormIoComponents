@@ -77,7 +77,7 @@ export default class BarcodeScanner extends FieldComponent {
     if (typeof process !== 'undefined' && process?.env && process.env.NEXT_PUBLIC_SCANDIT_KEY) {
       envKey = process?.env?.NEXT_PUBLIC_SCANDIT_KEY;
     }
-    this._licenseKey = envKey || 'Au8G/21VRMq5Lvn7WaAk+zVFZTuJBRkTUBAg0ffx98NbZe+mNG10R6Ijzj2/XQ26BVoZJWBzCp8Eb4OGwQ9ZyMYtdylQcDI1STqNz9NO5OptVRRZtFGuFPcOJ2OjBdOrOxsrfzFszQEhIbuc1RtVI0esLsGWE1nhzjkXQ2flTbOUo//+aUcytCvX0FP0nYEI913wnW34WX/5Zqj08aAka3HMn2B24cchIWYl+X3m+O6Y6kN5WAlGBTDINqDqbC25mgDxe2G2kYQeb3b0Ls0Qsb2+hT+pH/Ry+ZUGTmJ5ZMsB1hkl5kcVHgKF5+lZkY9A3ApxiUh5ic/p2HzUIEfVLCDAa5Wvpi61CAeL3iGPtBBMI01SQl4t3RSnFbUb3GzAWhlGffUjvbIgR66YsjzcwnXn/f0oU/MPsMsYs/kyDnlzi+P1ZwminBd7xNmNJ2kAJQrBWZ8GHO5g0NbsmMJL59U2Wgopvxus6lyrS/fyr3wB1VjXMggEdZRIkQKdhesJXp912VK62679cU66i33J61R90eqAohJ0lfr5iITlMj7epRZ3Yx23crUeydQX7LmyONuDFLCEMu9fJHiAphzmSBmQRJfkfwGyIYdn+WRmBU09XB6TBG1aa9WvvD5mgY4zjgYJzkdYvv3MFL0NOFX8aukKVU1H8WiBzgFuVfgRq1aMBNkr1ZshXh9waOKQ67Siu2KebPxv2Qb2hgcnBkMv0CJVeVLqN5rgxzJvdBQyhKNWR++SBgNffwV2Ex4Wwc003npe2maC9X9QWjI7MjOxUcshAAn5ZdOWgyJYupgpoUxU/LasmQ=='
+    this._licenseKey = envKey || 'undefined'
   }
 
   init() {
@@ -813,15 +813,12 @@ export default class BarcodeScanner extends FieldComponent {
                 this._trackedBarcodes = session.trackedBarcodes || {};
                 const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
                 this._currentBarcodes = barcodes;
-                console.log('[BarcodeListener] Detected', barcodes.length, 'barcodes:', barcodes.map(b => b.data));
                 this._drawBoundingBoxes(this._currentBarcodes);
 
                 // Trigger auto-freeze and confirmation when barcode is detected
                 if (barcodes.length > 0 && !this._isVideoFrozen && !this._showingConfirmation) {
-                    console.log('[BarcodeListener] Triggering auto-freeze, frozen:', this._isVideoFrozen, 'showing:', this._showingConfirmation);
                     this._autoFreezeAndConfirm();
                 } else {
-                    console.log('[BarcodeListener] Skipping auto-freeze - frozen:', this._isVideoFrozen, 'showing:', this._showingConfirmation);
                 }
             }
         });
@@ -963,7 +960,6 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   _autoFreezeAndConfirm() {
-    console.log('[AutoFreeze] ===== CALLED =====, showing confirmation:', this._showingConfirmation);
     // NOTE: We don't return here if _showingConfirmation is true because the barcode listener
     // already checks !this._showingConfirmation before calling this function
 
@@ -977,75 +973,58 @@ export default class BarcodeScanner extends FieldComponent {
       }
     }
 
-    console.log('[AutoFreeze] Detected barcodes:', detectedBarcodes.length, 'using batch:', this._usingBatch);
 
     if (detectedBarcodes.length === 0) {
-      console.log('[AutoFreeze] No barcodes detected, returning');
       return;
     }
 
-    console.log('[AutoFreeze] Showing freeze button for', detectedBarcodes.length, 'barcode(s)');
 
     // Show freeze button when barcodes detected
     if (this.refs.freezeButton) {
-      console.log('[AutoFreeze] Freeze button exists, showing it');
       this.refs.freezeButton.style.display = 'flex';
       this.refs.freezeButton.innerHTML = '⏸'; // Pause icon
       this.refs.freezeButton.style.background = 'rgba(255, 255, 255, 0.2)';
       this.refs.freezeButton.title = 'Freeze camera (or wait for auto-freeze)';
     } else {
-      console.log('[AutoFreeze] WARNING: Freeze button ref not found!');
     }
 
     // DON'T reset the timeout if it's already running!
     // The barcode listener fires repeatedly, so we only want the FIRST timeout to run
     if (this._autoFreezeTimeout) {
-      console.log('[AutoFreeze] Timeout already set, not resetting');
       return;
     }
 
     // If multiple barcodes, wait longer for more to be detected (2 seconds)
     // If single barcode, freeze faster (1.2 seconds)
     const delayTime = detectedBarcodes.length > 1 ? 2000 : 1200;
-    console.log('[AutoFreeze] Setting timeout for', delayTime, 'ms');
 
     // Set a timeout to auto-freeze after stable detection
     this._autoFreezeTimeout = setTimeout(() => {
-      console.log('[AutoFreeze] Timeout fired, freezing camera');
       this._autoFreezeTimeout = null;
 
       if (this._trackedBarcodes && Object.values(this._trackedBarcodes).length > 0) {
-        console.log('[AutoFreeze] Tracked barcodes exist, freezing');
         this._isVideoFrozen = true;
 
         if (this._camera) {
-          console.log('[AutoFreeze] Turning off camera');
           this._camera.switchToDesiredState(FrameSourceState.Off);
         }
 
         // Get the barcodes and show appropriate confirmation dialog
         const detectedBarcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
-        console.log('[AutoFreeze] Calling _showConfirmationDialog with', detectedBarcodes.length, 'barcodes');
         this._showConfirmationDialog(detectedBarcodes);
       } else {
-        console.log('[AutoFreeze] No tracked barcodes on timeout');
       }
     }, delayTime);
   }
 
   _showConfirmationDialog(barcodes, preSelectedBarcode = null) {
-    console.log('[ConfDialog] Called with', barcodes?.length, 'barcodes, preSelected:', preSelectedBarcode?.data);
-    console.log('[ConfDialog] this.refs exists?', !!this.refs);
-    console.log('[ConfDialog] confirmationDialog exists?', !!this.refs.confirmationDialog);
 
     if (!barcodes || barcodes.length === 0) {
-      console.log('[ConfDialog] No barcodes, returning');
       return;
     }
 
     // Hide freeze button when confirmation dialog shown
     if (this.refs.freezeButton) {
-      console.log('[ConfDialog] Hiding freeze button');
       this.refs.freezeButton.style.display = 'none';
     }
 
@@ -1064,15 +1043,12 @@ export default class BarcodeScanner extends FieldComponent {
     // User can verify and has option to rescan
 
     if (!this.refs.confirmationDialog) {
-      console.log('[ConfDialog] ERROR: confirmationDialog ref not found!');
       return;
     }
 
-    console.log('[ConfDialog] Showing dialog for', barcodes.length, 'barcode(s)');
 
     if (barcodes.length === 1) {
       // Single barcode - show single mode dialog with Confirm/Rescan buttons
-      console.log('_showConfirmationDialog: single barcode, showing single mode dialog');
 
       // Hide all mode contents
       this.refs.singleModeContent.style.display = 'none';
@@ -1083,20 +1059,16 @@ export default class BarcodeScanner extends FieldComponent {
 
       // Show dialog with small delay to ensure modal is fully rendered
       setTimeout(() => {
-        console.log('[ConfDialog] Setting display to flex, before:', this.refs.confirmationDialog.style.display);
         this.refs.confirmationDialog.style.display = 'flex';
-        console.log('[ConfDialog] After display flex:', this.refs.confirmationDialog.style.display);
 
         // Fade in animation
         this.refs.confirmationDialog.style.opacity = '0';
         setTimeout(() => {
-          console.log('[ConfDialog] Setting opacity to 1');
           this.refs.confirmationDialog.style.transition = 'opacity 0.3s ease-out';
           this.refs.confirmationDialog.style.opacity = '1';
         }, 10);
       }, 50);
     } else {
-      console.log('_showConfirmationDialog: multiple barcodes detected, showing dialog');
       // Multiple barcodes detected - show dialog for selection
 
       // Hide all mode contents
@@ -1108,14 +1080,11 @@ export default class BarcodeScanner extends FieldComponent {
 
       // Show dialog with small delay to ensure modal is fully rendered
       setTimeout(() => {
-        console.log('[ConfDialog] Setting display to flex (multiple), before:', this.refs.confirmationDialog.style.display);
         this.refs.confirmationDialog.style.display = 'flex';
-        console.log('[ConfDialog] After display flex (multiple):', this.refs.confirmationDialog.style.display);
 
         // Fade in animation
         this.refs.confirmationDialog.style.opacity = '0';
         setTimeout(() => {
-          console.log('[ConfDialog] Setting opacity to 1 (multiple)');
           this.refs.confirmationDialog.style.transition = 'opacity 0.3s ease-out';
           this.refs.confirmationDialog.style.opacity = '1';
         }, 10);
@@ -1128,7 +1097,6 @@ export default class BarcodeScanner extends FieldComponent {
       return;
     }
 
-    console.log('_showSingleBarcodeDialog: displaying barcode', barcode.data);
 
     // Show the single mode content
     this.refs.singleModeContent.style.display = 'flex';
@@ -1159,7 +1127,6 @@ export default class BarcodeScanner extends FieldComponent {
       if (selectedIndex === -1) {
         selectedIndex = 0; // Fallback to first if not found
       }
-      console.log('[MultiSelect] Pre-selected barcode found at index:', selectedIndex);
       this._preSelectedBarcode = null; // Clear for next time
     }
 
@@ -1265,18 +1232,15 @@ export default class BarcodeScanner extends FieldComponent {
 
   _confirmBarcode() {
     if (this._pendingBarcodes.length === 0) {
-      console.log('_confirmBarcode: no pending barcodes');
       return;
     }
 
     // Prevent re-entry
     if (this._confirmingBarcode) {
-      console.log('_confirmBarcode: already confirming, skipping');
       return;
     }
 
     this._confirmingBarcode = true;
-    console.log('_confirmBarcode: confirming barcode', this._pendingBarcodes[0].data);
 
     // For single barcode, save just that one to main field
     const barcode = this._pendingBarcodes[0];
@@ -1297,7 +1261,6 @@ export default class BarcodeScanner extends FieldComponent {
     // Close everything
     this._hideConfirmationDialog();
     setTimeout(async () => {
-      console.log('_confirmBarcode: stopping scanner');
       try {
         await this.stopScanner();
       } finally {
@@ -1772,7 +1735,6 @@ export default class BarcodeScanner extends FieldComponent {
   _handleBoundingBoxClick(event) {
     if (!this._currentBarcodes || this._currentBarcodes.length === 0 || !this._clickableRegions) return;
     if (this._showingConfirmation) {
-      console.log('[Click] Confirmation already showing, ignoring click');
       return;
     }
 
@@ -1784,7 +1746,6 @@ export default class BarcodeScanner extends FieldComponent {
       const region = regionObj.region;
       if (this._isPointInBoundingBox(clickX, clickY, ...region)) {
         const barcode = regionObj.barcode;
-        console.log('[Click] User clicked barcode:', barcode.data);
 
         // Freeze camera when barcode is clicked
         if (!this._isVideoFrozen) {
@@ -1792,7 +1753,6 @@ export default class BarcodeScanner extends FieldComponent {
           if (this._camera) {
             this._camera.switchToDesiredState(FrameSourceState.Off);
           }
-          console.log('[Click] Camera frozen');
         }
 
         // Clear any pending timeout
@@ -1803,7 +1763,6 @@ export default class BarcodeScanner extends FieldComponent {
 
         // If single barcode, directly confirm
         if (this._currentBarcodes.length === 1) {
-          console.log('[Click] Single barcode, directly confirming');
           this.setValue(barcode.data);
           if (this.refs.barcode) {
             this.refs.barcode.value = barcode.data;
@@ -1812,7 +1771,6 @@ export default class BarcodeScanner extends FieldComponent {
           this.stopScanner();
         } else {
           // Multiple barcodes - show dialog with this one pre-selected
-          console.log('[Click] Multiple barcodes, showing dialog with pre-selection');
           this._showConfirmationDialog(this._currentBarcodes, barcode.data);
         }
         break;
@@ -2211,7 +2169,6 @@ export default class BarcodeScanner extends FieldComponent {
       const currentLightState = this._camera.desiredState === 'On' ? 'flashOn' : 'off';
       const newLightState = currentLightState === 'flashOn' ? 'off' : 'flashOn';
 
-      console.log('_toggleFlashlight: changing light state from', currentLightState, 'to', newLightState);
 
       // Toggle using Scandit camera's light control
       if (this._camera && this._camera.torch !== undefined) {
@@ -2316,11 +2273,9 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   _manualFreeze() {
-    console.log('_manualFreeze: user manually froze camera');
 
     // Prevent double-freezing
     if (this._isVideoFrozen) {
-      console.log('_manualFreeze: camera already frozen, skipping');
       return;
     }
 
@@ -2328,7 +2283,6 @@ export default class BarcodeScanner extends FieldComponent {
     if (this._autoFreezeTimeout) {
       clearTimeout(this._autoFreezeTimeout);
       this._autoFreezeTimeout = null;
-      console.log('_manualFreeze: cleared auto-freeze timeout');
     }
 
     // Freeze the camera
@@ -2347,10 +2301,8 @@ export default class BarcodeScanner extends FieldComponent {
     // Get current detected barcodes and show confirmation dialog
     if (this._trackedBarcodes && Object.values(this._trackedBarcodes).length > 0) {
       const detectedBarcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
-      console.log('_manualFreeze: showing confirmation dialog with', detectedBarcodes.length, 'barcodes');
       this._showConfirmationDialog(detectedBarcodes);
     } else {
-      console.log('_manualFreeze: no tracked barcodes found');
     }
   }
 
