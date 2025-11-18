@@ -17,13 +17,11 @@ import {
 } from "@scandit/web-datacapture-core";
 
 const TextField = Components.components.textfield;
-
 const FieldComponent = Components.components.field;
 
 let scanditConfigured = false;
 
 export default class BarcodeScanner extends FieldComponent {
-
 
   static schema(...extend) {
     return FieldComponent.schema(
@@ -64,6 +62,8 @@ export default class BarcodeScanner extends FieldComponent {
     this._usingBatch = false;
     this._dataCaptureView = null;
     this._drawingPending = false;
+    this._manualErrors = [];
+    this._allowErrorClear = false;
 
     let envKey;
     if (typeof process !== 'undefined' && process?.env && process.env.NEXT_PUBLIC_SCANDIT_KEY) {
@@ -76,7 +76,6 @@ export default class BarcodeScanner extends FieldComponent {
     super.init();
   }
 
-
   render() {
     const cameraSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="16" height="16" fill="currentColor">
       <path d="M149.1 64.8L138.7 96H64C28.7 96 0 124.7 0 160V416c0 35.3 28.7 64 64 64H448c35.3 0 64-28.7 64-64V160c0-35.3-28.7-64-64-64H373.3L362.9 64.8C356.4 45.2 338.1 32 317.4 32H194.6c-20.7 0-39 13.2-45.5 32.8zM256 192a96 96 0 1 1 0 192 96 96 0 1 1 0-192z"/>
@@ -86,7 +85,6 @@ export default class BarcodeScanner extends FieldComponent {
       <path d="M64 0C28.7 0 0 28.7 0 64V448c0 35.3 28.7 64 64 64H320c35.3 0 64-28.7 64-64V160H256c-17.7 0-32-14.3-32-32V0H64zM256 0V128H384L256 0zM64 256a32 32 0 1 1 64 0 32 32 0 1 1 -64 0zm152 32c5.3 0 10.2 2.6 13.2 6.9l88 128c3.4 4.9 3.7 11.3 1 16.5s-8.2 8.6-14.2 8.6H216 176 128 80c-5.8 0-11.1-3.1-13.9-8.1s-2.8-11.2 .2-16.1l48-80c2.9-4.8 8.1-7.8 13.7-7.8s10.8 2.9 13.7 7.8l12.8 21.4 48.3-70.2c3-4.3 7.9-6.9 13.2-6.9z"/>
     </svg>`;
 
-    // Load Material Icons font immediately
     if (!document.getElementById('material-icons-font')) {
       const link = document.createElement('link');
       link.id = 'material-icons-font';
@@ -108,14 +106,11 @@ export default class BarcodeScanner extends FieldComponent {
           <button ref="scanButton" type="button" class="btn btn-primary" style="margin-right:5px;">
             ${cameraSVG}
           </button>
-          <!-- File upload button removed -->
         </div>
         <div ref="quaggaModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1000; flex-direction:column; align-items:center; justify-content:center; padding:20px; box-sizing:border-box;">
           <div ref="modalContainer" style="position:relative; background:black; border-radius:8px; overflow:hidden; display:flex; flex-direction:column; max-width:100%; max-height:100%;">
             <button ref="closeModal" style="position:absolute; top:10px; right:10px; z-index:10000; background:rgba(255,255,255,0.9); border:none; border-radius:50%; width:40px; height:40px; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:bold; cursor:pointer; pointer-events:auto; box-shadow:0 2px 8px rgba(0,0,0,0.3);" title="Close">×</button>
 
-            
-            <!-- Container for Scandit's DataCaptureView -->
             <div
               ref="scanditContainer"
               style="
@@ -128,7 +123,6 @@ export default class BarcodeScanner extends FieldComponent {
             </div>
           </div>
           
-          <!-- Freeze/capture button -->
           <button
             ref="freezeButton"
             style="
@@ -157,24 +151,24 @@ export default class BarcodeScanner extends FieldComponent {
     `);
   }
 
-
   validateAndSetDirty() {
-    //this.setDirty(true);
     const valid = this.checkValidity(this.data, true);
     if (!valid) {
       setTimeout(() => {
+        this._allowErrorClear = false;
         this.setCustomValidity(this.errors, true);
       }, 500);
     } else {
       // Ensure error state is cleared and DOM is updated!
+      this._allowErrorClear = true;
       this.setCustomValidity([], true); 
+      this._allowErrorClear = false;
     }
   }
 
   attach(element) {
     const attached = super.attach(element);
 
-    // Add global error handler for camera permission errors
     this._unhandledRejectionHandler = (event) => {
       if (event.reason && (
           event.reason.name === 'NotAllowedError' || 
@@ -182,7 +176,7 @@ export default class BarcodeScanner extends FieldComponent {
           event.reason.message?.includes('permission')
       )) {
         console.warn('Camera permission error suppressed:', event.reason);
-        event.preventDefault(); // Prevent the error from appearing in console
+        event.preventDefault();
         event.stopPropagation();
       }
     };
@@ -221,7 +215,6 @@ export default class BarcodeScanner extends FieldComponent {
       });
 
       this.addEventListener(input, 'blur', () => {
-        console.log('Blur event fired');
         this.validateAndSetDirty();
       });
 
@@ -234,16 +227,12 @@ export default class BarcodeScanner extends FieldComponent {
       });
 
       this.refs.closeModal.addEventListener("click", async () => {
-        console.log("Close button clicked");
         try {
           await this.stopScanner();
           this._lastCodes = [];
           this._isVideoFrozen = false;
-          console.log("Scanner stopped successfully");
         } catch (error) {
-          // Handle silently - don't expose to FormIO
           console.warn("Error in close button handler (handled):", error);
-          // Force close the modal even if stopScanner fails
           this._closeModal();
         }
       });
@@ -255,7 +244,6 @@ export default class BarcodeScanner extends FieldComponent {
 
     return attached;
   }
-
 
   _showImageInModal(image) {
     this._openModal();
@@ -273,7 +261,6 @@ export default class BarcodeScanner extends FieldComponent {
     image.style.left = '0';
     image.style.zIndex = '10';
     image.style.objectFit = 'contain';
-
     image.style.display = 'block';
 
     Array.from(this.refs.scanditContainer.querySelectorAll('img')).forEach(img => {
@@ -288,18 +275,14 @@ export default class BarcodeScanner extends FieldComponent {
     this._cachedScaleFactors = null;
 
     image.onload = () => {
-      console.log('Image onload fired');
       this._resizeBoundingBoxCanvas();
     };
     if (image.complete) {
-
       image.onload();
     }
-    console.log('Image shown in modal:', image);
   }
 
   async openScanditModal() {
-    // Cancel any existing animation frames before starting
     if (this._animationFrameId) {
       cancelAnimationFrame(this._animationFrameId);
       this._animationFrameId = null;
@@ -317,7 +300,6 @@ export default class BarcodeScanner extends FieldComponent {
     const video = this.refs.scanditContainer.querySelector('video');
     if (video) video.style.display = '';
 
-    // Reset freeze button visibility and style
     if (this.refs.freezeButton) {
       this.refs.freezeButton.innerHTML = 'pause';
       this.refs.freezeButton.style.background = "rgba(255,255,255,0.8)";
@@ -328,23 +310,18 @@ export default class BarcodeScanner extends FieldComponent {
       if (!this._dataCaptureContext) {
         await this._initializeScandit();
       } else {
-        // Context exists, just need to reconnect view and restart monitoring
-        // Reconnect the DataCaptureView to the container
         if (this._dataCaptureView && this.refs.scanditContainer) {
           this._dataCaptureView.connectToElement(this.refs.scanditContainer);
         }
         
-        // Recreate bounding box canvas if it doesn't exist
         if (!this._boundingBoxCanvas || !this._boundingBoxCanvas.parentNode) {
           this._createBoundingBoxOverlay();
         } else {
-          // Just resize if it exists
           this._resizeBoundingBoxCanvas();
         }
         
         this._startLiveScanningMode();
         this._startCameraMonitoring();
-        // Restart the drawing loop
         this._currentBarcodes = [];
         this._drawBoundingBoxes(this._currentBarcodes);
       }
@@ -352,9 +329,7 @@ export default class BarcodeScanner extends FieldComponent {
         await this._setupCamera();
       }
     } catch (error) {
-      // Handle error silently - don't expose to FormIO
       console.warn("Scanner initialization error (handled):", error);
-      // Don't set this.errorMessage as it triggers FormIO errors
     }
   }
 
@@ -375,7 +350,7 @@ export default class BarcodeScanner extends FieldComponent {
         this._boundingBoxCanvas.style.width = displayWidth + 'px';
         this._boundingBoxCanvas.style.height = displayHeight + 'px';
         if (this._boundingBoxContext) {
-          this._boundingBoxContext.setTransform(1, 0, 0, 1, 0, 0); // Reset
+          this._boundingBoxContext.setTransform(1, 0, 0, 1, 0, 0);
           this._boundingBoxContext.scale(devicePixelRatio, devicePixelRatio);
         }
         this._cachedScaleFactors = null;
@@ -400,7 +375,6 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   async _initializeScandit() {
-    // Temporarily suppress console errors during Scandit initialization
     const originalConsoleError = console.error;
     console.error = (...args) => {
       const message = args.join(' ');
@@ -422,7 +396,6 @@ export default class BarcodeScanner extends FieldComponent {
         }
 
         this._dataCaptureContext = await DataCaptureContext.create();
-        console.log("DataCaptureContext initialized:", this._dataCaptureContext);
 
         let settings = new BarcodeBatchSettings();
         const allSymbologies = [
@@ -458,7 +431,6 @@ export default class BarcodeScanner extends FieldComponent {
         }
 
         this._barcodeBatch = await BarcodeBatch.forContext(this._dataCaptureContext, settings);
-        console.log("BarcodeBatch initialized:", this._barcodeBatch);
 
         await this._barcodeBatch.setEnabled(true);
         this._usingBatch = true;
@@ -467,10 +439,8 @@ export default class BarcodeScanner extends FieldComponent {
         this._barcodeBatch.addListener({
             didUpdateSession: (barcodeBatchMode, session) => {
                 this._trackedBarcodes = session.trackedBarcodes || {};
-
                 const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
                 this._currentBarcodes = barcodes;
-
                 this._drawBoundingBoxes(this._currentBarcodes);
             }
         });
@@ -481,7 +451,7 @@ export default class BarcodeScanner extends FieldComponent {
         await BarcodeBatchBasicOverlay.withBarcodeBatchForViewWithStyle(
             this._barcodeBatch,
             this._dataCaptureView,
-            BarcodeBatchBasicOverlayStyle.Frame // Use Frame for real-time tracking
+            BarcodeBatchBasicOverlayStyle.Frame
         );
 
         if (!document.getElementById('hide-scandit-blue-frames')) {
@@ -504,19 +474,15 @@ export default class BarcodeScanner extends FieldComponent {
         this._currentBarcodes = [];
         this._drawBoundingBoxes(this._currentBarcodes);
     } catch (error) {
-        // Handle initialization errors silently - don't expose to FormIO
         console.warn("Barcode scanner initialization error (handled):", error);
     } finally {
-        // Restore original console.error
         console.error = originalConsoleError;
     }
   }
 
   async _setupCamera() {
-    // Temporarily suppress console errors during camera setup
     const originalConsoleError = console.error;
     console.error = (...args) => {
-      // Only suppress camera permission errors
       const message = args.join(' ');
       if (message.includes('NotAllowedError') || message.includes('Permission denied')) {
         console.warn('[Suppressed camera error]:', ...args);
@@ -526,16 +492,12 @@ export default class BarcodeScanner extends FieldComponent {
     };
 
     try {
-
         const cameraSettings = BarcodeBatch.recommendedCameraSettings;
-
         this._camera = Camera.default;
 
         if (this._camera) {
             await this._camera.applySettings(cameraSettings);
-
             await this._dataCaptureContext.setFrameSource(this._camera);
-
             await this._camera.switchToDesiredState(FrameSourceState.On);
 
             if (this._barcodeBatch) {
@@ -547,19 +509,15 @@ export default class BarcodeScanner extends FieldComponent {
                 throw new Error(errorMsg);
             }
         } else {
-            // Handle silently without triggering FormIO errors
             console.warn("No camera available");
         }
     } catch (error) {
-        // Handle camera access errors silently - don't expose to FormIO's error system
         console.warn("Camera access error (handled):", error);
         
-        // Hide the freeze button since there's no camera
         if (this.refs.freezeButton) {
             this.refs.freezeButton.style.display = 'none';
         }
         
-        // Display error message while keeping modal structure intact
         if (this.refs.scanditContainer) {
             this.refs.scanditContainer.innerHTML = `
                 <div style="
@@ -583,7 +541,6 @@ export default class BarcodeScanner extends FieldComponent {
                 </div>`;
         }
     } finally {
-        // Restore original console.error
         console.error = originalConsoleError;
     }
   }
@@ -621,12 +578,11 @@ export default class BarcodeScanner extends FieldComponent {
           this._camera.switchToDesiredState(FrameSourceState.On);
         }
       }
-    } catch (e) { }
+    } catch (e) {}
   }
 
   async stopScanner() {
     try {
-      // Cancel animation frame first to stop drawing
       if (this._animationFrameId) {
         cancelAnimationFrame(this._animationFrameId);
         this._animationFrameId = null;
@@ -648,12 +604,10 @@ export default class BarcodeScanner extends FieldComponent {
       }
 
       this._clearBoundingBoxes();
-      
       this._isVideoFrozen = false;
     } catch (e) {
       console.warn("Error in stopScanner:", e);
     } finally {
-      // Always close the modal, even if cleanup fails
       this._closeModal();
     }
   }
@@ -758,8 +712,7 @@ export default class BarcodeScanner extends FieldComponent {
       }
 
       this._startCameraMonitoring();
-    } catch (error) {
-    }
+    } catch (error) {}
   }
 
   _startCameraMonitoring() {
@@ -782,8 +735,7 @@ export default class BarcodeScanner extends FieldComponent {
           this._sizeContainerToCamera(video, videoRect);
         }
       }
-    } catch (error) {
-    }
+    } catch (error) {}
   }
 
   _sizeContainerToCamera(video, videoRect = null) {
@@ -834,9 +786,7 @@ export default class BarcodeScanner extends FieldComponent {
           this._resizeBoundingBoxCanvas();
         }, 50);
       }
-
-    } catch (error) {
-    }
+    } catch (error) {}
   }
 
   _createBoundingBoxOverlay() {
@@ -870,57 +820,6 @@ export default class BarcodeScanner extends FieldComponent {
     this._resizeBoundingBoxCanvas();
   }
 
-  _resizeBoundingBoxCanvas() {
-    try {
-      if (!this._boundingBoxCanvas || !this.refs.scanditContainer) return;
-
-      const container = this.refs.scanditContainer;
-      const rect = container.getBoundingClientRect();
-
-      if (!rect || rect.width <= 0 || rect.height <= 0) return;
-
-      const devicePixelRatio = window.devicePixelRatio || 1;
-
-      const displayWidth = Math.floor(rect.width);
-      const displayHeight = Math.floor(rect.height);
-
-      const canvasWidth = Math.floor(displayWidth * devicePixelRatio);
-      const canvasHeight = Math.floor(displayHeight * devicePixelRatio);
-
-      if (this._boundingBoxCanvas.width !== canvasWidth || this._boundingBoxCanvas.height !== canvasHeight) {
-        this._boundingBoxCanvas.width = canvasWidth;
-        this._boundingBoxCanvas.height = canvasHeight;
-
-        this._boundingBoxCanvas.style.width = displayWidth + 'px';
-        this._boundingBoxCanvas.style.height = displayHeight + 'px';
-
-        if (this._boundingBoxContext) {
-          this._boundingBoxContext.setTransform(1, 0, 0, 1, 0, 0); // Reset
-          this._boundingBoxContext.scale(devicePixelRatio, devicePixelRatio);
-        }
-
-        this._cachedScaleFactors = null;
-      }
-
-      const videoElement = container.querySelector('video');
-      const imageElement = this._uploadedImageElement;
-      if (imageElement && imageElement.naturalWidth && imageElement.naturalHeight) {
-        this._cachedScaleFactors = {
-          scaleX: displayWidth / imageElement.naturalWidth,
-          scaleY: displayHeight / imageElement.naturalHeight
-        };
-      } else if (videoElement && videoElement.videoWidth && videoElement.videoHeight) {
-        this._cachedScaleFactors = {
-          scaleX: displayWidth / videoElement.videoWidth,
-          scaleY: displayHeight / videoElement.videoHeight
-        };
-      } else {
-        this._cachedScaleFactors = { scaleX: 1, scaleY: 1 };
-      }
-    } catch (error) {
-    }
-  }
-
   _drawBoundingBoxes(barcodes) {
     try {
       if (!this._boundingBoxContext || !this._boundingBoxCanvas) {
@@ -934,7 +833,6 @@ export default class BarcodeScanner extends FieldComponent {
 
       const draw = () => {
         try {
-          // Additional safety check inside the animation frame
           if (!this._boundingBoxContext || !this._boundingBoxCanvas) {
             return;
           }
@@ -983,7 +881,6 @@ export default class BarcodeScanner extends FieldComponent {
           this._clickableRegions = [];
 
           for (const [id, trackedBarcode] of barcodeEntries) {
-
             let anchor = trackedBarcode._anchorPositions || trackedBarcode._location || (trackedBarcode.barcode && trackedBarcode.barcode.location);
             if (!anchor || !anchor.topLeft) continue;
             const { topLeft, topRight, bottomRight, bottomLeft } = anchor;
@@ -1070,66 +967,14 @@ export default class BarcodeScanner extends FieldComponent {
 
   _configureAdvancedSymbologySettings(settings) {
     try {
-
       try {
         const code39Settings = settings.settingsForSymbology(Symbology.Code39);
-        if (code39Settings) {
-          if (typeof code39Settings.checksumType !== 'undefined') {
-            code39Settings.checksumType = 'mod43';
-          }
-          console.log("Code39 settings configured");
+        if (code39Settings && typeof code39Settings.checksumType !== 'undefined') {
+          code39Settings.checksumType = 'mod43';
         }
-      } catch (e) { console.warn("Code39 config failed:", e); }
-      try {
-        const code128Settings = settings.settingsForSymbology(Symbology.Code128);
-        if (code128Settings) {
-          console.log("Code128 settings verified");
-        }
-      } catch (e) { console.warn("Code128 config failed:", e); }
-
-      try {
-        const qrSettings = settings.settingsForSymbology(Symbology.QR);
-        if (qrSettings) {
-          console.log("QR Code settings verified");
-        }
-      } catch (e) { console.warn("QR config failed:", e); }
-
-      try {
-        const dataMatrixSettings = settings.settingsForSymbology(Symbology.DataMatrix);
-        if (dataMatrixSettings) {
-          console.log("DataMatrix settings verified");
-        }
-      } catch (e) { console.warn("DataMatrix config failed:", e); }
-
-      try {
-        const pdf417Settings = settings.settingsForSymbology(Symbology.PDF417);
-        if (pdf417Settings) {
-          console.log("PDF417 settings verified");
-        }
-      } catch (e) { console.warn("PDF417 config failed:", e); }
-
-      try {
-        const ean13Settings = settings.settingsForSymbology(Symbology.EAN13UPCA);
-        if (ean13Settings) {
-          console.log("EAN13/UPC-A settings verified");
-        }
-      } catch (e) { console.warn("EAN13/UPC-A config failed:", e); }
-
-      try {
-        const ean8Settings = settings.settingsForSymbology(Symbology.EAN8);
-        if (ean8Settings) {
-          console.log("EAN8 settings verified");
-        }
-      } catch (e) { console.warn("EAN8 config failed:", e); }
-
-      try {
-        const upceSettings = settings.settingsForSymbology(Symbology.UPCE);
-        if (upceSettings) {
-          console.log("UPC-E settings verified");
-        }
-      } catch (e) { console.warn("UPC-E config failed:", e); }
-
-      console.log("Advanced symbology configuration completed");
+      } catch (e) {
+        console.warn("Code39 config failed:", e);
+      }
     } catch (error) {
       console.warn("Error in advanced symbology configuration:", error);
     }
@@ -1160,17 +1005,12 @@ export default class BarcodeScanner extends FieldComponent {
         document.head.appendChild(style);
       }
 
-      // Immediately hide the modal
       this.refs.quaggaModal.style.display = "none";
       this.refs.quaggaModal.style.visibility = "hidden";
       this.refs.quaggaModal.style.pointerEvents = "none";
       this.refs.quaggaModal.style.opacity = "0";
-      
-      console.log("Modal closed successfully");
     } catch (error) {
-      // Handle silently - don't expose to FormIO
       console.warn("Error closing modal (handled):", error);
-      // Last resort fallback
       try {
         if (this.refs.quaggaModal) {
           this.refs.quaggaModal.style.display = "none";
@@ -1189,21 +1029,16 @@ export default class BarcodeScanner extends FieldComponent {
 
     try {
       this.refs.quaggaModal.classList.remove('barcode-modal-hidden', 'barcode-modal-closing');
-
       this.refs.quaggaModal.style.visibility = "visible";
       this.refs.quaggaModal.style.pointerEvents = "auto";
       this.refs.quaggaModal.style.opacity = "1";
-
       this.refs.quaggaModal.style.display = "flex";
-
     } catch (error) {
       console.warn("Error opening modal:", error);
       if (this.refs.quaggaModal) {
         this.refs.quaggaModal.style.display = "flex";
       }
     }
-
-    console.log("Modal opened successfully");
   }
 
   _clearBoundingBoxes() {
@@ -1218,9 +1053,7 @@ export default class BarcodeScanner extends FieldComponent {
     const minY = Math.min(topLeft.y, topRight.y, bottomRight.y, bottomLeft.y);
     const maxY = Math.max(topLeft.y, topRight.y, bottomRight.y, bottomLeft.y);
 
-    const isInside = x >= minX && x <= maxX && y >= minY && y <= maxY;
-
-    return isInside;
+    return x >= minX && x <= maxX && y >= minY && y <= maxY;
   }
 
   _startLiveScanningMode() {
@@ -1230,12 +1063,10 @@ export default class BarcodeScanner extends FieldComponent {
 
     this._liveScanInterval = setInterval(() => {
       if (!this._isVideoFrozen && this._boundingBoxContext) {
-
         if (!this._lastBarcodeTime || Date.now() - this._lastBarcodeTime > 100) {
-
         }
       }
-    }, 50); // Very frequent checks for responsiveness
+    }, 50);
   }
 
   _stopLiveScanningMode() {
@@ -1245,9 +1076,7 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
-
   detach() {
-    // Cancel animation frame
     if (this._animationFrameId) {
       cancelAnimationFrame(this._animationFrameId);
       this._animationFrameId = null;
@@ -1276,7 +1105,6 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   destroy() {
-    // Cancel animation frame
     if (this._animationFrameId) {
       cancelAnimationFrame(this._animationFrameId);
       this._animationFrameId = null;
@@ -1336,6 +1164,37 @@ export default class BarcodeScanner extends FieldComponent {
 
   get defaultSchema() {
     return BarcodeScanner.schema();
+  }
+
+
+  setCustomValidity(errors, dirty = false) {
+    const isClearing =
+      errors === undefined ||
+      errors === null ||
+      errors === "" ||
+      (Array.isArray(errors) && errors.length === 0);
+    const allowClear = this._allowErrorClear || this._manualErrors.length === 0;
+
+    if (isClearing && !allowClear) {
+      if (this._manualErrors.length) {
+        super.setCustomValidity(this._manualErrors, dirty);
+      }
+      return;
+    }
+
+    if (isClearing && allowClear) {
+      this._manualErrors = [];
+    }
+
+    if (!isClearing) {
+      this._manualErrors = Array.isArray(errors)
+        ? [...errors]
+        : errors
+        ? [errors]
+        : [];
+    }
+
+    super.setCustomValidity(errors, dirty);
   }
 
 
