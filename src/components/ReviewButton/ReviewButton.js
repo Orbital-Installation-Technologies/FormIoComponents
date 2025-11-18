@@ -1615,13 +1615,10 @@ export default class ReviewButton extends FieldComponent {
                 }
 
                 // Show/hide screenshot component itself
-                console.log('needShot:', needShot, 'hideScreenshot:', !!hideScreenshot, 'show function:', hideScreenshot && typeof hideScreenshot.show === 'function');
                 if (needShot && hideScreenshot && typeof hideScreenshot.show === 'function') {
                   hideScreenshot.show();
-                  console.log('Screenshot component shown');
                 } else if (!needShot && hideScreenshot && typeof hideScreenshot.hide === 'function') {
                   hideScreenshot.hide();
-                  console.log('Screenshot component hidden');
                   // Clear any validation styling when hiding
                   const screenshotContainer = modal.querySelector("#screenshotContainer");
                   if (screenshotContainer) {

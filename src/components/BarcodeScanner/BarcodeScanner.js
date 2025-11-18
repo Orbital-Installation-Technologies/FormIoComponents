@@ -62,6 +62,8 @@ export default class BarcodeScanner extends FieldComponent {
     this._usingBatch = false;
     this._dataCaptureView = null;
     this._drawingPending = false;
+    this._manualErrors = [];
+    this._allowErrorClear = false;
 
     let envKey;
     if (typeof process !== 'undefined' && process?.env && process.env.NEXT_PUBLIC_SCANDIT_KEY) {
@@ -153,10 +155,14 @@ export default class BarcodeScanner extends FieldComponent {
     const valid = this.checkValidity(this.data, true);
     if (!valid) {
       setTimeout(() => {
+        this._allowErrorClear = false;
         this.setCustomValidity(this.errors, true);
       }, 500);
     } else {
+      // Ensure error state is cleared and DOM is updated!
+      this._allowErrorClear = true;
       this.setCustomValidity([], true); 
+      this._allowErrorClear = false;
     }
   }
 
@@ -1159,4 +1165,37 @@ export default class BarcodeScanner extends FieldComponent {
   get defaultSchema() {
     return BarcodeScanner.schema();
   }
+
+
+  setCustomValidity(errors, dirty = false) {
+    const isClearing =
+      errors === undefined ||
+      errors === null ||
+      errors === "" ||
+      (Array.isArray(errors) && errors.length === 0);
+    const allowClear = this._allowErrorClear || this._manualErrors.length === 0;
+
+    if (isClearing && !allowClear) {
+      if (this._manualErrors.length) {
+        super.setCustomValidity(this._manualErrors, dirty);
+      }
+      return;
+    }
+
+    if (isClearing && allowClear) {
+      this._manualErrors = [];
+    }
+
+    if (!isClearing) {
+      this._manualErrors = Array.isArray(errors)
+        ? [...errors]
+        : errors
+        ? [errors]
+        : [];
+    }
+
+    super.setCustomValidity(errors, dirty);
+  }
+
+
 }
