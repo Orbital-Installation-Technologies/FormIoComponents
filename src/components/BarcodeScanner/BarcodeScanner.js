@@ -70,6 +70,7 @@ export default class BarcodeScanner extends FieldComponent {
     this._autoFreezeTimeout = null;
     this._showingConfirmation = false;
     this._confirmingBarcode = false; // Prevent re-entry into barcode confirmation
+    this._torchEnabled = false; // Track torch/flashlight state independently from camera state
     this._pendingBarcodes = []; // All detected barcodes waiting for confirmation
     this._selectedBarcodeIndices = new Set(); // For tracking radio selections
     this._barcodeImages = {}; // Store barcode images by their data value
@@ -154,17 +155,17 @@ export default class BarcodeScanner extends FieldComponent {
     }
 
     return super.render(`
-      <div style="display:flex; flex-direction:column; gap:8px;">
-        <div style="display:flex; align-items:center; justify-content:space-between;">
+      <div style="display:flex; flex-direction:column; gap:8px; max-height:none;">
+        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:nowrap;">
           <input
             ref="barcode"
             type="text"
             class="form-control"
             value="${this.dataValue || ""}"
             placeholder="Scan or enter barcode"
-            style="flex-grow:1; margin-right:10px;"
+            style="flex-grow:1; margin-right:10px; min-width:0;"
           />
-          <button ref="scanButton" type="button" class="btn btn-primary" style="margin-right:5px;" title="Open camera to scan">
+          <button ref="scanButton" type="button" class="btn btn-primary" style="margin-right:5px; flex-shrink:0;" title="Open camera to scan">
             ${cameraSVG}
           </button>
         </div>
@@ -1839,6 +1840,16 @@ export default class BarcodeScanner extends FieldComponent {
       this.refs.quaggaModal.style.visibility = "hidden";
       this.refs.quaggaModal.style.pointerEvents = "none";
       this.refs.quaggaModal.style.opacity = "0";
+      this.refs.quaggaModal.style.position = "fixed";
+      this.refs.quaggaModal.style.width = "0";
+      this.refs.quaggaModal.style.height = "0";
+      this.refs.quaggaModal.style.overflow = "hidden";
+      // Remove from document flow completely to prevent blocking interactions
+      this.refs.quaggaModal.style.zIndex = "-1";
+      // Ensure it doesn't take space in parent layout
+      this.refs.quaggaModal.style.margin = "0";
+      this.refs.quaggaModal.style.border = "none";
+      this.refs.quaggaModal.style.padding = "0";
     } catch (error) {
       console.warn("Error closing modal (handled):", error);
       try {
@@ -1863,6 +1874,11 @@ export default class BarcodeScanner extends FieldComponent {
       this.refs.quaggaModal.style.pointerEvents = "auto";
       this.refs.quaggaModal.style.opacity = "1";
       this.refs.quaggaModal.style.display = "flex";
+      this.refs.quaggaModal.style.width = "100%";
+      this.refs.quaggaModal.style.height = "100%";
+      this.refs.quaggaModal.style.overflow = "visible";
+      // Restore z-index to bring modal back in front when opening
+      this.refs.quaggaModal.style.zIndex = "1000";
     } catch (error) {
       console.warn("Error opening modal:", error);
       if (this.refs.quaggaModal) {
@@ -2122,8 +2138,12 @@ export default class BarcodeScanner extends FieldComponent {
       fetch(imageDataUrl)
         .then(res => res.blob())
         .then(blob => {
-          // Create a File object from the blob
-          const fileName = `barcode-${barcodeData}-${Date.now()}.png`;
+          // Create a File object from the blob with sanitized filename
+          // Sanitize barcode data: remove/replace special characters, limit length
+          const sanitizedBarcode = barcodeData
+            .replace(/[^a-zA-Z0-9-_]/g, '_') // Replace special chars with underscore
+            .substring(0, 50); // Limit to 50 chars
+          const fileName = `barcode-${sanitizedBarcode}-${Date.now()}.png`;
           const file = new File([blob], fileName, { type: 'image/png' });
 
           // Add file to the file upload component
@@ -2188,7 +2208,8 @@ export default class BarcodeScanner extends FieldComponent {
 
     try {
       // Use Scandit's CameraLightControl API for camera flash
-      const currentLightState = this._camera.desiredState === 'On' ? 'flashOn' : 'off';
+      // Track torch state separately from camera on/off state
+      const currentLightState = this._torchEnabled ? 'flashOn' : 'off';
       const newLightState = currentLightState === 'flashOn' ? 'off' : 'flashOn';
 
 
@@ -2196,6 +2217,7 @@ export default class BarcodeScanner extends FieldComponent {
       if (this._camera && this._camera.torch !== undefined) {
         // Try direct torch property if available
         this._camera.torch = !this._camera.torch;
+        this._torchEnabled = this._camera.torch;
         this._updateFlashlightButtonState(this._camera.torch);
       } else {
         // Use CameraLightControl through the DataCaptureContext
@@ -2209,9 +2231,11 @@ export default class BarcodeScanner extends FieldComponent {
               // Enable camera flash
               if (typeof this._camera.setTorchEnabled === 'function') {
                 this._camera.setTorchEnabled(true);
+                this._torchEnabled = true;
                 this._updateFlashlightButtonState(true);
               } else if (typeof this._camera.torchEnabled === 'boolean') {
                 this._camera.torchEnabled = true;
+                this._torchEnabled = true;
                 this._updateFlashlightButtonState(true);
               } else {
                 this._showFlashlightNotSupported();
@@ -2220,9 +2244,11 @@ export default class BarcodeScanner extends FieldComponent {
               // Disable camera flash
               if (typeof this._camera.setTorchEnabled === 'function') {
                 this._camera.setTorchEnabled(false);
+                this._torchEnabled = false;
                 this._updateFlashlightButtonState(false);
               } else if (typeof this._camera.torchEnabled === 'boolean') {
                 this._camera.torchEnabled = false;
+                this._torchEnabled = false;
                 this._updateFlashlightButtonState(false);
               } else {
                 this._showFlashlightNotSupported();
