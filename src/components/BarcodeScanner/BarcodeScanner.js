@@ -75,12 +75,22 @@ export default class BarcodeScanner extends FieldComponent {
     this._barcodeImages = {}; // Store barcode images by their data value
     this._allDetectedBarcodes = []; // Store ALL barcodes for backup field
 
+    // License key can come from (in priority order):
+    // 1. Component configuration (scanditLicenseKey set in Formio builder)
+    // 2. Component data (scanditLicenseKey property)
+    // 3. Environment variable (NEXT_PUBLIC_SCANDIT_KEY - for development/testing)
     let envKey;
-    if (typeof process !== 'undefined' && process?.env && process.env.NEXT_PUBLIC_SCANDIT_KEY) {
+    if (this.component && this.component.scanditLicenseKey) {
+      envKey = this.component.scanditLicenseKey;
+    } else if (this.data && this.data.scanditLicenseKey) {
+      envKey = this.data.scanditLicenseKey;
+    } else if (typeof process !== 'undefined' && process?.env && process.env.NEXT_PUBLIC_SCANDIT_KEY) {
       envKey = process?.env?.NEXT_PUBLIC_SCANDIT_KEY;
     }
     this._licenseKey = envKey || 'undefined'
   }
+
+
 
   init() {
     super.init();
@@ -461,6 +471,7 @@ export default class BarcodeScanner extends FieldComponent {
       this.setCustomValidity([], true);
       this._allowErrorClear = false;
     }
+
   }
 
   attach(element) {
@@ -1777,7 +1788,7 @@ export default class BarcodeScanner extends FieldComponent {
           this.stopScanner();
         } else {
           // Multiple barcodes - show dialog with this one pre-selected
-          this._showConfirmationDialog(this._currentBarcodes, barcode.data);
+          this._showConfirmationDialog(this._currentBarcodes, barcode);
         }
         break;
       }
