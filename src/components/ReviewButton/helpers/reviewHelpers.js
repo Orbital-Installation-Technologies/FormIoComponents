@@ -1,39 +1,47 @@
-/**
- * Helper functions for ReviewButton component
- * Contains reusable logic for modal creation, validation, data processing, and UI rendering
- */
 
 /**
  * Creates and configures the review modal DOM element
  */
-export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, supportNumber) {
+
+export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, supportNumber, showSupportFields = true) {
+  if (typeof document !== "undefined" && !document.getElementById("customDropdownStyle")) {
+    const styleTag = document.createElement("style");
+    styleTag.id = "customDropdownStyle";
+    styleTag.textContent = dropdownCSS;
+    document.head.appendChild(styleTag);
+  }
   const modal = document.createElement("div");
+
   modal.style.zIndex = "1000";
-  modal.style.setProperty("overflow", "auto", "important");
-  modal.className = "fixed top-0 left-0 w-full h-full inset-0 bg-black bg-opacity-50 flex items-center justify-center";
+  modal.className = "fixed top-0 left-0 w-full h-screen inset-0 bg-black bg-opacity-50 flex items-center justify-center";
 
   modal.innerHTML = `
-    <div class="bg-white p-6 rounded shadow-md w-full max-w-2xl" style="height: auto; max-height: 90vh; overflow: auto;">
+    <div class="bg-white p-6 rounded shadow-md w-full max-w-2xl max-h-[90vh] overflow-y-auto">
       <h2 class="text-xl font-semibold mb-4">Review Form Data</h2>
-      <div idx="22" class="mb-4 text-sm" style="border:1px solid #ccc; padding:8px;">
+      <div idx="22" class="mb-4 text-sm" style="max-height:200px; overflow-y:auto; border:1px solid #ccc; padding:8px;">
         ${reviewHtml}
       </div>
+      ${hasErrors ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+         <p class="text-red-700 font-medium">⚠️ Fix the ${fieldErrorCount} error${fieldErrorCount === 1 ? '' : 's'} in the form before submitting</p>
+      </div>` : ''}
       
-      ${!hasErrors ? `
+ ${!hasErrors && showSupportFields ? `
       <div class="flex space-x-4 mb-4">
         <div class="text-sm w-1/2">
           <label class="block font-medium mb-1">Support Number</label>
           <input type="text" id="supportNumber" class="w-full border rounded p-2 text-sm bg-gray-100" value="${supportNumber}" disabled />
         </div>
-        <div class="text-sm w-1/2">
-          <label class="block font-medium mb-1">Verified</label>
-          <select id="verified" class="w-full border rounded p-2 text-sm">
-            <option value="Empty">Select verification type</option>
-            <option value="App">App</option>
-            <option value="Support">Support</option>
-            <option value="Not Verified">Not Verified</option>
-          </select>
+        <div class="custom-dropdown">
+          <label class="dropdown-label">Verified</label>
+          <div id="verified" class="dropdown-selected w-full border rounded p-2 text-sm" tabindex="0" data-value="Empty">Select verification type </div>
+          <ul class="dropdown-list" >
+            <li data-value="Empty">Select verification type</li>
+            <li data-value="App">App</li>
+            <li data-value="Support">Support</li>
+            <li data-value="Not Verified">Not Verified</li>
+          </ul>
         </div>
+        <div id="selected-value"></div>
       </div>` : ''}
       <div idx="23" class="mb-4 text-sm w-full" id="screenshotWrapper" style="display: none;">
         <label for="screenshotContainer">Screenshot Upload<span class="text-red-500">(Required)*</label>
@@ -51,7 +59,7 @@ export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, suppor
         <button class="px-4 py-2 btn btn-primary rounded" id="cancelModal">${hasErrors ? 'Close' : 'Cancel'}</button>
         ${!hasErrors ? '<button class="px-4 py-2 btn btn-primary rounded" id="submitModal">Submit</button>' : ''}
       </div>
-    </div>`;
+    `;
 
   return modal;
 }
@@ -59,79 +67,76 @@ export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, suppor
 /**
  * Validates the modal form fields
  */
-export function validateModalForm(modal, screenshotComp, formData = null) {
+export function validateModalForm(modal, screenshotComp, formData = null, requireSupportFields = true) {
   let hasErrors = false;
 
-  const verifiedElement = modal.querySelector("#verified");
-  const selectedVerificationType = verifiedElement ? verifiedElement.value : "Empty";
+  if (requireSupportFields) {
+    const verifiedElement = modal.querySelector("#verified");
+    const selectedVerificationType = verifiedElement ? verifiedElement.getAttribute('data-value') : "Empty";
 
-  if (verifiedElement && selectedVerificationType === "Empty") {
-    verifiedElement.style.border = "2px solid red";
-    verifiedElement.classList.add("invalid-field");
-    hasErrors = true;
-  } else if (verifiedElement) {
-    verifiedElement.style.border = "";
-    verifiedElement.classList.remove("invalid-field");
+    if (verifiedElement && selectedVerificationType === "Empty") {
+      verifiedElement.style.border = "2px solid red";
+      verifiedElement.classList.add("invalid-field");
+      hasErrors = true;
+    } else if (verifiedElement) {
+      verifiedElement.style.border = "";
+      verifiedElement.classList.remove("invalid-field");
+    }
+    const supportNumberElement = modal.querySelector("#supportNumber");
+    if (supportNumberElement && !supportNumberElement.value.trim()) {
+      supportNumberElement.style.border = "2px solid red";
+      supportNumberElement.classList.add("invalid-field");
+      hasErrors = true;
+    } else if (supportNumberElement) {
+      supportNumberElement.style.border = "";
+      supportNumberElement.classList.remove("invalid-field");
+    }
   }
 
-  const supportNumberElement = modal.querySelector("#supportNumber");
-  if (supportNumberElement && !supportNumberElement.value.trim()) {
-    supportNumberElement.style.border = "2px solid red";
-    supportNumberElement.classList.add("invalid-field");
-    hasErrors = true;
-  } else if (supportNumberElement) {
-    supportNumberElement.style.border = "";
-    supportNumberElement.classList.remove("invalid-field");
-  }
+  if (requireSupportFields) {
+    const verifiedElement = modal.querySelector("#verified");
+    const selectedVerificationType = verifiedElement ? verifiedElement.getAttribute('data-value') : "Empty";
+    const screenshotWrapper = modal.querySelector("#screenshotWrapper");
+    const isScreenshotVisible = screenshotWrapper && screenshotWrapper.style.display !== "none";
 
-  // Only validate screenshot if it's visible and required
-  const screenshotWrapper = modal.querySelector("#screenshotWrapper");
-  const isScreenshotVisible = screenshotWrapper && screenshotWrapper.style.display !== "none";
-  
-  if ((selectedVerificationType === "App" || selectedVerificationType === "Support") && isScreenshotVisible) {
-    const uploadedFiles = screenshotComp ? (screenshotComp.getValue() || []) : [];
-    console.log('Screenshot validation - uploadedFiles:', uploadedFiles);
-    console.log('Screenshot validation - screenshotComp:', !!screenshotComp);
-    console.log('Screenshot validation - getValue result:', screenshotComp ? screenshotComp.getValue() : 'no component');
+    if ((selectedVerificationType === "App" || selectedVerificationType === "Support") && isScreenshotVisible) {
+      const uploadedFiles = screenshotComp ? (screenshotComp.getValue() || []) : [];
 
-    if (uploadedFiles.length === 0) {
+      if (uploadedFiles.length === 0) {
+        const screenshotContainer = modal.querySelector("#screenshotContainer");
+        if (screenshotContainer) {
+          screenshotContainer.style.border = "2px solid red";
+          hasErrors = true;
+        }
+      } else if (modal.querySelector("#screenshotContainer")) {
+        modal.querySelector("#screenshotContainer").style.border = "";
+      }
+    } else {
       const screenshotContainer = modal.querySelector("#screenshotContainer");
       if (screenshotContainer) {
-        screenshotContainer.style.border = "2px solid red";
-        hasErrors = true;
+        screenshotContainer.style.border = "";
+        screenshotContainer.classList.remove("invalid-field");
+        const childElements = screenshotContainer.querySelectorAll("*");
+        childElements.forEach(el => {
+          el.style.border = "";
+          el.classList.remove("invalid-field");
+        });
       }
-    } else if (modal.querySelector("#screenshotContainer")) {
-      modal.querySelector("#screenshotContainer").style.border = "";
     }
-  } else {
-    // Clear screenshot validation when not required
-    const screenshotContainer = modal.querySelector("#screenshotContainer");
-    if (screenshotContainer) {
-      screenshotContainer.style.border = "";
-      screenshotContainer.classList.remove("invalid-field");
-      // Also clear any validation on child elements
-      const childElements = screenshotContainer.querySelectorAll("*");
-      childElements.forEach(el => {
-        el.style.border = "";
-        el.classList.remove("invalid-field");
-      });
+
+    if (selectedVerificationType === "Not Verified") {
+      const notesRequiredElement = modal.querySelector("#notesRequired");
+      if (notesRequiredElement && !notesRequiredElement.value.trim()) {
+        notesRequiredElement.style.border = "2px solid red";
+        notesRequiredElement.classList.add("invalid-field");
+        hasErrors = true;
+      } else if (notesRequiredElement) {
+        notesRequiredElement.style.border = "";
+        notesRequiredElement.classList.remove("invalid-field");
+      }
     }
   }
 
-  if (selectedVerificationType === "Not Verified") {
-    const notesRequiredElement = modal.querySelector("#notesRequired");
-    if (notesRequiredElement && !notesRequiredElement.value.trim()) {
-      notesRequiredElement.style.border = "2px solid red";
-      notesRequiredElement.classList.add("invalid-field");
-      hasErrors = true;
-    } else if (notesRequiredElement) {
-      notesRequiredElement.style.border = "";
-      notesRequiredElement.classList.remove("invalid-field");
-
-    }
-  }
-
-  // Check if form has meaningful data
   let hasFormData = true;
   if (formData) {
     hasFormData = checkFormHasData(formData);
@@ -161,18 +166,17 @@ function checkFormHasData(formData) {
     return false;
   }
 
-  // Check if there's actual data in the form
   const hasData = Object.values(formData).some(value => {
     if (value === null || value === undefined || value === '') {
       return false;
     }
     if (Array.isArray(value)) {
-      return value.length > 0 && value.some(item => 
+      return value.length > 0 && value.some(item =>
         item !== null && item !== undefined && item !== ''
       );
     }
     if (typeof value === 'object') {
-      return Object.keys(value).length > 0 && Object.values(value).some(v => 
+      return Object.keys(value).length > 0 && Object.values(value).some(v =>
         v !== null && v !== undefined && v !== ''
       );
     }
@@ -185,17 +189,18 @@ function checkFormHasData(formData) {
 /**
  * Sets up screenshot component in the modal
  */
-export function setupScreenshotComponent(modal, screenshotComp, validateModalForm, formData = null) {
+export function setupScreenshotComponent(modal, screenshotComp, validateModalForm, formData = null, requireSupportFields = true) {
   if (!screenshotComp) return null;
+  const screenshotContainer = modal.querySelector("#screenshotContainer");
+  if (!screenshotContainer) return null;
 
   const html = screenshotComp.render();
   const tmp = document.createElement("div");
   tmp.innerHTML = html;
   const compEl = tmp.firstElementChild;
-  modal.querySelector("#screenshotContainer").appendChild(compEl);
+  screenshotContainer.appendChild(compEl);
   screenshotComp.attach(compEl);
 
-  // Ensure the screenshot component is initially visible
   screenshotComp.component.hidden = false;
   if (typeof screenshotComp.setVisible === "function") {
     screenshotComp.setVisible(true);
@@ -204,7 +209,7 @@ export function setupScreenshotComponent(modal, screenshotComp, validateModalFor
   }
 
   if (screenshotComp && typeof screenshotComp.on === 'function') {
-    screenshotComp.on('change', () => validateModalForm(modal, screenshotComp, formData));
+    screenshotComp.on('change', () => validateModalForm(modal, screenshotComp, formData, requireSupportFields));
   }
 
   return {
@@ -230,19 +235,19 @@ export function setupScreenshotComponent(modal, screenshotComp, validateModalFor
 /**
  * Sets up modal event handlers
  */
-export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, validateModalForm, onSubmit, formData = null) {
+export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, validateModalForm, onSubmit, formData = null, requireSupportFields = true) {
+
   const verifiedSelect = modal.querySelector("#verified");
   const screenshotWrapper = modal.querySelector("#screenshotWrapper");
   const notesOptionalWrapper = modal.querySelector("#notesOptionalWrapper");
   const notesRequiredWrapper = modal.querySelector("#notesRequiredWrapper");
 
-  // Verification type change handler
   if (verifiedSelect) {
     verifiedSelect.onchange = () => {
-      const value = verifiedSelect.value;
+      // const value = verifiedSelect.value;
+      const value = verifiedSelect.getAttribute('data-value');
       const needShot = value === "App" || value === "Support";
       
-      // Show/hide wrapper divs
       if (screenshotWrapper) {
         screenshotWrapper.style.display = needShot ? "block" : "none";
       }
@@ -253,20 +258,14 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
         notesRequiredWrapper.style.display = value === "Not Verified" ? "block" : "none";
       }
       
-      // Show/hide screenshot component itself
-      console.log('needShot:', needShot, 'hideScreenshot:', !!hideScreenshot, 'show function:', hideScreenshot && typeof hideScreenshot.show === 'function');
       if (needShot && hideScreenshot && typeof hideScreenshot.show === 'function') {
         hideScreenshot.show();
-        console.log('Screenshot component shown');
       } else if (!needShot && hideScreenshot && typeof hideScreenshot.hide === 'function') {
         hideScreenshot.hide();
-        console.log('Screenshot component hidden');
-        // Clear any validation styling when hiding
         const screenshotContainer = modal.querySelector("#screenshotContainer");
         if (screenshotContainer) {
           screenshotContainer.style.border = "";
           screenshotContainer.classList.remove("invalid-field");
-          // Also clear any validation on child elements
           const childElements = screenshotContainer.querySelectorAll("*");
           childElements.forEach(el => {
             el.style.border = "";
@@ -275,26 +274,25 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
         }
       }
       
-      // Trigger validation to update submit button state
-      validateModalForm(modal, screenshotComp, formData);
+      validateModalForm(modal, screenshotComp, formData, requireSupportFields);
     };
   }
 
-  // Cancel button handler
   modal.querySelector("#cancelModal").onclick = async () => {
-    hideScreenshot();
+    if (hideScreenshot && typeof hideScreenshot === 'function') {
+      hideScreenshot();
+    }
     document.body.removeChild(modal);
   };
 
-  // Submit button handler
   const submitButton = modal.querySelector("#submitModal");
   if (submitButton) {
     submitButton.onclick = async () => {
-      const hasErrors = validateModalForm(modal, screenshotComp, formData);
+      const hasErrors = validateModalForm(modal, screenshotComp, formData, requireSupportFields);
       if (hasErrors) return;
 
       const verifiedElement = modal.querySelector("#verified");
-      const selectedVerificationType = verifiedElement ? verifiedElement.value : "Empty";
+      const selectedVerificationType = verifiedElement ? verifiedElement.getAttribute('data-value') : "Empty";
       const notesRequired = modal.querySelector("#notesRequired")?.value || "";
       const notesOptional = modal.querySelector("#notesOptional")?.value || "";
       const supportNumber = modal.querySelector("#supportNumber")?.value || "Unavailable";
@@ -303,17 +301,16 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
       if (screenshotComp) {
         uploadedFiles = screenshotComp.getValue() || [];
       }
-      console.log('Submit button - uploadedFiles:', uploadedFiles);
-      console.log('Submit button - screenshotComp:', !!screenshotComp);
 
-      // Final validation checks
-      if (selectedVerificationType === "Not Verified" && !notesRequired.trim()) {
-        alert("Please explain why not verified.");
-        return;
-      }
-      if ((selectedVerificationType === "App" || selectedVerificationType === "Support") && uploadedFiles.length === 0) {
-        alert("Screenshot is required for App or Support verification.");
-        return;
+      if (requireSupportFields) {
+        if (selectedVerificationType === "Not Verified" && !notesRequired.trim()) {
+          alert("Please explain why not verified.");
+          return;
+        }
+        if ((selectedVerificationType === "App" || selectedVerificationType === "Support") && uploadedFiles.length === 0) {
+          alert("Screenshot is required for App or Support verification.");
+          return;
+        }
       }
 
       await onSubmit({
@@ -324,26 +321,25 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
         uploadedFiles
       });
 
-      hideScreenshot();
+      if (hideScreenshot && typeof hideScreenshot === 'function') {
+        hideScreenshot();
+      }
       document.body.removeChild(modal);
     };
   }
 
-  // Add input listeners for real-time validation
   const addInputListeners = (element) => {
     if (!element) return;
 
     const inputs = element.querySelectorAll('input, textarea, select');
     inputs.forEach(input => {
-      input.addEventListener('input', () => validateModalForm(modal, screenshotComp, formData));
-      input.addEventListener('change', () => validateModalForm(modal, screenshotComp, formData));
+      input.addEventListener('input', () => validateModalForm(modal, screenshotComp, formData, requireSupportFields));
+      input.addEventListener('change', () => validateModalForm(modal, screenshotComp, formData, requireSupportFields));
     });
   };
 
   addInputListeners(modal);
 }
-
-// Caching removed - always start fresh
 
 /**
  * Updates form values with modal data
@@ -362,7 +358,7 @@ export function updateFormWithModalData(root, modalData) {
 export function collectFormDataForReview(root) {
   const allData = root.getValue();
   const supportNumber = allData?.data?.billingCustomer || "Unavailable";
-  
+
   return {
     allData,
     supportNumber
@@ -376,7 +372,7 @@ export function updateFormValuesBeforeReview(root) {
   const allDatagrids = [];
   root.everyComponent(comp => {
     const componentType = comp.component?.type || comp.type;
-    
+
     if (componentType === 'well' || componentType === 'table') {
       allDatagrids.push(comp);
     }
@@ -411,7 +407,6 @@ export function updateFormValuesBeforeReview(root) {
         });
       }
     } catch (e) {
-      console.error("Error updating datagrid/datatable values:", e);
     }
   }
 
@@ -424,3 +419,62 @@ export function updateFormValuesBeforeReview(root) {
     }
   });
 }
+
+
+// Add this at the top of your JS file (for example: reviewHelpers.js)
+const dropdownCSS = `
+.custom-dropdown {
+  width: 220px;
+  position: relative;
+}
+.dropdown-list { display: none; }
+.dropdown-list.open { display: block; }
+.dropdown-label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+.dropdown-selected {
+  margin-top: -2px;
+  border: 1px solid #888;
+  border-radius: 5px;
+  padding: 10px 32px 10px 10px;
+  background: #fff;
+  cursor: pointer;
+  position: relative;
+  min-height: 38px;
+}
+.dropdown-selected:after {
+  content: "⮟";
+  position: absolute;
+  right: 12px;
+  font-size: 16px;
+  color: #888;
+}
+.dropdown-list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid #888;
+  border-radius: 5px;
+  margin: 2px 0 0 0;
+  z-index: 100;
+  list-style: none;
+  padding: 0;
+  animation: fadeIn 0.2s;
+}
+.dropdown-list li {
+  cursor: pointer;
+  padding-left: 5px;
+}
+.dropdown-list li:hover,
+.dropdown-list li.selected {
+  background: #f0f4ff;
+}
+/* Optional: Animate dropdown open */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-8px);}
+  to   { opacity: 1; transform: none; }
+}
+`;
