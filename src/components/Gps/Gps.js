@@ -122,6 +122,18 @@ export default class Gps extends FieldComponent {
     component += `</div>`;
     return super.render(component);
   }
+ getMaxVisibleDigits(input) {
+    if (!input) return 0;
+    const style = window.getComputedStyle(input);
+    const fontSize = parseFloat(style.fontSize);
+    const padding =
+      parseFloat(style.paddingLeft || 0) +
+      parseFloat(style.paddingRight || 0);
+    const width = input.clientWidth - padding;
+    const avgDigitWidth = fontSize * 0.6; // average for '0'..'9' in most sans-serif fonts
+    return Math.floor(width / avgDigitWidth);
+  }
+  
   // In your class extending FieldComponent:
   validate(required, value) {
     const [latitude, longitude] = (value || "").split(",");
@@ -179,6 +191,7 @@ export default class Gps extends FieldComponent {
 
     if (!latitudeField || !longitudeField) return attached;
 
+    // Initialize values
     const value = this.getValue();
     if (value) {
       const [lat, lon] = value.split(",");
@@ -186,20 +199,32 @@ export default class Gps extends FieldComponent {
       longitudeField.value = lon || "";
     }
 
+
     if (!this.component.disabled) {
+
       const handleChange = () => {
+        const maxDigits = this.getMaxVisibleDigits(latitudeField);  // both have the same size
+
+        const truncateDigits = val => val ? val.toString().slice(0, maxDigits) : "";
+
         const lat = latitudeField.value;
         const lon = longitudeField.value;
+
         const errors = this.validate(true, `${lat},${lon}`);
+
         this.errorMessage = errors.length ? errors[0].message : "";
         this.setCustomValidity(errors.length ? errors[0].key : "", this.errorMessage);
-        this.updateValue(`${lat},${lon}`, { modified: true });
 
+        this.updateValue(`${lat},${lon}`, { modified: true });
+        // Reacquire refs AFTER updateValue if needed
         this.loadRefs(this.element, {
           latitude: "single",
           longitude: "single"
         });
         this.updateState();
+        this.refs.latitude.value = truncateDigits(lat);
+        this.refs.longitude.value = truncateDigits(lon);
+
       };
 
       // Attach a single handler to both fields
@@ -228,13 +253,17 @@ export default class Gps extends FieldComponent {
           this.setError(null);
           this.updateState();
         }
+        const maxDigits = this.getMaxVisibleDigits(this.refs.latitude);  // both have the same size
+        const truncateDigits = val => val ? val.toString().slice(0, maxDigits) : "";
+
+
+        this.updateValue(`${latitude},${longitude}`);
         if (this.refs.latitude) {
-          this.refs.latitude.value = latitude;
+          this.refs.latitude.value = truncateDigits(latitude);
         }
         if (this.refs.longitude) {
-          this.refs.longitude.value = longitude;
+          this.refs.longitude.value = truncateDigits(longitude);
         }
-        this.updateValue(`${latitude},${longitude}`);
         this.fetchedInitially = true;
         if (this.refs.latitude) {
           this.refs.latitude.style.pointerEvents = 'none';

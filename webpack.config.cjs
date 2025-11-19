@@ -1,5 +1,7 @@
 const path = require("path");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
+const webpack = require("webpack");
+require("dotenv").config();
 
 module.exports = {
   mode: "development",
@@ -10,6 +12,11 @@ module.exports = {
     new HtmlWebpackPlugin({
       title: "output management",
       template: "./template.html",
+    }),
+    new webpack.DefinePlugin({
+      "process.env.NEXT_PUBLIC_SCANDIT_KEY": JSON.stringify(
+        process.env.NEXT_PUBLIC_SCANDIT_KEY || ""
+      ),
     }),
   ],
   devtool: "inline-source-map",
