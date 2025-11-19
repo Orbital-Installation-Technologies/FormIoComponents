@@ -33,7 +33,7 @@ export default class BarcodeScanner extends FieldComponent {
         iconSize: '2rem',
         color: 'blue',
         numberOfIcons: 1,
-        allowMultipleBarcodes: true, // Allow multiple barcodes to be scanned
+        allowMultipleBarcodes: false, // Allow multiple barcodes to be scanned
         backupBarcodeField: "", // Optional: field to store ALL detected barcodes as backup
         imageUploadField: "", // Optional: field name of file upload component to send barcode image
       },
