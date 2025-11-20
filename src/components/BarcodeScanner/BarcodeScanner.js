@@ -16,7 +16,6 @@ import {
   configure
 } from "@scandit/web-datacapture-core";
 
-const TextField = Components.components.textfield;
 const FieldComponent = Components.components.field;
 
 let scanditConfigured = false;
@@ -50,6 +49,10 @@ export default class BarcodeScanner extends FieldComponent {
       weight: 0,
       schema: BarcodeScanner.schema(),
     };
+  }
+
+  static editForm(...extend) {
+    return BarcodeScannerEditForm(...extend);
   }
 
   constructor(component, options, data) {
@@ -155,8 +158,8 @@ export default class BarcodeScanner extends FieldComponent {
     }
 
     return super.render(`
-      <div style="display:flex; flex-direction:column; gap:8px; max-height:none;">
-        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:nowrap;">
+      <div style="display:block; position:relative; gap:8px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:nowrap; margin-bottom:8px;">
           <input
             ref="barcode"
             type="text"
@@ -165,50 +168,14 @@ export default class BarcodeScanner extends FieldComponent {
             placeholder="Scan or enter barcode"
             style="flex-grow:1; margin-right:10px; min-width:0;"
           />
-          <button ref="scanButton" type="button" class="btn btn-primary" style="margin-right:5px; flex-shrink:0;" title="Open camera to scan">
-            ${cameraSVG}
+          <button ref="scanButton" type="button" class="btn btn-primary" style="margin-right:5px; flex-shrink:0; padding:6px 12px; display:flex; align-items:center; justify-content:center; min-width:40px;" title="Open camera to scan">
+            <span style="display:flex; align-items:center; justify-content:center; width:20px; height:20px;">
+              ${cameraSVG}
+            </span>
           </button>
         </div>
 
-        <!-- Barcode Preview Container (Only visible if imageUploadField is configured) -->
-        <div ref="barcodePreviewContainer" style="display:none; ${this.component.imageUploadField ? '' : 'display: none !important;'}">
-          <div style="
-            border: 1px solid #dee2e6;
-            border-radius: 8px;
-            padding: 12px;
-            background: #f8f9fa;
-          ">
-            <div style="
-              margin-bottom: 8px;
-              font-size: 13px;
-              font-weight: 500;
-              color: #495057;
-              text-transform: uppercase;
-              letter-spacing: 0.5px;
-            ">Scanned Barcodes</div>
-
-            <div ref="barcodePreviewList" style="
-              display: flex;
-              flex-direction: column;
-              gap: 8px;
-            "></div>
-
-            <button ref="clearAllButton" type="button" style="
-              margin-top: 12px;
-              background: #dc3545;
-              color: white;
-              border: none;
-              border-radius: 4px;
-              padding: 6px 12px;
-              font-size: 13px;
-              cursor: pointer;
-              transition: background 0.2s ease;
-            " onmouseover="this.style.background='#c82333'" onmouseout="this.style.background='#dc3545'" title="Remove all scanned barcodes">
-              🗑️ Clear All
-            </button>
-          </div>
-        </div>
-        <div ref="quaggaModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:1000; flex-direction:column; align-items:center; justify-content:center; padding:20px; box-sizing:border-box;">
+        <div ref="quaggaModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:1000; flex-direction:column; align-items:center; justify-content:center; padding:20px; box-sizing:border-box; overflow:hidden;">
           <div ref="modalContainer" style="position:relative; background:black; border-radius:12px; overflow:hidden; display:flex; flex-direction:column; max-width:100%; max-height:100%; box-shadow:0 10px 40px rgba(0,0,0,0.5);">
             <button ref="closeModal" style="position:absolute; top:12px; right:12px; z-index:10000; background:rgba(255,255,255,0.95); border:none; border-radius:50%; width:40px; height:40px; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:bold; cursor:pointer; pointer-events:auto; box-shadow:0 2px 8px rgba(0,0,0,0.3); transition:background 0.2s ease;" title="Close">×</button>
 
@@ -260,7 +227,7 @@ export default class BarcodeScanner extends FieldComponent {
               title="Toggle camera flash (for dark environments)"
               onmouseover="this.style.background='rgba(255, 255, 255, 0.3)'; this.style.boxShadow='0 4px 16px rgba(255, 255, 200, 0.4)'"
               onmouseout="this.style.background='rgba(255, 255, 255, 0.2)'; this.style.boxShadow='0 4px 12px rgba(0, 0, 0, 0.3)'">
-              🔦
+              ⚡
             </button>
 
             <!-- Freeze Button (Bottom-Right) - Shows when barcode detected -->
@@ -456,6 +423,7 @@ export default class BarcodeScanner extends FieldComponent {
           </div>
         </div>
       </div>
+      </div>
     `);
   }
 
@@ -512,10 +480,6 @@ export default class BarcodeScanner extends FieldComponent {
       multiRescanButton: "single",
       // Common refs
       scannerInstructions: "single",
-      // Preview refs
-      barcodePreviewContainer: "single",
-      barcodePreviewList: "single",
-      clearAllButton: "single",
       // Flashlight and Freeze refs
       flashlightButton: "single",
       freezeButton: "single",
@@ -544,7 +508,6 @@ export default class BarcodeScanner extends FieldComponent {
       this.addEventListener(input, 'input', (event) => {
         this.updateValue(event.target.value);
         this.validateAndSetDirty();
-        this._updateBarcodePreview();
       });
 
       this.addEventListener(input, 'blur', () => {
@@ -553,7 +516,6 @@ export default class BarcodeScanner extends FieldComponent {
 
       this.refs.barcode.addEventListener("change", () => {
         this.updateValue(this.refs.barcode.value);
-        this._updateBarcodePreview();
       });
 
       this.refs.scanButton.addEventListener("click", () => {
@@ -1836,20 +1798,12 @@ export default class BarcodeScanner extends FieldComponent {
         document.head.appendChild(style);
       }
 
+      // Set display to none to completely remove modal from the document flow
+      // This prevents any blocking or interference with form components
       this.refs.quaggaModal.style.display = "none";
       this.refs.quaggaModal.style.visibility = "hidden";
       this.refs.quaggaModal.style.pointerEvents = "none";
       this.refs.quaggaModal.style.opacity = "0";
-      this.refs.quaggaModal.style.position = "fixed";
-      this.refs.quaggaModal.style.width = "0";
-      this.refs.quaggaModal.style.height = "0";
-      this.refs.quaggaModal.style.overflow = "hidden";
-      // Remove from document flow completely to prevent blocking interactions
-      this.refs.quaggaModal.style.zIndex = "-1";
-      // Ensure it doesn't take space in parent layout
-      this.refs.quaggaModal.style.margin = "0";
-      this.refs.quaggaModal.style.border = "none";
-      this.refs.quaggaModal.style.padding = "0";
     } catch (error) {
       console.warn("Error closing modal (handled):", error);
       try {
@@ -1870,15 +1824,11 @@ export default class BarcodeScanner extends FieldComponent {
 
     try {
       this.refs.quaggaModal.classList.remove('barcode-modal-hidden', 'barcode-modal-closing');
+      // Reset display to flex to show the modal
+      this.refs.quaggaModal.style.display = "flex";
       this.refs.quaggaModal.style.visibility = "visible";
       this.refs.quaggaModal.style.pointerEvents = "auto";
       this.refs.quaggaModal.style.opacity = "1";
-      this.refs.quaggaModal.style.display = "flex";
-      this.refs.quaggaModal.style.width = "100%";
-      this.refs.quaggaModal.style.height = "100%";
-      this.refs.quaggaModal.style.overflow = "visible";
-      // Restore z-index to bring modal back in front when opening
-      this.refs.quaggaModal.style.zIndex = "1000";
     } catch (error) {
       console.warn("Error opening modal:", error);
       if (this.refs.quaggaModal) {
