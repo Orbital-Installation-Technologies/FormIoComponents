@@ -8,13 +8,16 @@ export default [
       {
         type: "textarea",
         key: "scanditLicenseKey",
-        label: "Scandit License Key",
-        placeholder: "Paste your Scandit Web Datacapture license key here",
-        tooltip: "Your Scandit license key for barcode scanning. Can be obtained from your Scandit account.",
+        label: "Scandit License Key (Optional)",
+        placeholder: "Paste your Scandit Web Datacapture license key here (or use environment variable)",
+        tooltip: "Your Scandit license key for barcode scanning. Optional - if not provided, will use NEXT_PUBLIC_SCANDIT_KEY environment variable. Can be obtained from your Scandit account.",
         input: true,
         rows: 4,
         editor: "ace",
-        as: "text"
+        as: "text",
+        validate: {
+          required: false
+        }
       },
       {
         type: "select",
