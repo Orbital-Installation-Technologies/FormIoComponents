@@ -10,7 +10,7 @@ export default [
         key: "scanditLicenseKey",
         label: "Scandit License Key (Optional)",
         placeholder: "Paste your Scandit Web Datacapture license key here (or use environment variable)",
-        tooltip: "Your Scandit license key for barcode scanning. Optional - if not provided, will use NEXT_PUBLIC_SCANDIT_KEY environment variable. Can be obtained from your Scandit account.",
+        tooltip: "Your Scandit license key for barcode scanning. Can be obtained from your Scandit account.",
         input: true,
         rows: 4,
         editor: "ace",
