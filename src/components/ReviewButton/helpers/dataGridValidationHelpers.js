@@ -19,7 +19,6 @@ export function setupChangeListeners(panel, reviewButtonInstance) {
 
     var compKey = comp.component.key;
 
-    // Skip if this specific component already has a listener
     if (comp._hasValidationListener) return;
     comp._hasValidationListener = true;
 
@@ -33,7 +32,6 @@ export function setupChangeListeners(panel, reviewButtonInstance) {
       setTimeout(function() {
         if (!comp || !panel._errorMap) return;
 
-        // Get value from multiple sources
         var checkValue = value;
         if (!checkValue || checkValue === '') {
           checkValue = comp.dataValue || comp.getValue?.() || (comp.data ? comp.data[compKey] : null);
@@ -42,24 +40,19 @@ export function setupChangeListeners(panel, reviewButtonInstance) {
         var isValid = isFieldNowValid(comp, checkValue);
 
         if (isValid && panel._errorMap[compKey]) {
-          // Field is now valid, remove from error map
           delete panel._errorMap[compKey];
           clearFieldErrors(comp);
 
-          // Check if there are any remaining errors
           var remainingErrors = Object.keys(panel._errorMap || {}).length;
 
-          // If no more errors in this panel, remove panel highlighting
           if (remainingErrors === 0) {
             panel._hasErrors = false;
             panel._customErrors = [];
             panel._errorMap = {};
 
-            // Clear all component errors
             panel.everyComponent?.(function(c) {
               if (c) {
                 c.error = '';
-                // Use setCustomValidity to safely clear errors
                 if (c.setCustomValidity) {
                   c.setCustomValidity([], false);
                 }
@@ -74,10 +67,8 @@ export function setupChangeListeners(panel, reviewButtonInstance) {
       }, 50);
     };
 
-    // Add change listener (works for all field types)
     comp.on('change', checkAndClearError);
 
-    // FILE FIELDS: Add upload completion listener
     if (compType === 'file') {
       comp.on('fileUploadingEnd', function() {
         setTimeout(function() {
@@ -86,11 +77,9 @@ export function setupChangeListeners(panel, reviewButtonInstance) {
       });
     }
 
-    // TEXT FIELDS (including barcode): Add input listener for immediate feedback
     if (compType === 'textfield' || compType === 'textarea' || compType === 'number' || compType === 'email' || compType === 'phoneNumber' || compType === 'barcode') {
       comp.on('input', checkAndClearError);
 
-      // Setup DOM listeners after a delay to ensure element is rendered
       setTimeout(function() {
         if (!comp.element) return;
 
@@ -107,13 +96,11 @@ export function setupChangeListeners(panel, reviewButtonInstance) {
       }, 300);
     }
 
-    // RADIO/CHECKBOX FIELDS: Add DOM-level listeners
     if (compType === 'radio' || compType === 'selectboxes') {
       comp.on('blur', function() {
         checkAndClearError(comp.dataValue || comp.getValue?.());
       });
 
-      // Setup DOM listeners for radio buttons and checkboxes
       setTimeout(function() {
         if (!comp.element) return;
 
@@ -122,13 +109,11 @@ export function setupChangeListeners(panel, reviewButtonInstance) {
           if (!radioInput._hasCustomListener) {
             radioInput._hasCustomListener = true;
             radioInput.addEventListener('change', function() {
-              // For radio buttons, trigger immediately
               setTimeout(function() {
                 checkAndClearError(comp.getValue?.() || comp.dataValue);
               }, 50);
             });
             radioInput.addEventListener('click', function() {
-              // Also on click for immediate feedback
               setTimeout(function() {
                 checkAndClearError(comp.getValue?.() || comp.dataValue);
               }, 100);
@@ -138,24 +123,20 @@ export function setupChangeListeners(panel, reviewButtonInstance) {
       }, 300);
     }
 
-    // SELECT/DROPDOWN FIELDS: Add multiple event listeners for reliability
     if (compType === 'select') {
       comp.on('blur', function() {
         checkAndClearError(comp.dataValue || comp.getValue?.() || (comp.data ? comp.data[compKey] : null));
       });
 
-      // Immediate check on componentChange event
       comp.on('componentChange', function() {
         setTimeout(function() {
           checkAndClearError(comp.dataValue || comp.getValue?.() || (comp.data ? comp.data[compKey] : null));
         }, 100);
       });
 
-      // Setup DOM listeners after a delay to ensure element is rendered
       setTimeout(function() {
         if (!comp.element) return;
 
-        // For native <select> elements
         var selectElement = comp.element.querySelector('select');
         if (selectElement && !selectElement._hasCustomListener) {
           selectElement._hasCustomListener = true;
@@ -167,19 +148,16 @@ export function setupChangeListeners(panel, reviewButtonInstance) {
           });
         }
 
-        // For Choices.js dropdowns
         var choicesElement = comp.element.querySelector('.choices__inner');
         if (choicesElement && !choicesElement._hasCustomListener) {
           choicesElement._hasCustomListener = true;
 
-          // Listen for clicks on the choices dropdown
           choicesElement.addEventListener('click', function() {
             setTimeout(function() {
               checkAndClearError(comp.dataValue || comp.getValue?.());
             }, 200);
           });
 
-          // Listen for the Choices.js change event on the parent
           var choicesWrapper = comp.element.querySelector('.choices');
           if (choicesWrapper) {
             choicesWrapper.addEventListener('change', function() {
@@ -201,18 +179,15 @@ export function setupChangeListeners(panel, reviewButtonInstance) {
  * @param {Object} reviewButtonInstance - Reference to the ReviewButton instance
  */
 export function setupPanelHooks(panel, rowIndex, reviewButtonInstance) {
-  if (panel._errorHooksAdded) return; // Avoid duplicate hooks
+  if (panel._errorHooksAdded) return;
   panel._errorHooksAdded = true;
 
-  // Setup change listeners for dynamic error clearing
   setupChangeListeners(panel, reviewButtonInstance);
 
-  // Hook into panel attach method
   var originalPanelAttach = panel.attach;
   panel.attach = function(element) {
     var result = originalPanelAttach.call(this, element);
 
-    // Reapply errors after attach if panel has errors
     if (this._hasErrors) {
       setTimeout(function() {
         applyFieldErrors(panel);
@@ -225,12 +200,10 @@ export function setupPanelHooks(panel, rowIndex, reviewButtonInstance) {
     return result;
   };
 
-  // Hook into panel redraw method
   var originalPanelRedraw = panel.redraw;
   panel.redraw = function() {
     var res = originalPanelRedraw ? originalPanelRedraw.apply(this, arguments) : null;
 
-    // Reapply errors after redraw if panel has errors
     if (this._hasErrors) {
       setTimeout(function() {
         applyFieldErrors(panel);
@@ -260,8 +233,6 @@ export function highlightDataGridRows(dataGrid, results, reviewButtonInstance) {
     var rowErrors = [];
     var rowFileTweaks = [];
 
-    // Temporarily disable required validation on file fields with files
-    const self = reviewButtonInstance;
     panelComponent.everyComponent?.(function(component) {
       if (!component || !component.visible) return;
 
@@ -271,7 +242,6 @@ export function highlightDataGridRows(dataGrid, results, reviewButtonInstance) {
       const isRequired = !!(component.component?.validate?.required || component.validate?.required);
       if (!isRequired) return;
 
-      // Check if file field has files
       const dataValue = component.dataValue;
       const getVal = component.getValue && component.getValue();
       const files = component.files;
@@ -279,13 +249,11 @@ export function highlightDataGridRows(dataGrid, results, reviewButtonInstance) {
 
       let hasValue = false;
 
-      // Check all possible sources
       if (hasActualFileData(dataValue)) hasValue = true;
       if (!hasValue && hasActualFileData(getVal)) hasValue = true;
       if (!hasValue && hasActualFileData(files)) hasValue = true;
       if (!hasValue && hasActualFileData(serviceFiles)) hasValue = true;
 
-      // Check DOM inputs as last resort
       if (!hasValue && component.element) {
         var fileInputs = component.element.querySelectorAll('input[type="file"]');
         fileInputs.forEach?.(function(inp) {
@@ -304,17 +272,14 @@ export function highlightDataGridRows(dataGrid, results, reviewButtonInstance) {
       }
     });
 
-    // Clear existing errors before validation
     panelComponent.everyComponent?.(function(c) {
       if (!c.visible) return;
       c.error = '';
-      // Use setCustomValidity to safely clear errors instead of directly setting errors property
       if (c.setCustomValidity) {
         c.setCustomValidity([], false);
       }
     });
 
-    // Run validation on all visible components
     panelComponent.everyComponent?.(function(c) {
       if (!c.visible) return;
       c.checkValidity?.(c.data, false, c.data);
@@ -330,18 +295,14 @@ export function highlightDataGridRows(dataGrid, results, reviewButtonInstance) {
       }
     });
 
-    // Restore file field requirements
     rowFileTweaks.forEach(function(t) {
       if (t.ptr) t.ptr.required = true;
     });
 
-    // Update panel state based on validation results
     if (rowErrors.length > 0) {
-      // Store errors in custom property instead of read-only errors property
       panelComponent._customErrors = rowErrors.map(function(e) { return e.error; });
       panelComponent._hasErrors = true;
 
-      // Create error map for quick lookup
       panelComponent._errorMap = {};
       rowErrors.forEach(function(err) {
         if (err.error && err.error.component && err.error.component.key) {
@@ -350,38 +311,31 @@ export function highlightDataGridRows(dataGrid, results, reviewButtonInstance) {
       });
 
     } else {
-      // IMPORTANT: Explicitly clear all error states for valid rows
       panelComponent._customErrors = [];
       panelComponent._hasErrors = false;
       panelComponent._errorMap = {};
 
-      // Clear all component errors
       panelComponent.everyComponent?.(function(c) {
         if (c) {
           c.error = '';
-          // Use setCustomValidity to safely clear errors
           if (c.setCustomValidity) {
             c.setCustomValidity([], false);
           }
         }
       });
 
-      // Ensure highlighting is removed when no errors
       if (panelComponent.element) {
         removeErrorHighlight(panelComponent.element);
       }
     }
 
-    // Setup hooks for this panel (for maintaining errors during redraws)
     setupPanelHooks(panelComponent, rowIndex, reviewButtonInstance);
   });
 
-  // Apply highlighting after validation
   dataGrid.rows.forEach((row, rowIndex) => {
     const panelComponent = row.panel;
     if (!panelComponent) return;
 
-    // Only highlight if there are actual errors in the error map
     if (panelComponent._hasErrors && panelComponent._errorMap && Object.keys(panelComponent._errorMap).length > 0) {
       setTimeout(() => {
         if (panelComponent.element) {
@@ -389,7 +343,6 @@ export function highlightDataGridRows(dataGrid, results, reviewButtonInstance) {
         }
       }, 50);
     } else {
-      // Make absolutely sure no error highlighting remains on valid rows
       panelComponent._hasErrors = false;
       panelComponent._errorMap = {};
       if (panelComponent.element) {
