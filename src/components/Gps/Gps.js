@@ -39,17 +39,17 @@ export default class Gps extends FieldComponent {
     const latMissing = lat === null || lat === undefined || Number.isNaN(lat);
     const lonMissing = lon === null || lon === undefined || Number.isNaN(lon);
     if (latMissing && lonMissing) {
-       if (required) {
-         errors.push({ key: 'gps_missing', message: 'GPS Coordinates is required', type: 'custom' });
-       }
-       return errors;
+      if (required) {
+        errors.push({ key: 'gps_missing', message: 'GPS Coordinates is required', type: 'custom' });
+      }
+      return errors;
     }
     if (requireBoth) {
       if (latMissing) {
-           errors.push({ key: 'lat_missing', message: 'Latitude is required', type: 'custom' });
-        }
+        errors.push({ key: 'lat_missing', message: 'Latitude is required', type: 'custom' });
+      }
       if (lonMissing) {
-          errors.push({ key: 'lon_missing', message: 'Longitude is required', type: 'custom' });
+        errors.push({ key: 'lon_missing', message: 'Longitude is required', type: 'custom' });
       }
     }
     if (!latMissing && (lat < -90 || lat > 90)) {
@@ -122,7 +122,7 @@ export default class Gps extends FieldComponent {
     component += `</div>`;
     return super.render(component);
   }
- getMaxVisibleDigits(input) {
+  getMaxVisibleDigits(input) {
     if (!input) return 0;
     const style = window.getComputedStyle(input);
     const fontSize = parseFloat(style.fontSize);
@@ -133,7 +133,7 @@ export default class Gps extends FieldComponent {
     const avgDigitWidth = fontSize * 0.6; // average for '0'..'9' in most sans-serif fonts
     return Math.floor(width / avgDigitWidth);
   }
-  
+
   // In your class extending FieldComponent:
   validate(required, value) {
     const [latitude, longitude] = (value || "").split(",");
@@ -186,8 +186,10 @@ export default class Gps extends FieldComponent {
       longitude: "single",
       gpsButton: "single",
     });
+
     const latitudeField = this.refs.latitude;
     const longitudeField = this.refs.longitude;
+
 
     if (!latitudeField || !longitudeField) return attached;
 
@@ -205,11 +207,14 @@ export default class Gps extends FieldComponent {
       const handleChange = () => {
         const maxDigits = this.getMaxVisibleDigits(latitudeField);  // both have the same size
 
+
         const truncateDigits = val => val ? val.toString().slice(0, maxDigits) : "";
 
-        const lat = latitudeField.value;
-        const lon = longitudeField.value;
+        var lat = latitudeField.value;
+        var lon = longitudeField.value;
 
+        lat = Number(lat).toFixed(6);
+        lon = Number(lon).toFixed(6);
         const errors = this.validate(true, `${lat},${lon}`);
 
         this.errorMessage = errors.length ? errors[0].message : "";
@@ -248,7 +253,7 @@ export default class Gps extends FieldComponent {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const { latitude, longitude } = position.coords;
+        var { latitude, longitude } = position.coords;
         if (this.errorMessage !== "") {
           this.setError(null);
           this.updateState();
@@ -256,7 +261,8 @@ export default class Gps extends FieldComponent {
         const maxDigits = this.getMaxVisibleDigits(this.refs.latitude);  // both have the same size
         const truncateDigits = val => val ? val.toString().slice(0, maxDigits) : "";
 
-
+        latitude = Number(latitude).toFixed(6);
+        longitude = Number(longitude).toFixed(6);
         this.updateValue(`${latitude},${longitude}`);
         if (this.refs.latitude) {
           this.refs.latitude.value = truncateDigits(latitude);
