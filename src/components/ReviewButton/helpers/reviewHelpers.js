@@ -14,7 +14,6 @@ export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, suppor
 
   modal.style.zIndex = "1000";
   modal.className = "fixed top-0 left-0 w-full h-screen inset-0 bg-black bg-opacity-50 flex items-center justify-center";
- // modal.style.display = "block"; // show the modal
   document.body.classList.add("no-scroll"); // block page scroll
   modal.innerHTML = `
     <div class="bg-white p-6 rounded shadow-md w-full max-w-2xl max-h-[90vh] overflow-y-auto">
