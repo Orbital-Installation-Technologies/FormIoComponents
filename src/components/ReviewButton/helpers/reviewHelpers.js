@@ -325,6 +325,7 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
       if (hideScreenshot && typeof hideScreenshot === 'function') {
         hideScreenshot();
       }
+      document.body.classList.remove("no-scroll"); 
       document.body.removeChild(modal);
     };
   }
