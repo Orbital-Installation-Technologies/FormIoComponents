@@ -134,29 +134,52 @@ export default class Gps extends FieldComponent {
     return Math.floor(width / avgDigitWidth);
   }
 
-  // In your class extending FieldComponent:
   validate(required, value) {
     const [latitude, longitude] = (value || "").split(",");
     const latNum = latitude ? parseFloat(latitude) : null;
     const lonNum = longitude ? parseFloat(longitude) : null;
+
     const errors = this.validateLatLon(
-      latNum, lonNum,
-      { latitudeRef: this.refs.latitude, longitudeRef: this.refs.longitude },
+      latNum,
+      lonNum,
+      { latitudeRef: this.refs?.latitude, longitudeRef: this.refs?.longitude },
       { requireBoth: true, required: !!required }
     );
 
     if (errors.length > 0) {
-      // Remove/add class after value update (and any potential rerender)
-      this.refs.latitude.classList.toggle("is-invalid", errors.some(e=>e.key.includes("lat") || e.key === "gps_missing"));
-      this.refs.longitude.classList.toggle("is-invalid", errors.some(e=>e.key.includes("lon") || e.key === "gps_missing"));
+      // Safely toggle invalid class
+      if (this.refs?.latitude) {
+        this.refs.latitude.classList.toggle(
+          "is-invalid",
+          errors.some(e => e.key.includes("lat") || e.key === "gps_missing")
+        );
+      }
+      if (this.refs?.longitude) {
+        this.refs.longitude.classList.toggle(
+          "is-invalid",
+          errors.some(e => e.key.includes("lon") || e.key === "gps_missing")
+        );
+      }
 
       this.errorMessage = errors[0].message;
       this.setCustomValidity(errors[0].key, errors[0].message);
-      return errors.map(e => ({ message: e.message, key: e.key, type: 'custom' }));
-    }else{
-      // Clear error
+
+      // Update Form.io internal error tracking for review
+      this._errors = errors.map(e => ({ message: e.message, key: e.key, type: 'custom' }));
+      this._visibleErrors = [...this._errors];
+
+      return this._errors;
+    } else {
+      // Clear error state completely
       this.errorMessage = '';
       this.setCustomValidity('', '');
+      this._errors = [];
+      this._visibleErrors = [];
+
+      // Remove invalid classes if refs exist
+      if (this.refs?.latitude) this.refs.latitude.classList.remove("is-invalid");
+      if (this.refs?.longitude) this.refs.longitude.classList.remove("is-invalid");
+
       return [];
     }
   }
@@ -177,6 +200,11 @@ export default class Gps extends FieldComponent {
   checkValidity(data, dirty, rowData) {
     const errors = this.validate(this.component.validate?.required, this.getValue());
     return errors.length === 0;
+  }
+  trimTo6DecimalsNumber(value) {
+    const n = value ? Number(value) : null;
+    if (!Number.isFinite(n)) return value;
+    return Number(n.toString().replace(/(\.\d{6})\d+$/, '$1'));
   }
 
   attach(element) {
@@ -210,25 +238,25 @@ export default class Gps extends FieldComponent {
 
         const truncateDigits = val => val ? val.toString().slice(0, maxDigits) : "";
 
-        var lat = latitudeField.value;
-        var lon = longitudeField.value;
+        var latitude = latitudeField.value;
+        var longitude = longitudeField.value;
 
-        lat = Number(lat).toFixed(6);
-        lon = Number(lon).toFixed(6);
-        const errors = this.validate(true, `${lat},${lon}`);
+        latitude = this.trimTo6DecimalsNumber(latitude);
+        longitude = this.trimTo6DecimalsNumber(longitude);
+        const errors = this.validate(true, `${latitude},${longitude}`);
 
         this.errorMessage = errors.length ? errors[0].message : "";
         this.setCustomValidity(errors.length ? errors[0].key : "", this.errorMessage);
 
-        this.updateValue(`${lat},${lon}`, { modified: true });
+        this.updateValue(`${latitude},${longitude}`, { modified: true });
         // Reacquire refs AFTER updateValue if needed
         this.loadRefs(this.element, {
           latitude: "single",
           longitude: "single"
         });
         this.updateState();
-        this.refs.latitude.value = truncateDigits(lat);
-        this.refs.longitude.value = truncateDigits(lon);
+        this.refs.latitude.value = truncateDigits(latitude);
+        this.refs.longitude.value = truncateDigits(longitude);
 
       };
 
@@ -261,8 +289,8 @@ export default class Gps extends FieldComponent {
         const maxDigits = this.getMaxVisibleDigits(this.refs.latitude);  // both have the same size
         const truncateDigits = val => val ? val.toString().slice(0, maxDigits) : "";
 
-        latitude = Number(latitude).toFixed(6);
-        longitude = Number(longitude).toFixed(6);
+        latitude = this.trimTo6DecimalsNumber(latitude);
+        longitude = this.trimTo6DecimalsNumber(longitude);
         this.updateValue(`${latitude},${longitude}`);
         if (this.refs.latitude) {
           this.refs.latitude.value = truncateDigits(latitude);
