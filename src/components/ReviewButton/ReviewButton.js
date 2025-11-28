@@ -386,7 +386,7 @@ export default class ReviewButton extends FieldComponent {
 
       if (opts.scrollToError && !results.isValid) {
         this.scrollToFirstErrorAdvanced();
-      }else{
+      }else if (!opts.scrollToError && !results.isValid){
         scrollToEndOfPage();
       }
     }
