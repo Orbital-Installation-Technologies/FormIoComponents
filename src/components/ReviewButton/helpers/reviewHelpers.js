@@ -7,14 +7,14 @@ export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, suppor
   if (typeof document !== "undefined" && !document.getElementById("customDropdownStyle")) {
     const styleTag = document.createElement("style");
     styleTag.id = "customDropdownStyle";
-    styleTag.textContent = dropdownCSS;
+    styleTag.textContent = customCSS;
     document.head.appendChild(styleTag);
   }
   const modal = document.createElement("div");
 
   modal.style.zIndex = "1000";
   modal.className = "fixed top-0 left-0 w-full h-screen inset-0 bg-black bg-opacity-50 flex items-center justify-center";
-
+  document.body.classList.add("no-scroll"); // block page scroll
   modal.innerHTML = `
     <div class="bg-white p-6 rounded shadow-md w-full max-w-2xl max-h-[90vh] overflow-y-auto">
       <h2 class="text-xl font-semibold mb-4">Review Form Data</h2>
@@ -247,7 +247,7 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
       // const value = verifiedSelect.value;
       const value = verifiedSelect.getAttribute('data-value');
       const needShot = value === "App" || value === "Support";
-      
+
       if (screenshotWrapper) {
         screenshotWrapper.style.display = needShot ? "block" : "none";
       }
@@ -257,7 +257,7 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
       if (notesRequiredWrapper) {
         notesRequiredWrapper.style.display = value === "Not Verified" ? "block" : "none";
       }
-      
+
       if (needShot && hideScreenshot && typeof hideScreenshot.show === 'function') {
         hideScreenshot.show();
       } else if (!needShot && hideScreenshot && typeof hideScreenshot.hide === 'function') {
@@ -273,7 +273,7 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
           });
         }
       }
-      
+
       validateModalForm(modal, screenshotComp, formData, requireSupportFields);
     };
   }
@@ -282,6 +282,7 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
     if (hideScreenshot && typeof hideScreenshot === 'function') {
       hideScreenshot();
     }
+    document.body.classList.remove("no-scroll"); // restore page scroll
     document.body.removeChild(modal);
   };
 
@@ -324,6 +325,7 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
       if (hideScreenshot && typeof hideScreenshot === 'function') {
         hideScreenshot();
       }
+      document.body.classList.remove("no-scroll"); 
       document.body.removeChild(modal);
     };
   }
@@ -364,12 +366,20 @@ export function collectFormDataForReview(root) {
     supportNumber
   };
 }
-
+export function scrollToEndOfPage() {
+    // Scroll exactly to the bottom
+    window.scrollTo({
+      top: document.body.scrollHeight,
+      behavior: 'smooth'  // change to 'smooth' if you want animation
+    });
+}
 /**
  * Updates datagrid and form values before review
  */
 export function updateFormValuesBeforeReview(root) {
   const allDatagrids = [];
+
+
   root.everyComponent(comp => {
     const componentType = comp.component?.type || comp.type;
 
@@ -418,11 +428,15 @@ export function updateFormValuesBeforeReview(root) {
       } catch (e) { }
     }
   });
+
 }
 
 
 // Add this at the top of your JS file (for example: reviewHelpers.js)
-const dropdownCSS = `
+const customCSS = `
+.no-scroll {
+  overflow: hidden;
+}
 .custom-dropdown {
   width: 220px;
   position: relative;
