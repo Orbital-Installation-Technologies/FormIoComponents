@@ -176,7 +176,7 @@ export default class BarcodeScanner extends FieldComponent {
         </div>
 
         <div ref="quaggaModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:1000; flex-direction:column; align-items:center; justify-content:center; padding:20px; box-sizing:border-box; overflow:hidden;">
-          <div ref="modalContainer" style="position:relative; background:black; border-radius:12px; overflow:hidden; display:flex; flex-direction:column; max-width:100%; max-height:100%; box-shadow:0 10px 40px rgba(0,0,0,0.5);">
+          <div ref="modalContainer" style="position:relative; background:black; border-radius:12px; overflow:visible; display:flex; flex-direction:column; max-width:100%; max-height:100%; box-shadow:0 10px 40px rgba(0,0,0,0.5);">
             <button ref="closeModal" style="position:absolute; top:12px; right:12px; z-index:10000; background:rgba(255,255,255,0.95); border:none; border-radius:50%; width:40px; height:40px; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:bold; cursor:pointer; pointer-events:auto; box-shadow:0 2px 8px rgba(0,0,0,0.3); transition:background 0.2s ease;" title="Close">×</button>
 
             <!-- Instructions Overlay -->
@@ -200,6 +200,8 @@ export default class BarcodeScanner extends FieldComponent {
                 <div style="font-size:32px; margin-bottom:8px;">📱</div>
                 <div style="font-size:12px;">Loading camera...</div>
               </div>
+            </div>
+
             <!-- Flashlight Button (Bottom-Left) -->
             <button
               ref="flashlightButton"
@@ -230,7 +232,7 @@ export default class BarcodeScanner extends FieldComponent {
               ⚡
             </button>
 
-            <!-- Freeze Button (Bottom-Right) - Shows when barcode detected -->
+            <!-- Freeze Button (Bottom-Right) - Always visible during scan -->
             <button
               ref="freezeButton"
               type="button"
@@ -245,7 +247,7 @@ export default class BarcodeScanner extends FieldComponent {
                 border-radius: 8px;
                 width: 50px;
                 height: 50px;
-                display: none;
+                display: flex;
                 align-items: center;
                 justify-content: center;
                 font-size: 24px;
@@ -254,12 +256,11 @@ export default class BarcodeScanner extends FieldComponent {
                 box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
                 font-family: Arial, sans-serif;
               "
-              title="Freeze camera (or wait for auto-freeze)"
+              title="Pause camera to check barcode"
               onmouseover="this.style.background='rgba(255, 255, 255, 0.3)'; this.style.boxShadow='0 4px 16px rgba(100, 200, 255, 0.4)'"
               onmouseout="this.style.background='rgba(255, 255, 255, 0.2)'; this.style.boxShadow='0 4px 12px rgba(0, 0, 0, 0.3)'">
               ⏸
             </button>
-          </div>
 
           <!-- Confirmation Dialog -->
           <div ref="confirmationDialog" style="
@@ -1804,6 +1805,16 @@ export default class BarcodeScanner extends FieldComponent {
       this.refs.quaggaModal.style.visibility = "hidden";
       this.refs.quaggaModal.style.pointerEvents = "none";
       this.refs.quaggaModal.style.opacity = "0";
+
+      // Hide flashlight button
+      if (this.refs.flashlightButton) {
+        this.refs.flashlightButton.style.display = "none";
+      }
+
+      // Hide freeze button
+      if (this.refs.freezeButton) {
+        this.refs.freezeButton.style.display = "none";
+      }
     } catch (error) {
       console.warn("Error closing modal (handled):", error);
       try {
@@ -1829,6 +1840,11 @@ export default class BarcodeScanner extends FieldComponent {
       this.refs.quaggaModal.style.visibility = "visible";
       this.refs.quaggaModal.style.pointerEvents = "auto";
       this.refs.quaggaModal.style.opacity = "1";
+
+      // Show flashlight button
+      if (this.refs.flashlightButton) {
+        this.refs.flashlightButton.style.display = "flex";
+      }
     } catch (error) {
       console.warn("Error opening modal:", error);
       if (this.refs.quaggaModal) {
@@ -2271,36 +2287,51 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   _manualFreeze() {
-
-    // Prevent double-freezing
+    // Toggle between frozen and running states
     if (this._isVideoFrozen) {
-      return;
-    }
+      // Resume scanning
+      this._isVideoFrozen = false;
+      if (this._camera) {
+        this._camera.switchToDesiredState(FrameSourceState.On);
+      }
 
-    // Clear the auto-freeze timeout since user manually froze
-    if (this._autoFreezeTimeout) {
-      clearTimeout(this._autoFreezeTimeout);
-      this._autoFreezeTimeout = null;
-    }
+      // Reset freeze button appearance
+      if (this.refs.freezeButton) {
+        this.refs.freezeButton.innerHTML = '⏸';
+        this.refs.freezeButton.style.background = 'rgba(255, 255, 255, 0.2)';
+        this.refs.freezeButton.title = 'Pause camera to check barcode';
+      }
 
-    // Freeze the camera
-    this._isVideoFrozen = true;
-    if (this._camera) {
-      this._camera.switchToDesiredState(FrameSourceState.Off);
-    }
-
-    // Update freeze button appearance
-    if (this.refs.freezeButton) {
-      this.refs.freezeButton.innerHTML = '▶'; // Play icon to indicate resumed state is available
-      this.refs.freezeButton.style.background = 'rgba(100, 200, 255, 0.4)';
-      this.refs.freezeButton.title = 'Camera frozen - click to resume scanning';
-    }
-
-    // Get current detected barcodes and show confirmation dialog
-    if (this._trackedBarcodes && Object.values(this._trackedBarcodes).length > 0) {
-      const detectedBarcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
-      this._showConfirmationDialog(detectedBarcodes);
+      // Clear auto-freeze timeout if running
+      if (this._autoFreezeTimeout) {
+        clearTimeout(this._autoFreezeTimeout);
+        this._autoFreezeTimeout = null;
+      }
     } else {
+      // Pause the camera
+      this._isVideoFrozen = true;
+      if (this._camera) {
+        this._camera.switchToDesiredState(FrameSourceState.Off);
+      }
+
+      // Update freeze button appearance to show resume state
+      if (this.refs.freezeButton) {
+        this.refs.freezeButton.innerHTML = '▶';
+        this.refs.freezeButton.style.background = 'rgba(100, 200, 255, 0.4)';
+        this.refs.freezeButton.title = 'Click to resume scanning';
+      }
+
+      // Clear the auto-freeze timeout since user manually froze
+      if (this._autoFreezeTimeout) {
+        clearTimeout(this._autoFreezeTimeout);
+        this._autoFreezeTimeout = null;
+      }
+
+      // Get current detected barcodes and show confirmation dialog
+      if (this._trackedBarcodes && Object.values(this._trackedBarcodes).length > 0) {
+        const detectedBarcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
+        this._showConfirmationDialog(detectedBarcodes);
+      }
     }
   }
 
