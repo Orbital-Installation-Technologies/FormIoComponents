@@ -18,7 +18,8 @@ export default class CustomSelect extends SelectComponent {
 
   attach(element) {
     const result = super.attach(element);
-
+    // Store observer for cleanup
+    this.errorIconObserver?.disconnect();
     // Function to adjust the error icon
     const adjustErrorIcon = () => {
       // Look for the error icon inside the parent of the element
@@ -34,9 +35,13 @@ export default class CustomSelect extends SelectComponent {
     adjustErrorIcon();
 
     // Watch for changes in the DOM (Form.io may inject the icon later)
-    const observer = new MutationObserver(() => adjustErrorIcon());
-    observer.observe(element.parentNode, { childList: true, subtree: true });
+    this.errorIconObserver = new MutationObserver(() => adjustErrorIcon());
+    this.errorIconObserver.observe(element.parentNode, { childList: true, subtree: true });
 
     return result;
+  }
+   detach() {
+    this.errorIconObserver?.disconnect();
+    return super.detach();
   }
 }
