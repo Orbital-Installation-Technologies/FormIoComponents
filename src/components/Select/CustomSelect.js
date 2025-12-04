@@ -29,7 +29,7 @@ export default class CustomSelect extends SelectComponent {
 
       console.log("errorIcon ==", errorIcon)
       if (errorIcon) {
-        errorIcon.style.backgroundPosition = 'calc(100% - 1.5rem) calc(50% - 1px)';
+        errorIcon.style.backgroundPosition = 'calc(100% - 1.5rem) calc(50% - 0.5px)';
       }
     };
     adjustErrorIcon();
@@ -37,7 +37,7 @@ export default class CustomSelect extends SelectComponent {
       this.errorIconObserver = new MutationObserver(() => adjustErrorIcon());
       this.errorIconObserver.observe(element.parentNode, { childList: true, subtree: true });
     }
- 
+
     return result;
   }
   detach() {
