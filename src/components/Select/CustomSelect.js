@@ -33,14 +33,17 @@ export default class CustomSelect extends SelectComponent {
       }
     };
     adjustErrorIcon();
-
+    if (element.parentNode) {
+      this.errorIconObserver = new MutationObserver(() => adjustErrorIcon());
+      this.errorIconObserver.observe(element.parentNode, { childList: true, subtree: true });
+    }
     // Watch for changes in the DOM (Form.io may inject the icon later)
     this.errorIconObserver = new MutationObserver(() => adjustErrorIcon());
     this.errorIconObserver.observe(element.parentNode, { childList: true, subtree: true });
 
     return result;
   }
-   detach() {
+  detach() {
     this.errorIconObserver?.disconnect();
     return super.detach();
   }
