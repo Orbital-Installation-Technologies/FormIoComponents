@@ -129,18 +129,112 @@ export default class CustomFile extends FileComponent {
     return compressedBlob;
   }
 
-  updatePreview(blob) {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const rootEl = this.getElement();
-      if (!rootEl) return;
-      let imgEl = rootEl.querySelector("img");
-      if (!imgEl) {
-        imgEl = document.createElement("img");
-        rootEl.appendChild(imgEl);
-      }
-      imgEl.src = reader.result;
-    };
-    reader.readAsDataURL(blob);
+   loadImageCssOnce = () => {
+    if (document.getElementById("custom-file-css")) return; // already added
+
+    const style = document.createElement("style");
+    style.id = "custom-file-css";
+
+    style.innerHTML = `
+    /* Container for each uploaded file */
+    div.file, .file {
+      display: inline-block !important;
+      position: relative !important;
+      margin: 5px !important;
+    }
+  
+    /* Image preview */
+    div.file img, .file img {
+      width: 80px !important;
+      height: 80px !important;
+      object-fit: cover !important;
+      border-radius: 8px !important;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2) !important;
+    }
+  
+    /* Delete button */
+    div.file .file-delete, .file .file-delete {
+      position: absolute !important;
+      top: -10px !important;
+      right: -10px !important;
+      background-color: #ff4d4f !important;
+      color: white !important;
+      border-radius: 50% !important;
+      width: 20px !important;
+      height: 20px !important;
+      font-size: 14px !important;
+      font-weight: bold !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      cursor: pointer !important;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2) !important;
+      user-select: none !important;
+      z-index: 10 !important;
+    }
+  
+    div.file .file-delete:hover, .file .file-delete:hover {
+      background-color: #ff7875 !important;
+    }
+    `;
+    document.head.appendChild(style);
+  };
+
+  wrapDefaultImagesOnce = false;
+  wrapDefaultImages() {
+    if (this.wrapDefaultImagesOnce) return;  // already applied
+    this.wrapDefaultImagesOnce = true;
+    const rootEl = this.element;
+    if (!rootEl) return;
+
+    rootEl.querySelectorAll('[ref="fileImage"]').forEach(defaultImg => {
+      const parent = defaultImg.parentElement;
+      if (!parent) return;
+
+      // Hide the original Form.io delete button
+      const oldDeleteBtn = parent.querySelector('i[ref="removeLink"]');
+      if (oldDeleteBtn) oldDeleteBtn.style.display = "none";
+
+      // Avoid double wrapping
+      if (parent.classList.contains("file")) return;
+
+      // Build wrapper
+      const container = document.createElement("div");
+      container.className = "file";
+
+      parent.insertBefore(container, defaultImg);
+      container.appendChild(defaultImg);
+
+      // Custom delete button
+      const delBtn = document.createElement("span");
+      delBtn.className = "file-delete";
+      delBtn.innerText = "✕";
+      delBtn.removeLink = oldDeleteBtn;
+      container.appendChild(delBtn);
+
+      delBtn.onclick = () => {
+        if (delBtn.removeLink) delBtn.removeLink.click();
+        container.remove();
+      };
+    });
+  }
+
+  setValue(value, flags) {
+    const result = super.setValue(value, flags);
+    // Reset so wrapper runs again only ONE TIME
+    this.wrapDefaultImagesOnce = false;
+
+    // Run only after DOM settles (single cycle only)
+    requestAnimationFrame(() => this.wrapDefaultImages());
+
+    return result;
+  }
+
+  attach(element) {
+    const res = super.attach(element);
+    this.loadImageCssOnce();
+    this.wrapDefaultImagesOnce = false;
+    requestAnimationFrame(() => this.wrapDefaultImages());
+    return res;
   }
 }
