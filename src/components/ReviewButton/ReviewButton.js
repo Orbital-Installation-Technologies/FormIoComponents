@@ -1541,7 +1541,7 @@ export default class ReviewButton extends FieldComponent {
         const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, this.root, filteredInvalidFields, invalidComponents);
 
         const allData = this.root?.submission?.data ?? this.root?.data ?? {};
-        const supportNumber = allData?.data?.billingCustomer || "Unavailable";
+        const supportNumber = allData?.billingCustomer || "Unavailable";
 
         let requireSupportFields = this.component.requireSupportFields !== false;
         
