@@ -1583,6 +1583,7 @@ export default class ReviewButton extends FieldComponent {
         const list = dropdown ? dropdown.querySelector('.dropdown-list') : null;
 
         selected?.addEventListener('click', () => {
+          dropdown.classList.toggle("open");
           list.classList.toggle('open');
         });
 
