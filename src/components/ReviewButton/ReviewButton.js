@@ -29,7 +29,8 @@ import {
   collectFormDataForReview,
   updateFormValuesBeforeReview,
   collectReviewLeavesAndLabels,
-  renderLeaves
+  renderLeaves,
+  scrollToEndOfPage
 } from "./helpers/index.js";
 
 const FieldComponent = Components.components.field;
@@ -385,6 +386,8 @@ export default class ReviewButton extends FieldComponent {
 
       if (opts.scrollToError && !results.isValid) {
         this.scrollToFirstErrorAdvanced();
+      }else if (!opts.scrollToError && !results.isValid){
+        scrollToEndOfPage();
       }
     }
 

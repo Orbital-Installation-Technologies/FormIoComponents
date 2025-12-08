@@ -33,7 +33,8 @@ export {
   setupModalEventHandlers,
   updateFormWithModalData,
   collectFormDataForReview,
-  updateFormValuesBeforeReview
+  updateFormValuesBeforeReview,
+  scrollToEndOfPage
 } from './reviewHelpers.js';
 
 // Data processing helpers

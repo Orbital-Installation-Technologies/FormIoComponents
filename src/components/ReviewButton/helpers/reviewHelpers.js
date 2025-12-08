@@ -374,6 +374,17 @@ export function scrollToEndOfPage() {
     });
 }
 /**
+ * Scroll to the bottom of the page when Review and Submit button is clicked
+ */
+export function scrollToEndOfPage() {
+    // Scroll exactly to the bottom
+    window.scrollTo({
+      top: document.body.scrollHeight,
+      behavior: 'smooth'  // change to 'smooth' if you want animation
+    });
+}
+
+/**
  * Updates datagrid and form values before review
  */
 export function updateFormValuesBeforeReview(root) {
