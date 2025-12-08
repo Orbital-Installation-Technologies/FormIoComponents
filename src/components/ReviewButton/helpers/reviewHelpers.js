@@ -33,8 +33,11 @@ export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, suppor
         </div>
         <div class="custom-dropdown">
           <label class="dropdown-label">Verified</label>
-          <div id="verified" class="dropdown-selected w-full border rounded p-2 text-sm" tabindex="0" data-value="Empty">Select verification type </div>
-          <ul class="dropdown-list" >
+          <div id="verified" class="dropdown-selected w-full border rounded p-2 text-sm" tabindex="0" data-value="Empty">
+            <span class="selected-text">Select verification type</span>
+            <i class="dropdown icon"></i> 
+          </div>
+          <ul class="dropdown-list">
             <li data-value="Empty">Select verification type</li>
             <li data-value="App">App</li>
             <li data-value="Support">Support</li>
@@ -422,7 +425,10 @@ export function updateFormValuesBeforeReview(root) {
 
 
 // Add this at the top of your JS file (for example: reviewHelpers.js)
-const dropdownCSS = `
+const customCSS = `
+.no-scroll {
+  overflow: hidden;
+}
 .custom-dropdown {
   width: 220px;
   position: relative;
@@ -445,7 +451,6 @@ const dropdownCSS = `
   min-height: 38px;
 }
 .dropdown-selected:after {
-  content: "⮟";
   position: absolute;
   right: 12px;
   font-size: 16px;
@@ -477,4 +482,34 @@ const dropdownCSS = `
   from { opacity: 0; transform: translateY(-8px);}
   to   { opacity: 1; transform: none; }
 }
+.dropdown-selected i.dropdown.icon {
+ position: absolute;
+ right: 10px;
+ top: 50%;
+ transform: translateY(-50%) rotate(45deg); /* arrow pointing down */
+ border: solid #888;
+ border-width: 0 2px 2px 0;
+ padding: 4px;
+ display: inline-block;
+ pointer-events: none;
+ transition: transform 0.2s ease;
+}
+.dropdown-selected .dropdown.icon {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+/* Rotate arrow when open */
+.dropdown-selected.open i.dropdown.icon {
+ transform: translateY(-50%) rotate(-135deg);
+}
+
+/* When dropdown is open, rotate arrow */
+.custom-dropdown.open .dropdown.icon::before {
+  transform: rotate(180deg);
+}
+
 `;
