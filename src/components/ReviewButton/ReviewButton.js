@@ -1588,7 +1588,7 @@ export default class ReviewButton extends FieldComponent {
 
         list?.addEventListener('click', function(e) {
           if (e.target.tagName === 'LI') {
-            selected.textContent = e.target.textContent;
+            selected.querySelector(".selected-text").textContent = e.target.textContent;
             selected.setAttribute('data-value', e.target.textContent);
             list.classList.remove('open');
             // Trigger initial change event to set correct visibility state (after screenshot setup)
