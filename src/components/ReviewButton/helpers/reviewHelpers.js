@@ -7,7 +7,7 @@ export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, suppor
   if (typeof document !== "undefined" && !document.getElementById("customDropdownStyle")) {
     const styleTag = document.createElement("style");
     styleTag.id = "customDropdownStyle";
-    styleTag.textContent = dropdownCSS;
+    styleTag.textContent = customCSS;
     document.head.appendChild(styleTag);
   }
   const modal = document.createElement("div");
