@@ -489,7 +489,7 @@ const customCSS = `
  pointer-events: none;
  transition: transform 0.2s ease;
 }
-.custom-dropdown.open i.dropdown.icon {
+.dropdown-selected.open i.dropdown.icon {
   transform: translateY(-50%) rotate(225deg); /* pointing up */
 }
 
