@@ -450,12 +450,7 @@ const customCSS = `
   position: relative;
   min-height: 38px;
 }
-.dropdown-selected:after {
-  position: absolute;
-  right: 12px;
-  font-size: 16px;
-  color: #888;
-}
+
 .dropdown-list {
   position: absolute;
   left: 0;
@@ -494,22 +489,8 @@ const customCSS = `
  pointer-events: none;
  transition: transform 0.2s ease;
 }
-.dropdown-selected .dropdown.icon {
-  position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  pointer-events: none;
-}
-
-/* Rotate arrow when open */
-.dropdown-selected.open i.dropdown.icon {
- transform: translateY(-50%) rotate(-135deg);
-}
-
-/* When dropdown is open, rotate arrow */
-.custom-dropdown.open .dropdown.icon::before {
-  transform: rotate(180deg);
+.custom-dropdown.open i.dropdown.icon {
+  transform: translateY(-50%) rotate(225deg); /* pointing up */
 }
 
 `;
