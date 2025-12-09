@@ -29,7 +29,8 @@ import {
   collectFormDataForReview,
   updateFormValuesBeforeReview,
   collectReviewLeavesAndLabels,
-  renderLeaves
+  renderLeaves,
+  scrollToEndOfPage
 } from "./helpers/index.js";
 
 const FieldComponent = Components.components.field;
@@ -385,6 +386,8 @@ export default class ReviewButton extends FieldComponent {
 
       if (opts.scrollToError && !results.isValid) {
         this.scrollToFirstErrorAdvanced();
+      }else if (!opts.scrollToError && !results.isValid){
+        scrollToEndOfPage();
       }
     }
 
@@ -1541,7 +1544,7 @@ export default class ReviewButton extends FieldComponent {
         const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, this.root, filteredInvalidFields, invalidComponents);
 
         const allData = this.root?.submission?.data ?? this.root?.data ?? {};
-        const supportNumber = allData?.data?.billingCustomer || "Unavailable";
+        const supportNumber = allData?.billingCustomer || "Unavailable";
 
         let requireSupportFields = this.component.requireSupportFields !== false;
         
@@ -1583,14 +1586,16 @@ export default class ReviewButton extends FieldComponent {
         const list = dropdown ? dropdown.querySelector('.dropdown-list') : null;
 
         selected?.addEventListener('click', () => {
+          selected.classList.toggle("open");
           list.classList.toggle('open');
         });
 
         list?.addEventListener('click', function(e) {
           if (e.target.tagName === 'LI') {
-            selected.textContent = e.target.textContent;
+            selected.querySelector(".selected-text").textContent = e.target.textContent;
             selected.setAttribute('data-value', e.target.textContent);
             list.classList.remove('open');
+            selected.classList.remove('open');
             // Trigger initial change event to set correct visibility state (after screenshot setup)
             // Setup modal event handlers
             const verifiedSelect = modal.querySelector("#verified");

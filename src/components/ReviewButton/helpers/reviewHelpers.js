@@ -7,14 +7,14 @@ export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, suppor
   if (typeof document !== "undefined" && !document.getElementById("customDropdownStyle")) {
     const styleTag = document.createElement("style");
     styleTag.id = "customDropdownStyle";
-    styleTag.textContent = dropdownCSS;
+    styleTag.textContent = customCSS;
     document.head.appendChild(styleTag);
   }
   const modal = document.createElement("div");
 
   modal.style.zIndex = "1000";
   modal.className = "fixed top-0 left-0 w-full h-screen inset-0 bg-black bg-opacity-50 flex items-center justify-center";
-
+  document.body.classList.add("no-scroll"); // block page scroll
   modal.innerHTML = `
     <div class="bg-white p-6 rounded shadow-md w-full max-w-2xl max-h-[90vh] overflow-y-auto">
       <h2 class="text-xl font-semibold mb-4">Review Form Data</h2>
@@ -33,8 +33,11 @@ export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, suppor
         </div>
         <div class="custom-dropdown">
           <label class="dropdown-label">Verified</label>
-          <div id="verified" class="dropdown-selected w-full border rounded p-2 text-sm" tabindex="0" data-value="Empty">Select verification type </div>
-          <ul class="dropdown-list" >
+          <div id="verified" class="dropdown-selected w-full border rounded p-2 text-sm" tabindex="0" data-value="Empty">
+            <span class="selected-text">Select verification type</span>
+            <i class="dropdown icon"></i> 
+          </div>
+          <ul class="dropdown-list">
             <li data-value="Empty">Select verification type</li>
             <li data-value="App">App</li>
             <li data-value="Support">Support</li>
@@ -247,7 +250,7 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
       // const value = verifiedSelect.value;
       const value = verifiedSelect.getAttribute('data-value');
       const needShot = value === "App" || value === "Support";
-      
+
       if (screenshotWrapper) {
         screenshotWrapper.style.display = needShot ? "block" : "none";
       }
@@ -257,7 +260,7 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
       if (notesRequiredWrapper) {
         notesRequiredWrapper.style.display = value === "Not Verified" ? "block" : "none";
       }
-      
+
       if (needShot && hideScreenshot && typeof hideScreenshot.show === 'function') {
         hideScreenshot.show();
       } else if (!needShot && hideScreenshot && typeof hideScreenshot.hide === 'function') {
@@ -273,7 +276,7 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
           });
         }
       }
-      
+
       validateModalForm(modal, screenshotComp, formData, requireSupportFields);
     };
   }
@@ -282,6 +285,7 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
     if (hideScreenshot && typeof hideScreenshot === 'function') {
       hideScreenshot();
     }
+    document.body.classList.remove("no-scroll"); // restore page scroll
     document.body.removeChild(modal);
   };
 
@@ -324,6 +328,7 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
       if (hideScreenshot && typeof hideScreenshot === 'function') {
         hideScreenshot();
       }
+      document.body.classList.remove("no-scroll"); 
       document.body.removeChild(modal);
     };
   }
@@ -364,12 +369,31 @@ export function collectFormDataForReview(root) {
     supportNumber
   };
 }
+export function scrollToEndOfPage() {
+    // Scroll exactly to the bottom
+    window.scrollTo({
+      top: document.body.scrollHeight,
+      behavior: 'smooth'  // change to 'smooth' if you want animation
+    });
+}
+/**
+ * Scroll to the bottom of the page when Review and Submit button is clicked
+ */
+export function scrollToEndOfPage() {
+    // Scroll exactly to the bottom
+    window.scrollTo({
+      top: document.body.scrollHeight,
+      behavior: 'smooth'  // change to 'smooth' if you want animation
+    });
+}
 
 /**
  * Updates datagrid and form values before review
  */
 export function updateFormValuesBeforeReview(root) {
   const allDatagrids = [];
+
+
   root.everyComponent(comp => {
     const componentType = comp.component?.type || comp.type;
 
@@ -418,11 +442,15 @@ export function updateFormValuesBeforeReview(root) {
       } catch (e) { }
     }
   });
+
 }
 
 
 // Add this at the top of your JS file (for example: reviewHelpers.js)
-const dropdownCSS = `
+const customCSS = `
+.no-scroll {
+  overflow: hidden;
+}
 .custom-dropdown {
   width: 220px;
   position: relative;
@@ -444,13 +472,7 @@ const dropdownCSS = `
   position: relative;
   min-height: 38px;
 }
-.dropdown-selected:after {
-  content: "⮟";
-  position: absolute;
-  right: 12px;
-  font-size: 16px;
-  color: #888;
-}
+
 .dropdown-list {
   position: absolute;
   left: 0;
@@ -477,4 +499,20 @@ const dropdownCSS = `
   from { opacity: 0; transform: translateY(-8px);}
   to   { opacity: 1; transform: none; }
 }
+.dropdown-selected i.dropdown.icon {
+ position: absolute;
+ right: 10px;
+ top: 50%;
+ transform: translateY(-50%) rotate(45deg); /* arrow pointing down */
+ border: solid #888;
+ border-width: 0 2px 2px 0;
+ padding: 4px;
+ display: inline-block;
+ pointer-events: none;
+ transition: transform 0.2s ease;
+}
+.dropdown-selected.open i.dropdown.icon {
+  transform: translateY(-50%) rotate(225deg); /* pointing up */
+}
+
 `;
