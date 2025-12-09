@@ -14,7 +14,7 @@ export default class CustomFile extends FileComponent {
 
   constructor(...args) {
     super(...args);
-    console.log("CustomFile component instantiated!");
+    this.picaInstance = null;
   }
 
   /**
@@ -30,11 +30,11 @@ export default class CustomFile extends FileComponent {
     }
 
     const file = fileToSync.file;
-
+    let compressedBlob = file;
     if (file.type.startsWith("image/")) {
       try {
         const img = await this.fileToImage(file);
-        const compressedBlob = await this.compressImage(img);
+        compressedBlob = await this.compressImage(img);
 
         const compressedFile = new File(
           [compressedBlob],
@@ -42,105 +42,382 @@ export default class CustomFile extends FileComponent {
           { type: "image/jpeg" }
         );
 
-        // Update the file object
+        // Create preview URL from compressed blob for immediate display
+        const previewUrl = URL.createObjectURL(compressedBlob);
+
+        // Update the file object with preview URL BEFORE upload
         fileToSync.file = compressedFile;
         fileToSync.name = compressedFile.name;
+        fileToSync.url = previewUrl; // Set preview URL for immediate display
 
-        // Update preview
-        this.updatePreview(compressedBlob);
       } catch (err) {
         console.error("Error compressing image:", err);
+        // Fallback: create preview from original file if compression fails
+        if (file.type.startsWith("image/")) {
+          fileToSync.url = URL.createObjectURL(file);
+        }
+      }
+    } else {
+      // For non-image files, create preview URL if not already set
+      if (!fileToSync.url && file) {
+        fileToSync.url = URL.createObjectURL(file);
       }
     }
-
+    
     // Call Form.io upload logic
     const uploadedData = await super.uploadFile(fileToSync);
-
+    
+    // Update image previews after upload completes
+    this.updateImagePreviews();
+    
     return uploadedData;
   }
 
+  // New method to ensure image previews are displayed
+  updateImagePreviews() {
+    // Use multiple attempts to catch images as they're added to DOM
+    const updateImages = () => {
+      const rootEl = this.element;
+      if (!rootEl) return;
+
+      // Find all image elements that should show previews
+      const imageElements = rootEl.querySelectorAll('img[ref="fileImage"], img.file-image, [ref="fileImage"] img');
+      
+      imageElements.forEach(img => {
+        // Get the file value to find the preview URL
+        const fileValue = this.dataValue;
+        if (fileValue && Array.isArray(fileValue) && fileValue.length > 0) {
+          const fileData = fileValue.find(f => f.name === img.alt || img.getAttribute('data-file-name'));
+          if (fileData && fileData.url && !img.src) {
+            img.src = fileData.url;
+            img.style.display = 'block';
+            img.style.visibility = 'visible';
+            img.style.opacity = '1';
+          } else if (fileData && fileData.url && img.src !== fileData.url) {
+            // Update if URL changed
+            img.src = fileData.url;
+          }
+        }
+        
+        // Also check if there's a blob URL in the parent element's data
+        if (!img.src || img.src === '' || img.src === window.location.href) {
+          const parent = img.closest('[data-file-url]');
+          if (parent) {
+            const url = parent.getAttribute('data-file-url');
+            if (url) {
+              img.src = url;
+              img.style.display = 'block';
+            }
+          }
+        }
+        
+        // Ensure image is visible
+        if (img.src && img.src.startsWith('blob:')) {
+          img.style.display = 'block';
+          img.style.visibility = 'visible';
+          img.style.opacity = '1';
+          img.style.width = '80px';
+          img.style.height = '80px';
+          img.style.objectFit = 'cover';
+        }
+      });
+    };
+
+    // Try immediately
+    updateImages();
+    
+    // Try after a short delay (Form.io might update DOM asynchronously)
+    setTimeout(updateImages, 100);
+    setTimeout(updateImages, 500);
+    
+    // Also hook into next render cycle
+    requestAnimationFrame(() => {
+      updateImages();
+      setTimeout(updateImages, 100);
+    });
+  }
+
   fileToImage(file) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (e) => {
         const img = new Image();
         img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("Failed to load image"));
         img.src = e.target.result;
       };
+      reader.onerror = () => reject(new Error("Failed to read file"));
       reader.readAsDataURL(file);
     });
   }
+
   async loadPica() {
     if (typeof window === "undefined") return null; // SSR: do nothing server-side
-    if (window.pica) return window.pica; // already loaded
-
-    return new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "https://cdn.jsdelivr.net/npm/pica@8.0.0/dist/pica.min.js";
-      script.async = true;
-      script.onload = () => {
-        if (window.pica) resolve(window.pica);
-        else reject(new Error("Pica loaded but window.pica is undefined"));
-      };
-      script.onerror = () => reject(new Error("Failed to load Pica script"));
-      document.head.appendChild(script);
-    });
+    
+    // Return cached instance if available
+    if (this.picaInstance) return this.picaInstance;
+    
+    try {
+      // Dynamic import for better mobile compatibility
+      const picaModule = await import("pica");
+      const Pica = picaModule.default || picaModule;
+      
+      // Initialize Pica with mobile-friendly options
+      this.picaInstance = Pica({
+        tile: 1024, // Smaller tiles for mobile memory constraints
+        features: ['js', 'wasm'], // Use both JS and WASM if available
+        createCanvas: (width, height) => {
+          // Check canvas size limits (iOS Safari has ~5MP limit)
+          const maxDimension = 4096;
+          if (width > maxDimension || height > maxDimension) {
+            console.warn(`Canvas size ${width}x${height} exceeds mobile limit, capping at ${maxDimension}`);
+            width = Math.min(width, maxDimension);
+            height = Math.min(height, maxDimension);
+          }
+          return document.createElement("canvas");
+        }
+      });
+      
+      return this.picaInstance;
+    } catch (err) {
+      console.error("Failed to load Pica:", err);
+      return null;
+    }
   }
 
   async compressImage(image) {
-    const picaLib = await this.loadPica();
-    if (!picaLib) throw new Error("Pica not available !");
-    const p = picaLib();
-    // Original dimensions
-    const srcW = image.width;
-    const srcH = image.height;
-
-    // Determine smallest dimension
-    const smallest = Math.min(srcW, srcH);
-
-    // If the image is already small enough, return original size as Blob
-    if (smallest <= 1500) {
-      // Convert original image to Blob without resizing
-      const canvas = document.createElement("canvas");
-      canvas.width = srcW;
-      canvas.height = srcH;
-      canvas.getContext("2d").drawImage(image, 0, 0);
-      return await p.toBlob(canvas, "image/jpeg", 0.82);
-    }
-    // Compute scale factor
-    const scale = 1500 / smallest;
-    // Compute new dimensions
-    const newW = Math.round(srcW * scale);
-    const newH = Math.round(srcH * scale);
-
-    // Prepare canvas
-    const srcCanvas = document.createElement("canvas");
-    srcCanvas.width = srcW;
-    srcCanvas.height = srcH;
-    srcCanvas.getContext("2d").drawImage(image, 0, 0);
-
-    const destCanvas = document.createElement("canvas");
-    destCanvas.width = newW;
-    destCanvas.height = newH;
-
-    // Resize with Pica
-    await p.resize(srcCanvas, destCanvas);
-    const compressedBlob = await p.toBlob(destCanvas, "image/jpeg", 0.82);
-    return compressedBlob;
-  }
-
-  updatePreview(blob) {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const rootEl = this.getElement();
-      if (!rootEl) return;
-      let imgEl = rootEl.querySelector("img");
-      if (!imgEl) {
-        imgEl = document.createElement("img");
-        rootEl.appendChild(imgEl);
+    try {
+      const p = await this.loadPica();
+      if (!p) {
+        throw new Error("Pica not available");
       }
-      imgEl.src = reader.result;
-    };
-    reader.readAsDataURL(blob);
+      
+      // Original dimensions
+      const srcW = image.width;
+      const srcH = image.height;
+
+      // Determine smallest dimension
+      const smallest = Math.min(srcW, srcH);
+
+      // Mobile-friendly: use smaller max size (1200px instead of 1500px)
+      const maxDimension = 1200;
+      
+      // If the image is already small enough, return original size as Blob
+      if (smallest <= maxDimension) {
+        // Convert original image to Blob without resizing
+        const canvas = document.createElement("canvas");
+        // Ensure canvas doesn't exceed mobile limits
+        canvas.width = Math.min(srcW, 4096);
+        canvas.height = Math.min(srcH, 4096);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+        return await p.toBlob(canvas, "image/jpeg", 0.82);
+      }
+      
+      // Compute scale factor
+      const scale = maxDimension / smallest;
+      // Compute new dimensions
+      let newW = Math.round(srcW * scale);
+      let newH = Math.round(srcH * scale);
+      
+      // Ensure dimensions don't exceed mobile canvas limits
+      const maxCanvasDimension = 4096;
+      if (newW > maxCanvasDimension || newH > maxCanvasDimension) {
+        const scaleDown = Math.min(maxCanvasDimension / newW, maxCanvasDimension / newH);
+        newW = Math.round(newW * scaleDown);
+        newH = Math.round(newH * scaleDown);
+      }
+
+      // Prepare canvas
+      const srcCanvas = document.createElement("canvas");
+      srcCanvas.width = Math.min(srcW, maxCanvasDimension);
+      srcCanvas.height = Math.min(srcH, maxCanvasDimension);
+      const srcCtx = srcCanvas.getContext("2d");
+      srcCtx.drawImage(image, 0, 0, srcCanvas.width, srcCanvas.height);
+
+      const destCanvas = document.createElement("canvas");
+      destCanvas.width = newW;
+      destCanvas.height = newH;
+
+      // Resize with Pica
+      await p.resize(srcCanvas, destCanvas, {
+        quality: 2, // Good quality, mobile-friendly
+        unsharpAmount: 80,
+        unsharpThreshold: 2
+      });
+      
+      const compressedBlob = await p.toBlob(destCanvas, "image/jpeg", 0.82);
+      return compressedBlob;
+    } catch (err) {
+      console.error("Error in compressImage:", err);
+      throw err; // Re-throw to be caught by uploadFile
+    }
   }
+
+  loadImageCssOnce = () => {
+    if (document.getElementById("custom-file-css")) return; // already added
+
+    const style = document.createElement("style");
+    style.id = "custom-file-css";
+
+    style.innerHTML = `
+    /* Container for each uploaded file */
+    div.file, .file {
+      display: inline-block !important;
+      position: relative !important;
+      margin: 5px !important;
+    }
+  
+    /* Image preview - ensure visibility on mobile */
+    div.file img, .file img,
+    [ref="fileImage"], img[ref="fileImage"] {
+      width: 80px !important;
+      height: 80px !important;
+      min-width: 80px !important;
+      min-height: 80px !important;
+      object-fit: cover !important;
+      border-radius: 8px !important;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2) !important;
+      display: block !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+    }
+  
+    /* Delete button */
+    div.file .file-delete, .file .file-delete {
+      position: absolute !important;
+      top: -10px !important;
+      right: -10px !important;
+      background-color: #ff4d4f !important;
+      color: white !important;
+      border-radius: 50% !important;
+      width: 20px !important;
+      height: 20px !important;
+      font-size: 14px !important;
+      font-weight: bold !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      cursor: pointer !important;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2) !important;
+      user-select: none !important;
+      z-index: 10 !important;
+    }
+  
+    div.file .file-delete:hover, .file .file-delete:hover {
+      background-color: #ff7875 !important;
+    }
+    `;
+    document.head.appendChild(style);
+  };
+
+  wrapDefaultImagesOnce = false;
+  wrapDefaultImages() {
+    if (this.wrapDefaultImagesOnce) return;  // already applied
+    this.wrapDefaultImagesOnce = true;
+    const rootEl = this.element;
+    if (!rootEl) return;
+
+    // Use a more robust selector that works on mobile
+    const imageSelectors = [
+      '[ref="fileImage"]',
+      'img[ref="fileImage"]',
+      '.file-image img',
+      '.file-preview img',
+      'img[src*="blob:"]',
+      'img[src*="data:image"]'
+    ];
+
+    let foundImages = [];
+    imageSelectors.forEach(selector => {
+      rootEl.querySelectorAll(selector).forEach(img => {
+        if (!foundImages.includes(img)) {
+          foundImages.push(img);
+        }
+      });
+    });
+
+    // Also get file value to set image src
+    const fileValue = this.dataValue;
+    const fileUrls = {};
+    if (fileValue && Array.isArray(fileValue)) {
+      fileValue.forEach(file => {
+        if (file.url) {
+          fileUrls[file.name] = file.url;
+        }
+      });
+    }
+
+    foundImages.forEach(defaultImg => {
+      const parent = defaultImg.parentElement;
+      if (!parent) return;
+
+      // Hide the original Form.io delete button
+      const oldDeleteBtn = parent.querySelector('i[ref="removeLink"]');
+      if (oldDeleteBtn) oldDeleteBtn.style.display = "none";
+
+      // Avoid double wrapping
+      if (parent.classList.contains("file")) return;
+
+      // Set image src if we have a URL for it
+      if (!defaultImg.src || defaultImg.src === '' || defaultImg.src === window.location.href) {
+        const fileName = defaultImg.alt || defaultImg.getAttribute('data-file-name') || '';
+        if (fileUrls[fileName]) {
+          defaultImg.src = fileUrls[fileName];
+        } else if (fileValue && fileValue.length > 0 && fileValue[0].url) {
+          defaultImg.src = fileValue[0].url;
+        }
+      }
+
+      // Ensure image is visible on mobile
+      defaultImg.style.display = "block";
+      defaultImg.style.maxWidth = "100%";
+      defaultImg.style.height = "auto";
+      defaultImg.style.visibility = "visible";
+      defaultImg.style.opacity = "1";
+
+      // Build wrapper
+      const container = document.createElement("div");
+      container.className = "file";
+
+      parent.insertBefore(container, defaultImg);
+      container.appendChild(defaultImg);
+
+      // Custom delete button
+      const delBtn = document.createElement("span");
+      delBtn.className = "file-delete";
+      delBtn.innerText = "✕";
+      delBtn.removeLink = oldDeleteBtn;
+      container.appendChild(delBtn);
+
+      delBtn.onclick = () => {
+        if (delBtn.removeLink) delBtn.removeLink.click();
+        container.remove();
+      };
+    });
+  }
+
+ setValue(value, flags) {
+    const result = super.setValue(value, flags);
+    // Reset so wrapper runs again only ONE TIME
+    this.wrapDefaultImagesOnce = false;
+
+    // Run only after DOM settles (single cycle only)
+    requestAnimationFrame(() => {
+      this.wrapDefaultImages();
+      // Also update image previews after value is set
+      setTimeout(() => this.updateImagePreviews(), 100);
+    });
+
+    return result;
+  }
+
+  attach(element) {
+    const res = super.attach(element);
+    this.loadImageCssOnce();
+    this.wrapDefaultImagesOnce = false;
+    requestAnimationFrame(() => this.wrapDefaultImages());
+    return res;
+  }
+
 }
