@@ -26,7 +26,8 @@
     "@formio/premium": "^3.0.6",
     "@scandit/web-datacapture-barcode": "^7.6.1",
     "@scandit/web-datacapture-core": "^7.6.1",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "pica": "^8.0.0"
   }
 }
 
