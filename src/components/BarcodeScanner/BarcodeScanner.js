@@ -878,26 +878,9 @@ export default class BarcodeScanner extends FieldComponent {
         }
         
         if (this.refs.scanditContainer) {
-            this.refs.scanditContainer.innerHTML = `
-                <div style="
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    min-height: 300px;
-                    min-width: 320px;
-                    padding: 40px 20px;
-                ">
-                    <div style="
-                        color: white;
-                        text-align: center;
-                        font-size: 1rem;
-                        max-width: 400px;
-                    ">
-                        <div style="font-size: 2.5rem; margin-bottom: 20px;">⚠️</div>
-                        <div style="font-weight: bold; margin-bottom: 10px;">Camera Access Denied</div>
-                        <div>Please allow access to the camera in your device settings and try again.</div>
-                    </div>
-                </div>`;
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage('cameraAccessDenied');
+          }
         }
     } finally {
         console.error = originalConsoleError;
