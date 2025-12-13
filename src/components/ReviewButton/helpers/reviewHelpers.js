@@ -369,13 +369,6 @@ export function collectFormDataForReview(root) {
     supportNumber
   };
 }
-export function scrollToEndOfPage() {
-    // Scroll exactly to the bottom
-    window.scrollTo({
-      top: document.body.scrollHeight,
-      behavior: 'smooth'  // change to 'smooth' if you want animation
-    });
-}
 /**
  * Scroll to the bottom of the page when Review and Submit button is clicked
  */
