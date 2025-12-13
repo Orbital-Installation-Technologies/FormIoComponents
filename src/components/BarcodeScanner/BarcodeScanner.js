@@ -878,9 +878,16 @@ export default class BarcodeScanner extends FieldComponent {
         }
         
         if (this.refs.scanditContainer) {
-          if (window.ReactNativeWebView) {
-            window.ReactNativeWebView.postMessage('cameraAccessDenied');
-          }
+            const rnWebView = typeof window !== 'undefined' ? window.ReactNativeWebView : null;
+            const canPost = rnWebView && typeof rnWebView.postMessage === 'function';
+
+            if (canPost) {
+              rnWebView.postMessage(JSON.stringify({ type: 'cameraAccessDenied' }));
+            } else {
+              // Web fallback: show something actionable instead of leaving "Loading camera..."
+                this.refs.scanditContainer.textContent =
+                 'Camera access denied. Please enable camera permissions in your browser settings and try again.';
+            }
         }
     } finally {
         console.error = originalConsoleError;
