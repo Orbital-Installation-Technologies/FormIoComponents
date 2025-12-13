@@ -52,7 +52,7 @@ Formio.createForm(
   {
     components: [Gps.schema(), Rating.schema(), BarcodeScanner.schema(), ReviewButton.schema(),
       { ...CustomFile.schema(), type: "file", storage: "s3", image: true },
-        CustomSelect.schema()
+      { ...CustomSelect.schema(), type: "select", key: "select" }
     ],
   },
   {
