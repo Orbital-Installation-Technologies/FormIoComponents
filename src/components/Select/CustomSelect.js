@@ -88,6 +88,7 @@ export default class CustomSelect extends SelectComponent {
   }
   detach() {
     this.errorIconObserver?.disconnect();
+    this.dropdownObserver?.disconnect();
     return super.detach();
   }
 }
