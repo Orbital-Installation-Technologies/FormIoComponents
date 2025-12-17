@@ -2185,7 +2185,6 @@ export default class BarcodeScanner extends FieldComponent {
             // Scandit camera flash control
             if (newLightState === 'flashOn') {
               // Enable camera flash
-              // Enable camera flash
               if (window.ReactNativeWebView) {
                 window.ReactNativeWebView.postMessage('FLASH_ON');
               }
