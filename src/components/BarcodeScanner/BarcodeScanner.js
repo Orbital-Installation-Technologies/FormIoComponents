@@ -2185,6 +2185,10 @@ export default class BarcodeScanner extends FieldComponent {
             // Scandit camera flash control
             if (newLightState === 'flashOn') {
               // Enable camera flash
+              // Enable camera flash
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage('FLASH_ON');
+              }
               if (typeof this._camera.setTorchEnabled === 'function') {
                 this._camera.setTorchEnabled(true);
                 this._torchEnabled = true;
@@ -2198,6 +2202,9 @@ export default class BarcodeScanner extends FieldComponent {
               }
             } else {
               // Disable camera flash
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage('FLASH_OFF');
+              }
               if (typeof this._camera.setTorchEnabled === 'function') {
                 this._camera.setTorchEnabled(false);
                 this._torchEnabled = false;
