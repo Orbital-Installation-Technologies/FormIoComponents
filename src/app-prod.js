@@ -5,6 +5,7 @@ import BarcodeScanner from "./components/BarcodeScanner/BarcodeScanner";
 import Gps from "./components/Gps/Gps";
 import ReviewButton from "./components/ReviewButton/ReviewButton.js";
 import CustomFile from "./components/File/CustomFile.js";
+import CustomSelect from "./components/Select/CustomSelect.js";
 
 // Set Formio license with fallback handling
 const licenseKey = process.env.NEXT_PUBLIC_FORMIO_PREMIUM_LICENSE;
@@ -28,6 +29,7 @@ Formio.use([
       barcode: BarcodeScanner,
       gps: Gps,
       reviewbutton: ReviewButton,
+      select: CustomSelect,
     },
   },
 ]);
@@ -42,6 +44,7 @@ Formio.createForm(formContainer, {
     Rating.schema(),
     BarcodeScanner.schema(),
     ReviewButton.schema(),
-    { ...CustomFile.schema(), type: "file", storage: "s3", image: true }
+    { ...CustomFile.schema(), type: "file", storage: "s3", image: true },
+    { ...CustomSelect.schema(), type: "select", key: "select" }
   ]
 });
