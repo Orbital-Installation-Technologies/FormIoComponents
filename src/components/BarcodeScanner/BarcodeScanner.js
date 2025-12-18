@@ -527,6 +527,7 @@ export default class BarcodeScanner extends FieldComponent {
         try {
           if (window.ReactNativeWebView && this._torchEnabled === true) {
             window.ReactNativeWebView.postMessage('FLASH_OFF');
+            this._torchEnabled = false;
           }
           await this.stopScanner();
           this._lastCodes = [];
@@ -803,6 +804,7 @@ export default class BarcodeScanner extends FieldComponent {
                 if (barcodes.length > 0 && !this._isVideoFrozen && !this._showingConfirmation) {
                     if (window.ReactNativeWebView && this._torchEnabled === true) {
                         window.ReactNativeWebView.postMessage('FLASH_OFF');
+                        this._torchEnabled = false;
                     }
                     this._autoFreezeAndConfirm();
                 } else {
@@ -2191,33 +2193,39 @@ export default class BarcodeScanner extends FieldComponent {
             // Scandit camera flash control
             if (newLightState === 'flashOn') {
               // Enable camera flash
-              if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage('FLASH_ON');
-              }
               if (typeof this._camera.setTorchEnabled === 'function') {
                 this._camera.setTorchEnabled(true);
                 this._torchEnabled = true;
                 this._updateFlashlightButtonState(true);
+                if (window.ReactNativeWebView) {
+                   window.ReactNativeWebView.postMessage('FLASH_ON');
+                }
               } else if (typeof this._camera.torchEnabled === 'boolean') {
                 this._camera.torchEnabled = true;
                 this._torchEnabled = true;
                 this._updateFlashlightButtonState(true);
+                if (window.ReactNativeWebView) {
+                   window.ReactNativeWebView.postMessage('FLASH_ON');
+                }
               } else {
                 this._showFlashlightNotSupported();
               }
             } else {
               // Disable camera flash
-              if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage('FLASH_OFF');
-              }
               if (typeof this._camera.setTorchEnabled === 'function') {
                 this._camera.setTorchEnabled(false);
                 this._torchEnabled = false;
                 this._updateFlashlightButtonState(false);
+                if (window.ReactNativeWebView) {
+                  window.ReactNativeWebView.postMessage('FLASH_OFF');
+                }
               } else if (typeof this._camera.torchEnabled === 'boolean') {
                 this._camera.torchEnabled = false;
                 this._torchEnabled = false;
                 this._updateFlashlightButtonState(false);
+                if (window.ReactNativeWebView) {
+                  window.ReactNativeWebView.postMessage('FLASH_OFF');
+                }
               } else {
                 this._showFlashlightNotSupported();
               }
