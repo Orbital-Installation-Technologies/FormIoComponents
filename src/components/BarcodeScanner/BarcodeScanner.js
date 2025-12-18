@@ -525,6 +525,9 @@ export default class BarcodeScanner extends FieldComponent {
 
       this.refs.closeModal.addEventListener("click", async () => {
         try {
+          if (window.ReactNativeWebView && this._torchEnabled === true) {
+            window.ReactNativeWebView.postMessage('FLASH_OFF');
+          }
           await this.stopScanner();
           this._lastCodes = [];
           this._isVideoFrozen = false;
@@ -798,6 +801,9 @@ export default class BarcodeScanner extends FieldComponent {
 
                 // Trigger auto-freeze and confirmation when barcode is detected
                 if (barcodes.length > 0 && !this._isVideoFrozen && !this._showingConfirmation) {
+                    if (window.ReactNativeWebView && this._torchEnabled === true) {
+                        window.ReactNativeWebView.postMessage('FLASH_OFF');
+                    }
                     this._autoFreezeAndConfirm();
                 } else {
                 }
@@ -2166,7 +2172,7 @@ export default class BarcodeScanner extends FieldComponent {
       // Use Scandit's CameraLightControl API for camera flash
       // Track torch state separately from camera on/off state
       const currentLightState = this._torchEnabled ? 'flashOn' : 'off';
-      const newLightState = currentLightState === 'flashOn' ? 'off' : 'flashOn';
+      const neLiwghtState = currentLightState === 'flashOn' ? 'off' : 'flashOn';
 
 
       // Toggle using Scandit camera's light control
