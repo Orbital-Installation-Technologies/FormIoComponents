@@ -2172,7 +2172,7 @@ export default class BarcodeScanner extends FieldComponent {
       // Use Scandit's CameraLightControl API for camera flash
       // Track torch state separately from camera on/off state
       const currentLightState = this._torchEnabled ? 'flashOn' : 'off';
-      const neLiwghtState = currentLightState === 'flashOn' ? 'off' : 'flashOn';
+      const newLightState = currentLightState === 'flashOn' ? 'off' : 'flashOn';
 
 
       // Toggle using Scandit camera's light control
