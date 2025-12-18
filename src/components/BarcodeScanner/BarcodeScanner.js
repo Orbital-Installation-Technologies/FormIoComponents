@@ -527,6 +527,7 @@ export default class BarcodeScanner extends FieldComponent {
         try {
           if (window.ReactNativeWebView && this._torchEnabled === true) {
             window.ReactNativeWebView.postMessage('FLASH_OFF');
+            this._torchEnabled = false;
           }
           await this.stopScanner();
           this._lastCodes = [];
@@ -803,6 +804,7 @@ export default class BarcodeScanner extends FieldComponent {
                 if (barcodes.length > 0 && !this._isVideoFrozen && !this._showingConfirmation) {
                     if (window.ReactNativeWebView && this._torchEnabled === true) {
                         window.ReactNativeWebView.postMessage('FLASH_OFF');
+                        this._torchEnabled = false;
                     }
                     this._autoFreezeAndConfirm();
                 } else {
