@@ -888,7 +888,7 @@ export default class BarcodeScanner extends FieldComponent {
             const canPost = rnWebView && typeof rnWebView.postMessage === 'function';
 
             if (canPost) {
-              rnWebView.postMessage(JSON.stringify({ type: 'cameraAccessDenied' }));
+              rnWebView.postMessage('cameraAccessDenied');
             } else {
               // Web fallback: show something actionable instead of leaving "Loading camera..."
                 this.refs.scanditContainer.textContent =
