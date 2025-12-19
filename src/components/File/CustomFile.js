@@ -91,7 +91,6 @@ export default class CustomFile extends FileComponent {
           if (fileData && fileData.url && !img.src) {
             img.src = fileData.url;
             img.style.display = 'block';
-            img.style.visibility = 'visible';
             img.style.opacity = '1';
           } else if (fileData && fileData.url && img.src !== fileData.url) {
             // Update if URL changed
@@ -114,7 +113,6 @@ export default class CustomFile extends FileComponent {
         // Ensure image is visible
         if (img.src && img.src.startsWith('blob:')) {
           img.style.display = 'block';
-          img.style.visibility = 'visible';
           img.style.opacity = '1';
           img.style.width = '80px';
           img.style.height = '80px';
@@ -279,7 +277,6 @@ export default class CustomFile extends FileComponent {
       border-radius: 8px !important;
       box-shadow: 0 2px 5px rgba(0,0,0,0.2) !important;
       display: block !important;
-      visibility: visible !important;
       opacity: 1 !important;
     }
   
@@ -373,7 +370,6 @@ export default class CustomFile extends FileComponent {
       defaultImg.style.display = "block";
       defaultImg.style.maxWidth = "100%";
       defaultImg.style.height = "auto";
-      defaultImg.style.visibility = "visible";
       defaultImg.style.opacity = "1";
 
       // Build wrapper
