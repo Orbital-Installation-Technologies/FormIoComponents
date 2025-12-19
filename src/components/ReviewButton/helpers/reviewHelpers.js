@@ -13,6 +13,7 @@ export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, suppor
   const modal = document.createElement("div");
 
   modal.style.zIndex = "1000";
+  modal.style.setProperty('overflow-y', 'auto', 'important');
   modal.className = "fixed top-0 left-0 w-full h-screen inset-0 bg-black bg-opacity-50 flex items-center justify-center";
   document.body.classList.add("no-scroll"); // block page scroll
   modal.innerHTML = `
