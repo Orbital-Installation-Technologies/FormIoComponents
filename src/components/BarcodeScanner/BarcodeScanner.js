@@ -525,6 +525,10 @@ export default class BarcodeScanner extends FieldComponent {
 
       this.refs.closeModal.addEventListener("click", async () => {
         try {
+          if (window.ReactNativeWebView && this._torchEnabled === true) {
+            window.ReactNativeWebView.postMessage('FLASH_OFF');
+            this._torchEnabled = false;
+          }
           await this.stopScanner();
           this._lastCodes = [];
           this._isVideoFrozen = false;
@@ -742,7 +746,7 @@ export default class BarcodeScanner extends FieldComponent {
         if (!scanditConfigured) {
             await configure({
                 licenseKey: this._licenseKey,
-                libraryLocation: "https://cdn.jsdelivr.net/npm/@scandit/web-datacapture-barcode@7.6.1/sdc-lib/",
+                libraryLocation: "/scandit-lib/",
                 moduleLoaders: [barcodeCaptureLoader()]
             });
             scanditConfigured = true;
@@ -798,6 +802,10 @@ export default class BarcodeScanner extends FieldComponent {
 
                 // Trigger auto-freeze and confirmation when barcode is detected
                 if (barcodes.length > 0 && !this._isVideoFrozen && !this._showingConfirmation) {
+                    if (window.ReactNativeWebView && this._torchEnabled === true) {
+                        window.ReactNativeWebView.postMessage('FLASH_OFF');
+                        this._torchEnabled = false;
+                    }
                     this._autoFreezeAndConfirm();
                 } else {
                 }
@@ -878,26 +886,16 @@ export default class BarcodeScanner extends FieldComponent {
         }
         
         if (this.refs.scanditContainer) {
-            this.refs.scanditContainer.innerHTML = `
-                <div style="
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    min-height: 300px;
-                    min-width: 320px;
-                    padding: 40px 20px;
-                ">
-                    <div style="
-                        color: white;
-                        text-align: center;
-                        font-size: 1rem;
-                        max-width: 400px;
-                    ">
-                        <div style="font-size: 2.5rem; margin-bottom: 20px;">⚠️</div>
-                        <div style="font-weight: bold; margin-bottom: 10px;">Camera Access Denied</div>
-                        <div>Please allow access to the camera in your device settings and try again.</div>
-                    </div>
-                </div>`;
+            const rnWebView = typeof window !== 'undefined' ? window.ReactNativeWebView : null;
+            const canPost = rnWebView && typeof rnWebView.postMessage === 'function';
+
+            if (canPost) {
+              rnWebView.postMessage('cameraAccessDenied');
+            } else {
+              // Web fallback: show something actionable instead of leaving "Loading camera..."
+                this.refs.scanditContainer.textContent =
+                 'Camera access denied. Please enable camera permissions in your browser settings and try again.';
+            }
         }
     } finally {
         console.error = originalConsoleError;
@@ -2199,10 +2197,16 @@ export default class BarcodeScanner extends FieldComponent {
                 this._camera.setTorchEnabled(true);
                 this._torchEnabled = true;
                 this._updateFlashlightButtonState(true);
+                if (window.ReactNativeWebView) {
+                   window.ReactNativeWebView.postMessage('FLASH_ON');
+                }
               } else if (typeof this._camera.torchEnabled === 'boolean') {
                 this._camera.torchEnabled = true;
                 this._torchEnabled = true;
                 this._updateFlashlightButtonState(true);
+                if (window.ReactNativeWebView) {
+                   window.ReactNativeWebView.postMessage('FLASH_ON');
+                }
               } else {
                 this._showFlashlightNotSupported();
               }
@@ -2212,10 +2216,16 @@ export default class BarcodeScanner extends FieldComponent {
                 this._camera.setTorchEnabled(false);
                 this._torchEnabled = false;
                 this._updateFlashlightButtonState(false);
+                if (window.ReactNativeWebView) {
+                  window.ReactNativeWebView.postMessage('FLASH_OFF');
+                }
               } else if (typeof this._camera.torchEnabled === 'boolean') {
                 this._camera.torchEnabled = false;
                 this._torchEnabled = false;
                 this._updateFlashlightButtonState(false);
+                if (window.ReactNativeWebView) {
+                  window.ReactNativeWebView.postMessage('FLASH_OFF');
+                }
               } else {
                 this._showFlashlightNotSupported();
               }
