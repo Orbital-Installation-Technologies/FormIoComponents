@@ -937,8 +937,17 @@ export default class ReviewButton extends FieldComponent {
         await this.root.submit();
       }
     } catch (e) {
-      console.error("Error submitting form:", e);
-      alert("An error occurred while submitting the form. Please try again.");
+      if(e.length > 0 && e[0].ruleName){
+        console.error("Verify required fields", e);
+        var inputErrors = ""
+        e.map(err=> {
+          inputErrors = inputErrors + "- " + err.message + " \n "
+        })
+        alert("Please fill all the following required fields and try again. \n " + inputErrors);
+      }else{
+        console.error("Error submitting form:", e);
+        alert("An error occurred while submitting the form. Please try again.");
+      }
     }
   }
 
