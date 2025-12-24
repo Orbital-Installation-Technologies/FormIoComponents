@@ -1241,6 +1241,10 @@ export default class BarcodeScanner extends FieldComponent {
     this._hideConfirmationDialog();
     setTimeout(async () => {
       try {
+        if (window.ReactNativeWebView && this._torchEnabled === true) {
+          window.ReactNativeWebView.postMessage('FLASH_OFF');
+          this._torchEnabled = false;
+        }
         await this.stopScanner();
       } finally {
         this._confirmingBarcode = false;
