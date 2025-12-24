@@ -2178,27 +2178,36 @@ export default class BarcodeScanner extends FieldComponent {
       // Track torch state separately from camera on/off state
       const currentLightState = this._torchEnabled ? 'flashOn' : 'off';
       const newLightState = currentLightState === 'flashOn' ? 'off' : 'flashOn';
-
-      // Add the flashlight control
-      try {
-        // Scandit camera flash control
-        if (newLightState === 'flashOn') {
-          // Enable camera flash
-          this._torchEnabled = true;
-          this._updateFlashlightButtonState(true);
-          if (window.ReactNativeWebView) {
-             window.ReactNativeWebView.postMessage('FLASH_ON');
-          }
-        } else {
-          // Disable camera flash
-          this._torchEnabled = false;
-          this._updateFlashlightButtonState(false);
-          if (window.ReactNativeWebView) {
-            window.ReactNativeWebView.postMessage('FLASH_OFF');
-          }
-        }
-      } catch (innerError) {
+      const isMobile =
+        typeof window !== 'undefined' &&
+        /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      if (!isMobile ) {
         this._showFlashlightNotSupported();
+      }else {
+        // Add the flashlight control
+        try {
+          // Scandit camera flash control
+          if (newLightState === 'flashOn') {
+            // Enable camera flash
+            this._torchEnabled = true;
+            this._updateFlashlightButtonState(true);
+
+            if (window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage('FLASH_ON');
+            }
+
+
+          } else {
+            // Disable camera flash
+            this._torchEnabled = false;
+            this._updateFlashlightButtonState(false);
+            if (window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage('FLASH_OFF');
+            }
+          }
+        } catch (innerError) {
+          this._showFlashlightNotSupported();
+        }
       }
     } catch (error) {
       console.warn('Error in flashlight toggle:', error);
