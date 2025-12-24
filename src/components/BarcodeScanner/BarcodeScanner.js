@@ -1241,6 +1241,10 @@ export default class BarcodeScanner extends FieldComponent {
     this._hideConfirmationDialog();
     setTimeout(async () => {
       try {
+        if (window.ReactNativeWebView && this._torchEnabled === true) {
+          window.ReactNativeWebView.postMessage('FLASH_OFF');
+          this._torchEnabled = false;
+        }
         await this.stopScanner();
       } finally {
         this._confirmingBarcode = false;
@@ -2171,68 +2175,37 @@ export default class BarcodeScanner extends FieldComponent {
     }
 
     try {
-      // Use Scandit's CameraLightControl API for camera flash
       // Track torch state separately from camera on/off state
       const currentLightState = this._torchEnabled ? 'flashOn' : 'off';
       const newLightState = currentLightState === 'flashOn' ? 'off' : 'flashOn';
-
-
-      // Toggle using Scandit camera's light control
-      if (this._camera && this._camera.torch !== undefined) {
-        // Try direct torch property if available
-        this._camera.torch = !this._camera.torch;
-        this._torchEnabled = this._camera.torch;
-        this._updateFlashlightButtonState(this._camera.torch);
-      } else {
-        // Use CameraLightControl through the DataCaptureContext
-        // This is the Scandit-native way to control camera flash
+      const isMobile =
+        typeof window !== 'undefined' &&
+        /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      if (!isMobile ) {
+        this._showFlashlightNotSupported();
+      }else {
+        // Add the flashlight control
         try {
-          // Access camera settings and apply flash control
-          const settings = this._camera.getCurrentCameraSettings();
-          if (settings) {
-            // Scandit camera flash control
-            if (newLightState === 'flashOn') {
-              // Enable camera flash
-              if (typeof this._camera.setTorchEnabled === 'function') {
-                this._camera.setTorchEnabled(true);
-                this._torchEnabled = true;
-                this._updateFlashlightButtonState(true);
-                if (window.ReactNativeWebView) {
-                   window.ReactNativeWebView.postMessage('FLASH_ON');
-                }
-              } else if (typeof this._camera.torchEnabled === 'boolean') {
-                this._camera.torchEnabled = true;
-                this._torchEnabled = true;
-                this._updateFlashlightButtonState(true);
-                if (window.ReactNativeWebView) {
-                   window.ReactNativeWebView.postMessage('FLASH_ON');
-                }
-              } else {
-                this._showFlashlightNotSupported();
-              }
-            } else {
-              // Disable camera flash
-              if (typeof this._camera.setTorchEnabled === 'function') {
-                this._camera.setTorchEnabled(false);
-                this._torchEnabled = false;
-                this._updateFlashlightButtonState(false);
-                if (window.ReactNativeWebView) {
-                  window.ReactNativeWebView.postMessage('FLASH_OFF');
-                }
-              } else if (typeof this._camera.torchEnabled === 'boolean') {
-                this._camera.torchEnabled = false;
-                this._torchEnabled = false;
-                this._updateFlashlightButtonState(false);
-                if (window.ReactNativeWebView) {
-                  window.ReactNativeWebView.postMessage('FLASH_OFF');
-                }
-              } else {
-                this._showFlashlightNotSupported();
-              }
+          // Scandit camera flash control
+          if (newLightState === 'flashOn') {
+            // Enable camera flash
+            this._torchEnabled = true;
+            this._updateFlashlightButtonState(true);
+
+            if (window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage('FLASH_ON');
+            }
+
+
+          } else {
+            // Disable camera flash
+            this._torchEnabled = false;
+            this._updateFlashlightButtonState(false);
+            if (window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage('FLASH_OFF');
             }
           }
         } catch (innerError) {
-          console.warn('Error with Scandit camera flash control:', innerError);
           this._showFlashlightNotSupported();
         }
       }
