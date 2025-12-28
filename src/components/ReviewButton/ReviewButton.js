@@ -1543,6 +1543,27 @@ export default class ReviewButton extends FieldComponent {
 
         const invalidFieldsArray = Array.from(invalidFields);
 
+        // Console log: Data map and invalids
+        console.log('=== Review Data Map ===');
+        console.log('Leaves:', leaves.map(l => ({ 
+          path: l.path, 
+          label: l.label, 
+          value: l.value,
+          compKey: l.comp?.key || l.comp?.component?.key 
+        })));
+        console.log('Label By Path:', labelByPath);
+        console.log('Meta By Path:', metaByPath);
+        console.log('Index By Path:', indexByPath);
+        console.log('=== Invalid Fields ===');
+        console.log('Invalid Fields Set:', Array.from(invalidFields));
+        console.log('Invalid Components:', Array.from(invalidComponents).map(c => ({
+          key: c.key || c.component?.key,
+          path: c.path,
+          type: c.type || c.component?.type,
+          errors: c.errors
+        })));
+        console.log('=== End Review Data Map ===');
+
         const invalidData = this.countVisibleErrors(invalidFieldsArray, invalidComponents);
         const filteredInvalidFields = invalidData.filteredInvalidFields;
         const fieldErrorsCounter = invalidData.fieldErrorsCounter;

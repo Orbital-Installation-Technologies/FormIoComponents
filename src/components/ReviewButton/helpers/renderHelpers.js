@@ -29,31 +29,36 @@ function renderNode(node, depth = 0, rootInstance = null, invalidFields = new Se
 
   return sortedEntries.map(([k, v], index) => {
     const isAddressComponentRender = v.__comp?.component?.type === 'address' || v.__comp?.type === 'address';
-
-    if (v.__comp?._visible == false || v.__comp?.type === 'datasource') {
-      return '';
-    }
     
-    if (v.__comp?.component?.hidden === true || v.__comp?.hidden === true) {
-      return '';
-    }
+    // Check if component is invalid FIRST - if invalid, always show it regardless of visibility
+    const isInvalid = isFieldInvalid(v.__comp, k, invalidFields) || invalidComponents.has(v.__comp);
     
-    if (v.__comp?.disabled === true || v.__comp?.component?.disabled === true) {
-      if (v.__comp?.component?.reviewVisible !== true) {
+    // If component is invalid, skip all visibility checks and show it
+    if (!isInvalid) {
+      if (v.__comp?._visible == false || v.__comp?.type === 'datasource') {
         return '';
       }
-    }
-    
-    const isRequired = v.__comp?.component?.validate?.required === true;
-    const isReviewVisible = v.__comp?.component?.reviewVisible === true;
-      const isInvalid = isFieldInvalid(v.__comp, k, invalidFields) || invalidComponents.has(v.__comp);
-    
-    if (isRequired && !isInvalid && !isReviewVisible) {
-      return '';
-    }
-    
-    if (!isRequired && !isReviewVisible && !isAddressComponentRender) {
-      return '';
+      
+      if (v.__comp?.component?.hidden === true || v.__comp?.hidden === true) {
+        return '';
+      }
+      
+      if (v.__comp?.disabled === true || v.__comp?.component?.disabled === true) {
+        if (v.__comp?.component?.reviewVisible !== true) {
+          return '';
+        }
+      }
+      
+      const isRequired = v.__comp?.component?.validate?.required === true;
+      const isReviewVisible = v.__comp?.component?.reviewVisible === true;
+      
+      if (isRequired && !isReviewVisible) {
+        return '';
+      }
+      
+      if (!isRequired && !isReviewVisible && !isAddressComponentRender) {
+        return '';
+      }
     }
 
     if (v.__comp?.parent?.type === 'datamap') {
@@ -365,31 +370,71 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
 
     return sortedEntries.map(([k, v], index) => {
       const isAddressComponentRender = v.__comp?.component?.type === 'address' || v.__comp?.type === 'address';
-
-      if (v.__comp?._visible == false || v.__comp?.type === 'datasource') {
-        return '';
+      
+      // Check if component is invalid FIRST - if invalid, always show it regardless of visibility
+      // Use the component's actual path, not just the key, for better matching
+      const compPath = v.__comp?.path || v.__comp?.key || v.__comp?.component?.key;
+      const compKey = v.__comp?.key || v.__comp?.component?.key;
+      const fullPath = basePath ? `${basePath}.${k}` : k;
+      
+      // Check multiple path variations and component reference
+      const isInvalidByPath = isFieldInvalid(v.__comp, compPath, invalidFields);
+      const isInvalidByFullPath = isFieldInvalid(v.__comp, fullPath, invalidFields);
+      const isInvalidByKey = isFieldInvalid(v.__comp, k, invalidFields);
+      const isInvalidByComponent = invalidComponents.has(v.__comp);
+      const isInvalidByCompKey = compKey && invalidFields.has(compKey);
+      const isInvalidByCompPath = compPath && invalidFields.has(compPath);
+      
+      const isInvalid = isInvalidByPath || isInvalidByFullPath || isInvalidByKey || 
+                        isInvalidByComponent || isInvalidByCompKey || isInvalidByCompPath;
+      
+      // Debug logging for picOfSn components
+      if (compKey && (compKey.includes('picOfSn') || compPath?.includes('picOfSn'))) {
+        console.log(`[renderNode] Checking ${compKey}:`, {
+          k,
+          compPath,
+          compKey,
+          fullPath,
+          basePath,
+          isInvalidByPath,
+          isInvalidByFullPath,
+          isInvalidByKey,
+          isInvalidByComponent,
+          isInvalidByCompKey,
+          isInvalidByCompPath,
+          isInvalid,
+          invalidFields: Array.from(invalidFields),
+          inInvalidComponents: invalidComponents.has(v.__comp),
+          compRef: v.__comp
+        });
       }
       
-      if (v.__comp?.component?.hidden === true || v.__comp?.hidden === true) {
-        return '';
-      }
-      
-      if (v.__comp?.disabled === true || v.__comp?.component?.disabled === true) {
-        if (v.__comp?.component?.reviewVisible !== true) {
+      // If component is invalid, skip all visibility checks and show it
+      if (!isInvalid) {
+        if (v.__comp?._visible == false || v.__comp?.type === 'datasource') {
           return '';
         }
-      }
-      
-      const isRequired = v.__comp?.component?.validate?.required === true;
-      const isReviewVisible = v.__comp?.component?.reviewVisible === true;
-      const isInvalid = isFieldInvalid(v.__comp, k, invalidFields) || invalidComponents.has(v.__comp);
-      
-      if (isRequired && !isInvalid && !isReviewVisible) {
-        return '';
-      }
-      
-      if (!isRequired && !isReviewVisible && !isAddressComponentRender) {
-        return '';
+        
+        if (v.__comp?.component?.hidden === true || v.__comp?.hidden === true) {
+          return '';
+        }
+        
+        if (v.__comp?.disabled === true || v.__comp?.component?.disabled === true) {
+          if (v.__comp?.component?.reviewVisible !== true) {
+            return '';
+          }
+        }
+        
+        const isRequired = v.__comp?.component?.validate?.required === true;
+        const isReviewVisible = v.__comp?.component?.reviewVisible === true;
+        
+        if (isRequired && !isReviewVisible) {
+          return '';
+        }
+        
+        if (!isRequired && !isReviewVisible && !isAddressComponentRender) {
+          return '';
+        }
       }
 
       if (v.__comp?.parent?.type === 'datamap') {
@@ -413,6 +458,21 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
       }
 
       if (v && v.__leaf) {
+        // For leaf nodes, check if the component's actual path matches an invalid field
+        // The leaf path might have extra segments (like .panel.panel1.) that aren't in the invalid field path
+        // Check the component's actual path, the rendered key, and also check by component key
+        const compPath = v.__comp?.path || v.__comp?.key || v.__comp?.component?.key;
+        const compKey = v.__comp?.key || v.__comp?.component?.key;
+        
+        // Check multiple path variations
+        const isInvalidByPath = isFieldInvalid(v.__comp, compPath, invalidFields) ||
+                                isFieldInvalid(v.__comp, k, invalidFields) ||
+                                isFieldInvalid(v.__comp, basePath ? `${basePath}.${k}` : k, invalidFields) ||
+                                invalidComponents.has(v.__comp) ||
+                                (compKey && invalidFields.has(compKey)) ||
+                                (compPath && invalidFields.has(compPath));
+        
+        // Always render leaf nodes - visibility is handled in renderLeafNode
         return renderLeafNode(v, k, depth, basePath, invalidFields, invalidComponents);
       }
 
@@ -435,20 +495,32 @@ function renderLeafNode(v, k, depth, basePath, invalidFields, invalidComponents 
   const isTagpadDot = (v.__comp?.type === 'tagpad') || (v.__comp?.parent?.type === 'tagpad');
   const isEmptyDatagrid = val && typeof val === 'object' && val._empty === true;
 
+  // Check if this component is invalid using multiple path variations
+  // The component's actual path might differ from the rendered path
+  // e.g., leaf path: "hardwareForm.data.dataGrid[0].panel.panel1.picOfSn4"
+  //      invalid field: "hardwareForm.data.dataGrid[0].picOfSn4"
+  const compPath = v.__comp?.path || v.__comp?.key || v.__comp?.component?.key;
+  const compKey = v.__comp?.key || v.__comp?.component?.key;
+  const fullPath = basePath ? `${basePath}.${k}` : k;
+  
+  // Check multiple path variations to catch invalid fields
+  // Use the component's actual path for matching
+  const invalidStyle = getInvalidStyle(v.__comp, compPath || fullPath, basePath, invalidFields, invalidComponents);
+
   if (isFormComponent) {
     return renderFormComponent(v, k, depth, basePath, invalidFields, invalidComponents);
   } else if (isEmptyDatagrid) {
-    return `<div idx="7" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields, invalidComponents)}">${v.__label || k}:</strong> <span style="font-style: italic; color: #666;">No data to display</span></div>`;
+    return `<div idx="7" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${invalidStyle}">${v.__label || k}:</strong> <span style="font-style: italic; color: #666;">No data to display</span></div>`;
   } else if (isTagpadDot) {
-    return `<div idx="5" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields, invalidComponents)}">${v.__label || k}:</strong> ${val}</div>`;
+    return `<div idx="5" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${invalidStyle}">${v.__label || k}:</strong> ${val}</div>`;
   } else if (val && typeof val === 'string' && val.includes('__TEXTAREA__')) {
     const textareaContent = val.replace(/__TEXTAREA__/g, '');
     return `<div idx="6" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc; display: flex; align-items: flex-start;">
-              <strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields, invalidComponents)}">${v.__label || k}:</strong>
+              <strong style="${invalidStyle}">${v.__label || k}:</strong>
               ${textareaContent}
             </div>`;
   } else {
-    return `<div idx="6" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields, invalidComponents)}">${v.__label || k}:</strong> ${val}</div>`;
+    return `<div idx="6" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${invalidStyle}">${v.__label || k}:</strong> ${val}</div>`;
   }
 }
 
@@ -732,14 +804,20 @@ function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, 
         if (cell.__leaf || (v?.__rows && v?.__rows?.length > 0)) {
           const val = firstLeafVal(cell);
           const cellPath = `${k}[${rowIdx}].${colKey}`;
+          // Check if this cell is invalid using the full path
+          const cellIsInvalid = isFieldInvalid(cell.__comp, cellPath, invalidFields) || 
+                               (cell.__comp && invalidComponents.has(cell.__comp)) ||
+                               invalidFields.has(cellPath);
+          const invalidStyle = getInvalidStyle(cell.__comp, cellPath, `${k}[${rowIdx}]`, invalidFields, invalidComponents);
+          
           if (val && typeof val === 'string' && val.includes('__TEXTAREA__')) {
             const textareaContent = val.replace(/__TEXTAREA__/g, '');
             cellContent = `<div idx="20" style="${padCol}">
-                            <strong style="${getInvalidStyle(cell.__comp, colKey, `${k}[${rowIdx}]`, invalidFields, invalidComponents)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong><br/>
+                            <strong style="${invalidStyle}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong><br/>
                             ${textareaContent}
                           </div>`;
           } else {
-            cellContent = `<div idx="21" style="${padCol}"><strong style="${getInvalidStyle(cell.__comp, colKey, `${k}[${rowIdx}]`, invalidFields, invalidComponents)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${val}</div>`;
+            cellContent = `<div idx="21" style="${padCol}"><strong style="${invalidStyle}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${val}</div>`;
           }
         } else {
           const hasChildren = cell?.__children && Object.keys(cell.__children).length > 0;
@@ -752,13 +830,19 @@ function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, 
           const hasNestedContent = nestedHtml && nestedHtml.trim().length > 0;
           
           const directVal = cell?.__value !== undefined ? formatValue(cell.__value, cell.__comp) : firstLeafVal(cell);
+          const cellPath = `${k}[${rowIdx}].${colKey}`;
+          // Check if this cell is invalid using the full path
+          const cellIsInvalid = isFieldInvalid(cell.__comp, cellPath, invalidFields) || 
+                               (cell.__comp && invalidComponents.has(cell.__comp)) ||
+                               invalidFields.has(cellPath);
+          const invalidStyle = getInvalidStyle(cell.__comp, cellPath, `${k}[${rowIdx}]`, invalidFields, invalidComponents);
           
           if (hasNestedContent) {
-            cellContent = `<div idx="23" style="${padCol}"><strong>${cell.__label || labelByKey.get(colKey) || colKey}:</strong></div>${nestedHtml}`;
+            cellContent = `<div idx="23" style="${padCol}"><strong style="${invalidStyle}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong></div>${nestedHtml}`;
           } else if (directVal) {
-            cellContent = `<div idx="22" style="${padCol}"><strong style="${getInvalidStyle(cell.__comp, colKey, `${k}[${rowIdx}]`, invalidFields, invalidComponents)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${directVal}</div>`;
+            cellContent = `<div idx="22" style="${padCol}"><strong style="${invalidStyle}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${directVal}</div>`;
           } else {
-            cellContent = `<div idx="24" style="${padCol}"><strong>${cell.__label || labelByKey.get(colKey) || colKey}:</strong></div>`;
+            cellContent = `<div idx="24" style="${padCol}"><strong style="${invalidStyle}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong></div>`;
           }
         }
         return `${cellContent}`;
@@ -770,18 +854,24 @@ function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, 
     } else {
       const onlyKey = orderedKeys[0];
       const cell = row.__children[onlyKey];
+      const cellPath = `${k}[${rowIdx}].${onlyKey}`;
+      // Check if this cell is invalid using the full path
+      const cellIsInvalid = isFieldInvalid(cell.__comp, cellPath, invalidFields) || 
+                           (cell.__comp && invalidComponents.has(cell.__comp)) ||
+                           invalidFields.has(cellPath);
+      const invalidStyle = getInvalidStyle(cell.__comp, cellPath, `${k}[${rowIdx}]`, invalidFields, invalidComponents);
       const val = cell?.__leaf ? firstLeafVal(cell) : null;
       const inner = cell?.__leaf
         ? (val && typeof val === 'string' && val.includes('__TEXTAREA__'))
           ? (() => {
               const textareaContent = val.replace(/__TEXTAREA__/g, '');
               return `<div idx="21" style="${padRow}">
-                       <strong style="${getInvalidStyle(cell.__comp, onlyKey, `${k}[${rowIdx}]`, invalidFields, invalidComponents)}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong><br/>
+                       <strong style="${invalidStyle}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong><br/>
                        ${textareaContent}
                      </div>`;
             })()
-          : `<div idx="21" style="${padRow}"><strong style="${getInvalidStyle(cell.__comp, onlyKey, `${k}[${rowIdx}]`, invalidFields, invalidComponents)}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong> ${val}</div>`
-        : renderNode(cell?.__children || {}, depth + 1, rootInstance, invalidFields, `${k}[${rowIdx}].${onlyKey}`, invalidComponents);
+          : `<div idx="21" style="${padRow}"><strong style="${invalidStyle}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong> ${val}</div>`
+        : renderNode(cell?.__children || {}, depth + 1, rootInstance, invalidFields, cellPath, invalidComponents);
       return `<li style="margin-left:0 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;', '')}"><strong style="${rowLabelStyle}">Row ${rowIdx + 1}:</strong>${inner}</li>`;
     }
   }).join('');
