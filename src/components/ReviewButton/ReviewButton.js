@@ -1394,46 +1394,58 @@ export default class ReviewButton extends FieldComponent {
     }, 300);
   }
   countVisibleErrors (invalidFields, invalidComponents){
-    var filteredInvalidFields = new Set();
-    let fieldErrorsCounter = 0;
-    let rowIndex = 0;
-    invalidComponents.forEach(comp => {
-      if( CONTAINER_TYPES.has(comp.component.type)){
-        const isRequired = comp?.component?.validate?.required === true;
-        const isReviewVisible = comp?.component?.reviewVisible === true;
-        if (!isRequired && !isReviewVisible) {
-          return ;
-        } else if ((isRequired || isReviewVisible) && comp.component?.type === 'datagrid' && comp.rows?.length === 0){
-          const index = invalidFields.findIndex(field => field.endsWith(comp.component?.key));
-          filteredInvalidFields.add(invalidFields[index]);
-          fieldErrorsCounter++;
-        }
-      } else {
-        if (comp.parent !== comp.root && CONTAINER_TYPES.has(comp.parent?.component?.type)){
-          const isRequired = comp?.parent?.component?.validate?.required === true;
-          const isReviewVisible = comp?.parent?.component?.reviewVisible === true;
-          if (!isRequired && !isReviewVisible) {
-            return;
-          }else{
-            if( comp.parent.component.type === 'datagrid'){
-              const index = invalidFields.findIndex(field => field.endsWith('['+rowIndex+'].'+comp.component?.key));
-              filteredInvalidFields.add(invalidFields[index]);
-              fieldErrorsCounter++;
-              rowIndex++;
-            }else{
-              const index = invalidFields.findIndex(field => field.endsWith(comp.component?.key));
-              filteredInvalidFields.add(invalidFields[index]);
-              fieldErrorsCounter++;
-            }
-          }
-        } else {
-          const index = invalidFields.findIndex(field => field.endsWith(comp.component?.key));
-          filteredInvalidFields.add(invalidFields[index]);
-          fieldErrorsCounter++;
+    // Count unique invalid field paths
+    // Only count actual field paths, not extracted field names
+    const uniqueErrorFields = new Set();
+    
+    // Normalize paths to remove duplicates and intermediate segments
+    const normalizePath = (p) => {
+      if (!p || typeof p !== 'string') return p;
+      return p.replace(/\.data\./g, '.')
+              .replace(/^data\./, '')
+              .replace(/^form\./, '')
+              .replace(/^submission\./, '')
+              .replace(/\.panel(\d*)\./g, '.')
+              .replace(/([^.]+)\.\1\./g, '$1.'); // Remove duplicate segments like "hardwareForm.hardwareForm"
+    };
+    
+    // Process invalid fields directly - each unique normalized path is one error
+    invalidFields.forEach(field => {
+      if (field && typeof field === 'string') {
+        const normalized = normalizePath(field);
+        if (normalized) {
+          uniqueErrorFields.add(normalized);
         }
       }
     });
-    return {filteredInvalidFields, fieldErrorsCounter};
+    
+    // Also check invalid components and add their paths (normalized)
+    invalidComponents.forEach(comp => {
+      if (comp && comp.path) {
+        const normalized = normalizePath(comp.path);
+        if (normalized) {
+          uniqueErrorFields.add(normalized);
+        }
+      } else if (comp && comp.component && comp.component.key) {
+        // Try to find the path in invalidFields that matches this component
+        const compKey = comp.component.key;
+        invalidFields.forEach(field => {
+          if (field && typeof field === 'string') {
+            const normalized = normalizePath(field);
+            if (normalized && (normalized.endsWith('.' + compKey) || normalized === compKey || normalized.endsWith('[' + compKey + ']'))) {
+              uniqueErrorFields.add(normalized);
+            }
+          }
+        });
+      }
+    });
+    
+    return {
+      uniqueErrorFields: Array.from(uniqueErrorFields),
+      uniqueErrorFieldsCount: uniqueErrorFields.size,
+      filteredInvalidFields: uniqueErrorFields,
+      fieldErrorsCounter: uniqueErrorFields.size
+    };
   }
 
   attach(element) {
@@ -1478,7 +1490,9 @@ export default class ReviewButton extends FieldComponent {
               }
 
               if (component.errors && component.errors.length > 0) {
-                const path = component.path || component.key;
+                // Trim trailing spaces from keys
+                const trimKey = (k) => typeof k === 'string' ? k.trimEnd() : k;
+                const path = trimKey(component.path || component.key || '');
                 
                 if (componentType === 'file') {
                   const isValid = validateFileComponentWithRelaxedRequired(component);
@@ -1498,7 +1512,9 @@ export default class ReviewButton extends FieldComponent {
                 }
                 
                 if (path) {
-                  invalidFields.add(path);
+                  // Trim trailing spaces from keys
+                  const trimKey = (k) => typeof k === 'string' ? k.trimEnd() : k;
+                  invalidFields.add(trimKey(path));
                   invalidComponents.add(component);
                 }
               }
@@ -1515,7 +1531,9 @@ export default class ReviewButton extends FieldComponent {
         
         if (validation && validation.invalidComponents) {
           validation.invalidComponents.forEach(invalidComp => {
-            const path = invalidComp.path || invalidComp.component?.path || invalidComp.component?.key;
+            // Trim trailing spaces from keys
+            const trimKey = (k) => typeof k === 'string' ? k.trimEnd() : k;
+            const path = trimKey(invalidComp.path || invalidComp.component?.path || invalidComp.component?.key || '');
             const component = invalidComp.component;
             if (path) {
               invalidFields.add(path);
@@ -1527,14 +1545,12 @@ export default class ReviewButton extends FieldComponent {
         }
         
         if (validation && validation.errors) {
+          // Trim trailing spaces from keys
+          const trimKey = (k) => typeof k === 'string' ? k.trimEnd() : k;
           Object.keys(validation.errors).forEach(errorPath => {
-            invalidFields.add(errorPath);
-            if (!errorPath.includes('[') && !errorPath.includes(']')) {
-              const fieldName = errorPath.split('.').pop();
-              if (fieldName) {
-                invalidFields.add(fieldName);
-              }
-            }
+            // Only add the full error path, not extracted field names
+            // This prevents duplicate counting
+            invalidFields.add(trimKey(errorPath));
           });
         }
 
@@ -1565,8 +1581,8 @@ export default class ReviewButton extends FieldComponent {
         console.log('=== End Review Data Map ===');
 
         const invalidData = this.countVisibleErrors(invalidFieldsArray, invalidComponents);
-        const filteredInvalidFields = invalidData.filteredInvalidFields;
-        const fieldErrorsCounter = invalidData.fieldErrorsCounter;
+        const filteredInvalidFields = invalidData.filteredInvalidFields || invalidData.uniqueErrorFields || new Set(invalidFieldsArray);
+        const fieldErrorsCounter = invalidData.uniqueErrorFieldsCount || invalidData.fieldErrorsCounter || 0;
 
         const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, this.root, filteredInvalidFields, invalidComponents);
 

@@ -498,7 +498,9 @@ export function firstLeafVal(n) {
 export function isFieldInvalid(comp, path, invalidFields) {
   if (!invalidFields || invalidFields.size === 0) return false;
 
-  const fieldPath = path || comp?.path || comp?.key || comp?.component?.key;
+  // Trim trailing spaces from keys
+  const trimKey = (k) => typeof k === 'string' ? k.trimEnd() : k;
+  const fieldPath = trimKey(path || comp?.path || comp?.key || comp?.component?.key || '');
   
   if (!fieldPath) return false;
 
@@ -634,11 +636,14 @@ export function getInvalidStyle(comp, path, basePath = '', invalidFields, invali
   }
   
   // Also check by component key if the component reference doesn't match
-  const compKey = comp?.key || comp?.component?.key;
+  // Trim trailing spaces from keys
+  const trimKey = (k) => typeof k === 'string' ? k.trimEnd() : k;
+  const compKey = trimKey(comp?.key || comp?.component?.key || '');
   if (compKey && invalidFields) {
     // Check if any invalid field ends with this component key
     for (const invalidField of invalidFields) {
-      if (invalidField.endsWith('.' + compKey) || invalidField === compKey) {
+      const trimmedInvalidField = trimKey(invalidField);
+      if (trimmedInvalidField.endsWith('.' + compKey) || trimmedInvalidField === compKey) {
         return 'background-color:rgb(255 123 123); border-radius: 3px;';
       }
     }
@@ -650,7 +655,7 @@ export function getInvalidStyle(comp, path, basePath = '', invalidFields, invali
   }
   
   // Also check component's actual path
-  const compPath = comp?.path || comp?.key || comp?.component?.key;
+  const compPath = trimKey(comp?.path || comp?.key || comp?.component?.key || '');
   if (compPath && compPath !== path && invalidFields && isFieldInvalid(comp, compPath, invalidFields)) {
     return 'background-color:rgb(255 123 123); border-radius: 3px;';
   }
