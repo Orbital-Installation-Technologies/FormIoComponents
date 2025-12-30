@@ -1,0 +1,65 @@
+name: Production
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+
+env:
+  AWS_REGION: us-east-1
+  BUNDLE_NAME: pr-${{ github.event.number }}-build-${{ github.run_number }}
+
+concurrency:
+  group: formio-pr-${{ github.event.number }}
+  cancel-in-progress: true 
+
+jobs:
+  build:
+    name: Build and Deploy Bundle
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "20"
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build Webpack Bundle
+        run: webpack --config ./webpack.prod.cjs --env buildNumber=${{ env.BUNDLE_NAME }}
+
+      - uses: jakejarvis/s3-sync-action@master
+        with:
+          args: --follow-symlinks
+        env:
+          AWS_S3_BUCKET: form-cdn.orbitalcustoms.com
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: "us-east-1"
+          SOURCE_DIR: "dist"
+          DEST_DIR: "components"
+
+  finalize:
+    name: Finalize
+    runs-on: ubuntu-latest
+    permissions: write-all
+    if: always()
+    needs:
+      - build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: PR Comment
+        if: github.event.action == 'opened' && github.actor != 'dependabot[bot]'
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          message: |
+            Latest Bundle name: ${{ env.BUNDLE_NAME }}
