@@ -1,4 +1,4 @@
-name: Production
+name: PR Bundle Deployment
 on:
   pull_request:
     types:
