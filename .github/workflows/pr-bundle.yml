@@ -48,7 +48,7 @@ jobs:
     name: Finalize
     runs-on: ubuntu-latest
     permissions: write-all
-    if: always()
+    if: success()
     needs:
       - build
     steps:
@@ -62,4 +62,4 @@ jobs:
         uses: thollander/actions-comment-pull-request@v3
         with:
           message: |
-            Latest Bundle name: ${{ env.BUNDLE_NAME }}
+            Latest Bundle name: components.${{ env.BUNDLE_NAME }}.js
