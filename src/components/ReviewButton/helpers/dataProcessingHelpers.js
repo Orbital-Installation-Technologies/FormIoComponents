@@ -6,12 +6,26 @@
 import { isContainerType, shouldFlattenContainer } from "./validationUtils.js";
 
 /**
+ * Trims trailing spaces from a key
+ */
+function trimKey(key) {
+  return typeof key === 'string' ? key.trimEnd() : key;
+}
+
+/**
+ * Gets a component key with trailing spaces trimmed
+ */
+function getComponentKey(comp) {
+  return trimKey(comp?.key || comp?.component?.key || '');
+}
+
+/**
  * Checks if a component is invalid based on the invalid fields set
  */
 function isComponentInvalid(comp, invalidFields) {
   if (!invalidFields || invalidFields.size === 0) return false;
   
-  const componentPath = comp.path || comp.key || comp.component?.key;
+  const componentPath = trimKey(comp.path || comp.key || comp.component?.key || '');
   if (!componentPath) return false;
   
   // Check exact path match
@@ -32,17 +46,62 @@ function isComponentInvalid(comp, invalidFields) {
     if (invalidFields.has(path)) return true;
   }
   
-  // For array fields, check if any invalid field matches the same array index and field name
+  // Normalize path by removing duplicate segments (e.g., "hardwareForm.hardwareForm" -> "hardwareForm")
+  const normalizePath = (p) => {
+    if (!p) return p;
+    let normalized = p;
+    const segments = normalized.split('.');
+    const deduped = [];
+    for (let i = 0; i < segments.length; i++) {
+      if (i === 0 || segments[i] !== segments[i-1]) {
+        deduped.push(segments[i]);
+      }
+    }
+    normalized = deduped.join('.');
+    normalized = normalized.replace(/^hardwareForm\.hardwareForm\./, 'hardwareForm.');
+    normalized = normalized.replace(/^form\.data\./, '');
+    normalized = normalized.replace(/^data\./, '');
+    return normalized;
+  };
+  
+  // For array fields (datagrid rows), check if any invalid field matches the same array index and field name
   if (componentPath.includes('[') && componentPath.includes(']')) {
     const fieldName = componentPath.split('.').pop();
     const arrayMatch = componentPath.match(/(\w+\[\d+\])/);
     
     if (arrayMatch) {
-      const arrayPart = arrayMatch[1];
+      const arrayPart = arrayMatch[1]; // e.g., "dataGrid[0]"
       
       for (const invalidField of invalidFields) {
-        if (invalidField.includes(arrayPart) && 
-            (invalidField.endsWith('.' + fieldName) || invalidField === fieldName)) {
+        // Normalize both paths
+        const normalizedComponentPath = normalizePath(componentPath);
+        const normalizedInvalidField = normalizePath(invalidField);
+        
+        // Check normalized paths
+        if (normalizedInvalidField === normalizedComponentPath) {
+          return true;
+        }
+        
+        // Check if invalid field contains the same array part and ends with the same field name
+        // This handles cases where componentPath has extra segments like ".panel.panel1."
+        if (invalidField.includes(arrayPart) && invalidField.endsWith('.' + fieldName)) {
+          // Also check if componentPath contains the array part and ends with the field name
+          if (componentPath.includes(arrayPart) && componentPath.endsWith('.' + fieldName)) {
+            return true;
+          }
+        }
+        
+        // Also check if invalid field is just the array part + field name
+        if (invalidField === `${arrayPart}.${fieldName}`) {
+          return true;
+        }
+        
+        // Extract the part after the array index from both paths
+        const componentPathAfterArray = componentPath.substring(componentPath.indexOf(arrayPart) + arrayPart.length);
+        const invalidFieldAfterArray = invalidField.substring(invalidField.indexOf(arrayPart) + arrayPart.length);
+        
+        // If both end with the same field name, they match (regardless of intermediate segments like .panel.panel1.)
+        if (componentPathAfterArray.endsWith('.' + fieldName) && invalidFieldAfterArray.endsWith('.' + fieldName)) {
           return true;
         }
       }
@@ -52,11 +111,26 @@ function isComponentInvalid(comp, invalidFields) {
     const fieldName = componentPath.split('.').pop();
     
     for (const invalidField of invalidFields) {
-      // Only match if the invalid field doesn't contain array notation
-      if (!invalidField.includes('[') && !invalidField.includes(']')) {
-        if (invalidField.endsWith('.' + fieldName) || invalidField === fieldName) {
-          return true;
-        }
+      // Normalize both paths
+      const normalizedComponentPath = normalizePath(componentPath);
+      const normalizedInvalidField = normalizePath(invalidField);
+      
+      // Check normalized paths
+      if (normalizedInvalidField === normalizedComponentPath) {
+        return true;
+      }
+      
+      // Check exact match
+      if (invalidField === componentPath || invalidField === fieldName) {
+        return true;
+      }
+      // Check if invalid field ends with this field name (for nested paths)
+      if (invalidField.endsWith('.' + fieldName)) {
+        return true;
+      }
+      // For array invalid fields, check if they end with this field name
+      if (invalidField.includes('[') && invalidField.includes(']') && invalidField.endsWith('.' + fieldName)) {
+        return true;
       }
     }
   }
@@ -70,12 +144,13 @@ function isComponentInvalid(comp, invalidFields) {
 export function findComponentByKey(root, targetKey, currentPath = '', parent = null) {
   if (!root || !targetKey) return null;
 
-  const currentKey = root.key || root.component?.key;
-  if (currentKey === targetKey) {
+  const currentKey = trimKey(root.key || root.component?.key || '');
+  const trimmedTargetKey = trimKey(targetKey);
+  if (currentKey === trimmedTargetKey) {
     return { component: root, path: currentPath, parent };
   }
 
-  const buildPath = (base, keyOrIndex) => base ? `${base}.${keyOrIndex}` : `${keyOrIndex}`;
+  const buildPath = (base, keyOrIndex) => base ? `${base}.${trimKey(keyOrIndex)}` : `${trimKey(keyOrIndex)}`;
 
   if (Array.isArray(root.components)) {
     for (const child of root.components) {
@@ -298,7 +373,15 @@ export async function collectReviewLeavesAndLabels(root, invalidFields = new Set
       .replace(/^form\./, '')
       .replace(/^submission\./, '')
       .replace(/(^|\.)data(\.|$)/g, '$1')
-      .replace(/\.data\./g, '.')
+      .replace(/\.data\./g, '.');
+    
+    // Remove duplicate form names (e.g., hardwareForm.hardwareForm -> hardwareForm)
+    // Handle multiple duplicates (e.g., hardwareForm.hardwareForm.hardwareForm -> hardwareForm)
+    while (normalized.match(/^([^.]+)\.\1(\.|$)/)) {
+      normalized = normalized.replace(/^([^.]+)\.\1(\.|$)/, '$1$2');
+    }
+    
+    normalized = normalized
       .replace(/^\d+\./, '')     // Remove leading array indices
       .replace(/\.\d+\./g, '.'); // Remove intermediate array indices
 
@@ -310,8 +393,24 @@ export async function collectReviewLeavesAndLabels(root, invalidFields = new Set
         normalized = `${basePath}${arrayPart}`;
       }
     }
-
-    return normalized;
+    
+    // Remove intermediate panel segments for deduplication
+    // e.g., hardwareForm.data.dataGrid[0].panel.panel1.picOfSn4 -> hardwareForm.data.dataGrid[0].picOfSn4
+    // This ensures paths with and without panel segments are treated as the same
+    const simplified = normalized.replace(/\.panel[^.]*\./g, '.').replace(/\.panel[^.]*$/, '');
+    
+    // Return the simplified version for deduplication, but we'll use the original normalized for structure
+    // Actually, let's use a more aggressive approach: if we have array notation, remove panel segments before the array part
+    if (normalized.includes('[')) {
+      const arrayMatch = normalized.match(/^(.+?)(\[\d+\].*)$/);
+      if (arrayMatch) {
+        const beforeArray = arrayMatch[1].replace(/\.panel[^.]*\./g, '.').replace(/\.panel[^.]*$/, '');
+        const arrayPart = arrayMatch[2].replace(/\.panel[^.]*\./g, '.').replace(/\.panel[^.]*$/, '');
+        return `${beforeArray}${arrayPart}`;
+      }
+    }
+    
+    return simplified;
   };
 
   const pushLeaf = (leaf) => {
@@ -371,34 +470,33 @@ export async function collectReviewLeavesAndLabels(root, invalidFields = new Set
     const isAddressComponentEarly = comp.component?.type === 'address' || comp.type === 'address';
     const isEditGridComponentEarly = comp.component?.type === 'editgrid' || comp.type === 'editgrid';
     
-    // New visibility logic:
-    // 1. If component is hidden, don't show it
-    // 2. If component is disabled, only show if marked review visible
-    // 3. If component is required, show it (will be filtered later based on validity)
-    // 4. If component is marked review visible, show it
-    // 5. Otherwise, don't show it
-    
-    if (comp?.component?.hidden === true || comp?.hidden === true) {
-      continue;
-    }
-    
-    if (comp?.disabled === true || comp?.component?.disabled === true) {
-      if (comp?.component?.reviewVisible !== true) {
-        continue;
-      }
-    }
-    
-    const isRequired = comp?.component?.validate?.required === true;
-    const isReviewVisible = comp?.component?.reviewVisible === true;
+    // Check if component is invalid FIRST - if invalid, always include it regardless of visibility
     const isInvalid = isComponentInvalid(comp, invalidFields);
     
-    // Show required fields only if they are invalid or marked review visible
-    if (isRequired && !isInvalid && !isReviewVisible) {
-      continue;
-    }
-    
-    if (!isRequired && !isReviewVisible && !isAddressComponentEarly && !isEditGridComponentEarly) {
-      continue;
+    // If component is invalid, skip all visibility checks and include it
+    if (!isInvalid) {
+      // Component is valid - apply visibility checks
+      if (comp?.component?.hidden === true || comp?.hidden === true) {
+        continue;
+      }
+      
+      if (comp?.disabled === true || comp?.component?.disabled === true) {
+        if (comp?.component?.reviewVisible !== true) {
+          continue;
+        }
+      }
+      
+      const isRequired = comp?.component?.validate?.required === true;
+      const isReviewVisible = comp?.component?.reviewVisible === true;
+      
+      // Show required fields only if they are marked review visible
+      if (isRequired && !isReviewVisible) {
+        continue;
+      }
+      
+      if (!isRequired && !isReviewVisible && !isAddressComponentEarly && !isEditGridComponentEarly) {
+        continue;
+      }
     }
 
     if (comp.type === 'button' || comp.component?.type === 'button') continue;
@@ -420,7 +518,7 @@ export async function collectReviewLeavesAndLabels(root, invalidFields = new Set
     }
 
     if (comp.component?.type === 'datagrid' || comp.component?.type === 'datatable') {
-      handleDataGridComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathMap, metaByPathMap, root);
+      handleDataGridComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathMap, metaByPathMap, root, invalidFields);
       continue;
     }
 
@@ -556,7 +654,7 @@ async function handleFormComponent(comp, safePath, topIndexFor, indexByPathMap, 
   }
 }
 
-function handleDataGridComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathMap, metaByPathMap, root) {
+function handleDataGridComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathMap, metaByPathMap, root, invalidFields = new Set()) {
   const gridPath = safePath(comp);
   indexByPathMap.set(gridPath, topIndexFor(comp));
 
@@ -864,6 +962,38 @@ function handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathM
 
   const isAddressComponentMain = comp.component?.type === 'address' || comp.type === 'address';
 
+  // Check if component is invalid FIRST - if invalid, always include it regardless of visibility
+  const isInvalid = isComponentInvalid(comp, invalidFields);
+
+  // If component is invalid, always push it to leaves
+  if (isInvalid) {
+    let componentValue;
+    if (isFormComponent) {
+      componentValue = comp.data || comp.submission?.data || comp.dataValue || {};
+    } else if (isPanelComponent || isContainerComponent) {
+      const customStructure = createCustomComponentForReview(comp, invalidFields);
+      componentValue = customStructure;
+    } else {
+      componentValue = ('getValue' in comp) ? comp.getValue() : comp.dataValue;
+    }
+
+    if (isAddressComponentMain) {
+      componentValue = comp.dataValue?.formattedPlace || "";
+    }
+
+    pushLeaf({
+      comp: comp,
+      path: trimKey(comp.__reviewPath || safePath(comp) || comp.key || ''),
+      label: comp.component?.label || trimKey(comp.key || ''),
+      value: componentValue,
+      formIndex: topIndexFor(comp),
+      customStructure: (isPanelComponent && !shouldFlattenContainer([comp.type, comp.component?.type])) || 
+                       (isContainerComponent && !shouldFlattenContainer([comp.type, comp.component?.type])) ? true : false
+    });
+    return; // Exit early for invalid components - they're already added
+  }
+
+  // Original visibility check for valid components
   if (
     !parentIsHandled &&
     !isContentComponent &&
@@ -893,8 +1023,8 @@ function handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathM
 
     pushLeaf({
       comp: comp,
-      path: comp.__reviewPath || safePath(comp) || comp.key,
-      label: comp.component?.label || comp.key,
+      path: trimKey(comp.__reviewPath || safePath(comp) || comp.key || ''),
+      label: comp.component?.label || trimKey(comp.key || ''),
       value: componentValue,
       formIndex: topIndexFor(comp),
       customStructure: (isPanelComponent && !shouldFlattenContainer([comp.type, comp.component?.type])) || 

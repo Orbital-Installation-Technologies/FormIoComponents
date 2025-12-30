@@ -498,7 +498,9 @@ export function firstLeafVal(n) {
 export function isFieldInvalid(comp, path, invalidFields) {
   if (!invalidFields || invalidFields.size === 0) return false;
 
-  const fieldPath = path || comp?.path || comp?.key || comp?.component?.key;
+  // Trim trailing spaces from keys
+  const trimKey = (k) => typeof k === 'string' ? k.trimEnd() : k;
+  const fieldPath = trimKey(path || comp?.path || comp?.key || comp?.component?.key || '');
   
   if (!fieldPath) return false;
 
@@ -527,14 +529,74 @@ export function isFieldInvalid(comp, path, invalidFields) {
     const arrayMatch = fieldPath.match(/(\w+\[\d+\])/);
     
     if (arrayMatch) {
-      const arrayPart = arrayMatch[1];
+      const arrayPart = arrayMatch[1]; // e.g., "dataGrid[0]"
       
       for (const invalidField of invalidFields) {
+        // Exact match
         if (invalidField === fieldPath) {
           return true;
         }
-        if (invalidField.includes(arrayPart) && invalidField.endsWith('.' + fieldName)) {
+        
+        // Normalize paths by removing duplicate segments and extra prefixes
+        const normalizePath = (p) => {
+          // Remove duplicate segments like "hardwareForm.hardwareForm" -> "hardwareForm"
+          let normalized = p;
+          const segments = normalized.split('.');
+          const deduped = [];
+          for (let i = 0; i < segments.length; i++) {
+            if (i === 0 || segments[i] !== segments[i-1]) {
+              deduped.push(segments[i]);
+            }
+          }
+          normalized = deduped.join('.');
+          // Remove common prefixes
+          normalized = normalized.replace(/^hardwareForm\.hardwareForm\./, 'hardwareForm.');
+          normalized = normalized.replace(/^form\.data\./, '');
+          normalized = normalized.replace(/^data\./, '');
+          return normalized;
+        };
+        
+        const normalizedFieldPath = normalizePath(fieldPath);
+        const normalizedInvalidField = normalizePath(invalidField);
+        
+        // Check normalized paths
+        if (normalizedInvalidField === normalizedFieldPath) {
           return true;
+        }
+        
+        // Check if invalid field contains the same array part and ends with the same field name
+        // This handles cases where the fieldPath has extra segments like ".panel.panel1."
+        // e.g., fieldPath = "hardwareForm.data.dataGrid[0].panel.panel1.picOfSn4"
+        //      invalidField = "hardwareForm.data.dataGrid[0].picOfSn4"
+        if (invalidField.includes(arrayPart) && invalidField.endsWith('.' + fieldName)) {
+          // Also check if fieldPath contains the array part and ends with the field name
+          if (fieldPath.includes(arrayPart) && fieldPath.endsWith('.' + fieldName)) {
+            return true;
+          }
+        }
+        
+        // Also check if invalid field is just the array part + field name
+        if (invalidField === `${arrayPart}.${fieldName}`) {
+          return true;
+        }
+        
+        // Extract the part after the array index from both paths and compare
+        // e.g., fieldPath = "hardwareForm.data.dataGrid[0].panel.panel1.picOfSn4"
+        //      invalidField = "hardwareForm.data.dataGrid[0].picOfSn4"
+        const fieldPathAfterArray = fieldPath.substring(fieldPath.indexOf(arrayPart) + arrayPart.length);
+        const invalidFieldAfterArray = invalidField.substring(invalidField.indexOf(arrayPart) + arrayPart.length);
+        
+        // If both end with the same field name, they match (regardless of intermediate segments)
+        if (fieldPathAfterArray.endsWith('.' + fieldName) && invalidFieldAfterArray.endsWith('.' + fieldName)) {
+          return true;
+        }
+        
+        // Also check if the field name matches directly (for deeply nested components)
+        if (fieldPath.endsWith('.' + fieldName) && invalidField.endsWith('.' + fieldName)) {
+          // Check if they share the same array part
+          if (fieldPath.includes(arrayPart) && invalidField.includes(arrayPart)) {
+            return true;
+          }
         }
       }
     }
@@ -550,6 +612,10 @@ export function isFieldInvalid(comp, path, invalidFields) {
           return true;
         }
       }
+      // For array invalid fields, check if they end with this field name
+      if (invalidField.includes('[') && invalidField.includes(']') && invalidField.endsWith('.' + fieldName)) {
+        return true;
+      }
     }
   }
 
@@ -564,11 +630,33 @@ export function getInvalidStyle(comp, path, basePath = '', invalidFields, invali
     return '';
   }
 
+  // Check by component reference first
   if (invalidComponents && invalidComponents.has(comp)) {
     return 'background-color:rgb(255 123 123); border-radius: 3px;';
   }
+  
+  // Also check by component key if the component reference doesn't match
+  // Trim trailing spaces from keys
+  const trimKey = (k) => typeof k === 'string' ? k.trimEnd() : k;
+  const compKey = trimKey(comp?.key || comp?.component?.key || '');
+  if (compKey && invalidFields) {
+    // Check if any invalid field ends with this component key
+    for (const invalidField of invalidFields) {
+      const trimmedInvalidField = trimKey(invalidField);
+      if (trimmedInvalidField.endsWith('.' + compKey) || trimmedInvalidField === compKey) {
+        return 'background-color:rgb(255 123 123); border-radius: 3px;';
+      }
+    }
+  }
 
+  // Check by path
   if (invalidFields && isFieldInvalid(comp, path, invalidFields)) {
+    return 'background-color:rgb(255 123 123); border-radius: 3px;';
+  }
+  
+  // Also check component's actual path
+  const compPath = trimKey(comp?.path || comp?.key || comp?.component?.key || '');
+  if (compPath && compPath !== path && invalidFields && isFieldInvalid(comp, compPath, invalidFields)) {
     return 'background-color:rgb(255 123 123); border-radius: 3px;';
   }
 

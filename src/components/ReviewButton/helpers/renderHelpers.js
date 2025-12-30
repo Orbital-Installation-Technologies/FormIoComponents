@@ -29,31 +29,36 @@ function renderNode(node, depth = 0, rootInstance = null, invalidFields = new Se
 
   return sortedEntries.map(([k, v], index) => {
     const isAddressComponentRender = v.__comp?.component?.type === 'address' || v.__comp?.type === 'address';
-
-    if (v.__comp?._visible == false || v.__comp?.type === 'datasource') {
-      return '';
-    }
     
-    if (v.__comp?.component?.hidden === true || v.__comp?.hidden === true) {
-      return '';
-    }
+    // Check if component is invalid FIRST - if invalid, always show it regardless of visibility
+    const isInvalid = isFieldInvalid(v.__comp, k, invalidFields) || invalidComponents.has(v.__comp);
     
-    if (v.__comp?.disabled === true || v.__comp?.component?.disabled === true) {
-      if (v.__comp?.component?.reviewVisible !== true) {
+    // If component is invalid, skip all visibility checks and show it
+    if (!isInvalid) {
+      if (v.__comp?._visible == false || v.__comp?.type === 'datasource') {
         return '';
       }
-    }
-    
-    const isRequired = v.__comp?.component?.validate?.required === true;
-    const isReviewVisible = v.__comp?.component?.reviewVisible === true;
-      const isInvalid = isFieldInvalid(v.__comp, k, invalidFields) || invalidComponents.has(v.__comp);
-    
-    if (isRequired && !isInvalid && !isReviewVisible) {
-      return '';
-    }
-    
-    if (!isRequired && !isReviewVisible && !isAddressComponentRender) {
-      return '';
+      
+      if (v.__comp?.component?.hidden === true || v.__comp?.hidden === true) {
+        return '';
+      }
+      
+      if (v.__comp?.disabled === true || v.__comp?.component?.disabled === true) {
+        if (v.__comp?.component?.reviewVisible !== true) {
+          return '';
+        }
+      }
+      
+      const isRequired = v.__comp?.component?.validate?.required === true;
+      const isReviewVisible = v.__comp?.component?.reviewVisible === true;
+      
+      if (isRequired && !isReviewVisible) {
+        return '';
+      }
+      
+      if (!isRequired && !isReviewVisible && !isAddressComponentRender) {
+        return '';
+      }
     }
 
     if (v.__comp?.parent?.type === 'datamap') {
@@ -142,6 +147,7 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
     return 0;
   });
 
+  // Reset root on each render to prevent duplicate rows on subsequent loads
   const root = {};
   const ensureNode = (obj, k, compRef) => {
     if (obj == null) {
@@ -195,7 +201,12 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
     }
   }
 
+  // Reset processed paths on each render to prevent duplicates
+  // Use a fresh Set on each call to ensure no state persists between modal opens
   const processedTreePaths = new Set();
+  
+  // Track which row paths have been processed to prevent duplicate row structures
+  const processedRowPaths = new Set();
 
   const isParentComponent = (comp) => {
     return isContainerType([comp?.type, comp?.component?.type], ['table']) &&
@@ -214,21 +225,33 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
   }
 
   for (const { path, label, value, comp, formIndex } of sortedLeaves) {
-    const normalizedPath = path.replace(/\.data\./g, '.')
+    // Normalize path: remove duplicate form names, data segments, etc.
+    let normalizedPath = path.replace(/\.data\./g, '.')
       .replace(/^data\./, '')
       .replace(/^form\./, '')
       .replace(/^submission\./, '');
-
-    if (processedTreePaths.has(normalizedPath)) {
+    
+    // Remove duplicate form names (e.g., hardwareForm.hardwareForm -> hardwareForm)
+    normalizedPath = normalizedPath.replace(/^([^.]+)\.\1(\.|$)/, '$1$2');
+    
+    // Remove intermediate panel segments for matching purposes
+    // e.g., hardwareForm.data.dataGrid[0].panel.panel1.picOfSn4 -> hardwareForm.data.dataGrid[0].picOfSn4
+    const pathForMatching = normalizedPath.replace(/\.panel[^.]*\./g, '.').replace(/\.panel[^.]*$/, '');
+    
+    // Check both the full normalized path and the simplified path for matching
+    if (processedTreePaths.has(normalizedPath) || processedTreePaths.has(pathForMatching)) {
       continue;
     }
 
     const isPanelComponent = isParentComponent(comp);
     if (isPanelComponent) {
       panelPaths.add(normalizedPath);
+      panelPaths.add(pathForMatching);
     }
 
+    // Add both the full path and simplified path to prevent duplicates
     processedTreePaths.add(normalizedPath);
+    processedTreePaths.add(pathForMatching);
 
     let isChildOfPanel = false;
     let parentPanelPath = '';
@@ -252,6 +275,9 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
     let ptr = root;
     let containerPath = '';
 
+    // Track if we're inside a datagrid row (have seen array notation)
+    let isInsideDatagridRowContext = false;
+    
     for (let i = 0; i < parts.length; i++) {
       const seg = parts[i];
       if (!seg) {
@@ -263,6 +289,11 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
 
       if (!key) {
         continue;
+      }
+
+      // Check if we've seen array notation earlier - if so, we're inside a datagrid row
+      if (idxMatch) {
+        isInsideDatagridRowContext = true;
       }
 
       containerPath = containerPath ? `${containerPath}.${key}` : key;
@@ -284,26 +315,85 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
 
         if (idxMatch) {
           const idx = Number(idxMatch[1]);
-          if (!node.__rows) node.__rows = {};
-          node.__rows[idx] ??= { __children: {}, __comp: comp };
-          ptr = node.__rows[idx].__children;
+          // Check if we're inside a panel/well that's nested in a datagrid row
+          // If so, don't create rows - use children instead
+          const isPanelOrWellNode = node.__comp?.component?.type === 'panel' || node.__comp?.type === 'panel' ||
+                                    node.__comp?.component?.type === 'well' || node.__comp?.type === 'well' ||
+                                    comp?.component?.type === 'panel' || comp?.type === 'panel' ||
+                                    comp?.component?.type === 'well' || comp?.type === 'well';
+          
+          // Create a unique path key to prevent duplicate processing
+          const rowPathKey = `${containerPath}[${idx}]`;
+          
+          // CRITICAL: If we've seen array notation earlier in the path, we're inside a datagrid row
+          // In that case, panels/wells should NEVER create rows - always use __children
+          // Also check if the current key is "panel" or "well" - these should never create rows when inside datagrid
+          const isPanelOrWellKey = key === 'panel' || key === 'well' || 
+                                   key.includes('panel') || key.includes('well');
+          
+          // ALWAYS prevent panels/wells from creating rows when inside datagrid context
+          if ((isPanelOrWellNode || isPanelOrWellKey) && isInsideDatagridRowContext) {
+            // Use __children instead of __rows for panels inside datagrid rows
+            // This prevents duplicate "Row 1:" labels
+            if (!node.__children) node.__children = {};
+            // For panels/wells inside datagrid rows, don't use array notation - just use the key directly
+            // This ensures panels are treated as direct children, not as rows
+            if (!node.__children[key]) {
+              node.__children[key] = { 
+                __children: {}, 
+                __rows: {}, // Always empty - make it non-writable
+                __comp: comp 
+              };
+              // Make __rows non-writable to prevent any row structure from being created
+              Object.defineProperty(node.__children[key], '__rows', {
+                value: {},
+                writable: false,
+                enumerable: true,
+                configurable: false
+              });
+            }
+            ptr = node.__children[key].__children;
+          } else {
+            // Only create rows for actual datagrid rows, not for panels/wells
+            // Only create rows if we haven't processed this path before
+            // This prevents duplicate row structures on subsequent modal opens
+            if (!processedRowPaths.has(rowPathKey)) {
+              processedRowPaths.add(rowPathKey);
+              if (!node.__rows) node.__rows = {};
+              node.__rows[idx] ??= { __children: {}, __comp: comp };
+            }
+            ptr = node.__rows[idx]?.__children || {};
+          }
         } else if (i === parts.length - 1) {
           const isWellComponent = comp?.component?.type === 'well' || comp?.type === 'well';
 
           if (isPanelComponent || isWellComponent) {
-            ptr[key] = {
+            // If inside a datagrid row context, NEVER create __rows structure - only use __children
+            // This prevents panels from creating duplicate "Row 1:" labels
+            const panelNode = {
               __leaf: false,
               __label: label || key,
               __value: value,
               __comp: comp,
               __formIndex: formIndex,
               __children: {},
-              __rows: {},
+              __rows: {}, // Always empty for panels inside datagrid rows
               __suppress: false,
               __kind: comp.type,
               __colKeys: null,
               __colLabels: null
             };
+            // If inside datagrid row context, ensure __rows stays empty and never gets populated
+            if (isInsideDatagridRowContext) {
+              // Prevent any row structure from being created - make it non-writable
+              Object.defineProperty(panelNode, '__rows', {
+                value: {},
+                writable: false,
+                enumerable: true,
+                configurable: false
+              });
+            }
+            ptr[key] = panelNode;
           } else {
             let labelData = label || key
             if(comp?.parent?.type === 'datamap') {
@@ -319,13 +409,44 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
             };
           }
         } else {
-          if (!node.__children) node.__children = {};
-          Object.keys(node.__children).forEach(childKey => {
-            if (node.__children[childKey] && !node.__children[childKey].__comp) {
-              node.__children[childKey].__comp = comp;
+          // For intermediate segments (not the last one, and no array notation)
+          // If we're inside a datagrid row context and this is a panel/well, ensure it uses __children
+          const isPanelOrWellKey = key === 'panel' || key === 'well' || 
+                                   key.includes('panel') || key.includes('well');
+          const isPanelOrWellComp = comp?.component?.type === 'panel' || comp?.type === 'panel' ||
+                                    comp?.component?.type === 'well' || comp?.type === 'well';
+          
+          if (isInsideDatagridRowContext && (isPanelOrWellKey || isPanelOrWellComp)) {
+            // Inside datagrid row, panels/wells should always use __children, never __rows
+            if (!node.__children) node.__children = {};
+            if (!node.__children[key]) {
+              node.__children[key] = {
+                __children: {},
+                __rows: {}, // Always empty for panels inside datagrid rows
+                __comp: comp,
+                __label: null,
+                __suppress: false,
+                __kind: comp?.type,
+                __formIndex: -1
+              };
+              // Make __rows non-writable to prevent accidental population
+              Object.defineProperty(node.__children[key], '__rows', {
+                value: {},
+                writable: false,
+                enumerable: true,
+                configurable: false
+              });
             }
-          });
-          ptr = node.__children;
+            ptr = node.__children[key].__children;
+          } else {
+            if (!node.__children) node.__children = {};
+            Object.keys(node.__children).forEach(childKey => {
+              if (node.__children[childKey] && !node.__children[childKey].__comp) {
+                node.__children[childKey].__comp = comp;
+              }
+            });
+            ptr = node.__children;
+          }
         }
         if ((comp?.component?.type === 'datamap' || comp?.parent.type === 'datamap')) {
           if(ptr && ptr[key] && ptr[key].__comp) {
@@ -346,7 +467,7 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
     }
   }
 
-  function renderNode(node, depth = 0, rootInstance = null, invalidFields = new Set(), basePath = '', invalidComponents = new Set()) {
+  function renderNode(node, depth = 0, rootInstance = null, invalidFields = new Set(), basePath = '', invalidComponents = new Set(), isInsideDatagridRow = false) {
     let pad = `padding-left:10px; border-left:1px dotted #ccc;`;
 
     const sortedEntries = Object.entries(node).sort((a, b) => {
@@ -365,31 +486,73 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
 
     return sortedEntries.map(([k, v], index) => {
       const isAddressComponentRender = v.__comp?.component?.type === 'address' || v.__comp?.type === 'address';
-
-      if (v.__comp?._visible == false || v.__comp?.type === 'datasource') {
-        return '';
+      
+      // Check if component is invalid FIRST - if invalid, always show it regardless of visibility
+      // Use the component's actual path, not just the key, for better matching
+      // Trim trailing spaces from keys
+      const trimKey = (k) => typeof k === 'string' ? k.trimEnd() : k;
+      const compPath = trimKey(v.__comp?.path || v.__comp?.key || v.__comp?.component?.key || '');
+      const compKey = trimKey(v.__comp?.key || v.__comp?.component?.key || '');
+      const fullPath = basePath ? `${basePath}.${trimKey(k)}` : trimKey(k);
+      
+      // Check multiple path variations and component reference
+      const isInvalidByPath = isFieldInvalid(v.__comp, compPath, invalidFields);
+      const isInvalidByFullPath = isFieldInvalid(v.__comp, fullPath, invalidFields);
+      const isInvalidByKey = isFieldInvalid(v.__comp, k, invalidFields);
+      const isInvalidByComponent = invalidComponents.has(v.__comp);
+      const isInvalidByCompKey = compKey && invalidFields.has(compKey);
+      const isInvalidByCompPath = compPath && invalidFields.has(compPath);
+      
+      const isInvalid = isInvalidByPath || isInvalidByFullPath || isInvalidByKey || 
+                        isInvalidByComponent || isInvalidByCompKey || isInvalidByCompPath;
+      
+      // Debug logging for picOfSn components
+      if (compKey && (compKey.includes('picOfSn') || compPath?.includes('picOfSn'))) {
+        console.log(`[renderNode] Checking ${compKey}:`, {
+          k,
+          compPath,
+          compKey,
+          fullPath,
+          basePath,
+          isInvalidByPath,
+          isInvalidByFullPath,
+          isInvalidByKey,
+          isInvalidByComponent,
+          isInvalidByCompKey,
+          isInvalidByCompPath,
+          isInvalid,
+          invalidFields: Array.from(invalidFields),
+          inInvalidComponents: invalidComponents.has(v.__comp),
+          compRef: v.__comp
+        });
       }
       
-      if (v.__comp?.component?.hidden === true || v.__comp?.hidden === true) {
-        return '';
-      }
-      
-      if (v.__comp?.disabled === true || v.__comp?.component?.disabled === true) {
-        if (v.__comp?.component?.reviewVisible !== true) {
+      // If component is invalid, skip all visibility checks and show it
+      if (!isInvalid) {
+        if (v.__comp?._visible == false || v.__comp?.type === 'datasource') {
           return '';
         }
-      }
-      
-      const isRequired = v.__comp?.component?.validate?.required === true;
-      const isReviewVisible = v.__comp?.component?.reviewVisible === true;
-      const isInvalid = isFieldInvalid(v.__comp, k, invalidFields) || invalidComponents.has(v.__comp);
-      
-      if (isRequired && !isInvalid && !isReviewVisible) {
-        return '';
-      }
-      
-      if (!isRequired && !isReviewVisible && !isAddressComponentRender) {
-        return '';
+        
+        if (v.__comp?.component?.hidden === true || v.__comp?.hidden === true) {
+          return '';
+        }
+        
+        if (v.__comp?.disabled === true || v.__comp?.component?.disabled === true) {
+          if (v.__comp?.component?.reviewVisible !== true) {
+            return '';
+          }
+        }
+        
+        const isRequired = v.__comp?.component?.validate?.required === true;
+        const isReviewVisible = v.__comp?.component?.reviewVisible === true;
+        
+        if (isRequired && !isReviewVisible) {
+          return '';
+        }
+        
+        if (!isRequired && !isReviewVisible && !isAddressComponentRender) {
+          return '';
+        }
       }
 
       if (v.__comp?.parent?.type === 'datamap') {
@@ -409,14 +572,47 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
       }
 
       if (/^\d+\]$/.test(k) || v?.__comp == undefined) {
-        return v && typeof v === 'object' ? renderNode(v.__children || {}, depth, rootInstance, invalidFields, basePath, invalidComponents) : '';
+        return v && typeof v === 'object' ? renderNode(v.__children || {}, depth, rootInstance, invalidFields, basePath, invalidComponents, isInsideDatagridRow) : '';
       }
 
       if (v && v.__leaf) {
+        // For leaf nodes, check if the component's actual path matches an invalid field
+        // The leaf path might have extra segments (like .panel.panel1.) that aren't in the invalid field path
+        // Check the component's actual path, the rendered key, and also check by component key
+        // Trim trailing spaces from keys
+        const trimKey = (k) => typeof k === 'string' ? k.trimEnd() : k;
+        const compPath = trimKey(v.__comp?.path || v.__comp?.key || v.__comp?.component?.key || '');
+        const compKey = trimKey(v.__comp?.key || v.__comp?.component?.key || '');
+        
+        // Check multiple path variations
+        const isInvalidByPath = isFieldInvalid(v.__comp, compPath, invalidFields) ||
+                                isFieldInvalid(v.__comp, k, invalidFields) ||
+                                isFieldInvalid(v.__comp, basePath ? `${basePath}.${k}` : k, invalidFields) ||
+                                invalidComponents.has(v.__comp) ||
+                                (compKey && invalidFields.has(compKey)) ||
+                                (compPath && invalidFields.has(compPath));
+        
+        // Always render leaf nodes - visibility is handled in renderLeafNode
         return renderLeafNode(v, k, depth, basePath, invalidFields, invalidComponents);
       }
 
       if (v && typeof v === 'object') {
+        // If we're inside a datagrid row and this container has rows, flatten it
+        // Also check if this is a panel/container that shouldn't create row labels
+        if (isInsideDatagridRow && v.__rows && Object.keys(v.__rows).length > 0) {
+          // Flatten the rows - render children directly without row labels
+          const flattenedContent = Object.entries(v.__rows).map(([i, r]) => {
+            const hasChildren = r.__children && Object.keys(r.__children).length;
+            return hasChildren
+              ? renderNode(r.__children, depth, rootInstance, invalidFields, `${basePath ? basePath + '.' : ''}${k}[${i}]`, invalidComponents, true)
+              : '';
+          }).join('');
+          return flattenedContent;
+        }
+        // If inside datagrid row and container has children but no rows, render children directly
+        if (isInsideDatagridRow && v.__children && Object.keys(v.__children).length > 0 && (!v.__rows || Object.keys(v.__rows).length === 0)) {
+          return renderNode(v.__children, depth, rootInstance, invalidFields, basePath ? `${basePath}.${k}` : k, invalidComponents, true);
+        }
         return renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath, pad, invalidComponents);
       }
       return '';
@@ -435,20 +631,34 @@ function renderLeafNode(v, k, depth, basePath, invalidFields, invalidComponents 
   const isTagpadDot = (v.__comp?.type === 'tagpad') || (v.__comp?.parent?.type === 'tagpad');
   const isEmptyDatagrid = val && typeof val === 'object' && val._empty === true;
 
+  // Check if this component is invalid using multiple path variations
+  // The component's actual path might differ from the rendered path
+  // e.g., leaf path: "hardwareForm.data.dataGrid[0].panel.panel1.picOfSn4"
+  //      invalid field: "hardwareForm.data.dataGrid[0].picOfSn4"
+  // Trim trailing spaces from keys
+  const trimKey = (k) => typeof k === 'string' ? k.trimEnd() : k;
+  const compPath = trimKey(v.__comp?.path || v.__comp?.key || v.__comp?.component?.key || '');
+  const compKey = trimKey(v.__comp?.key || v.__comp?.component?.key || '');
+  const fullPath = basePath ? `${basePath}.${trimKey(k)}` : trimKey(k);
+  
+  // Check multiple path variations to catch invalid fields
+  // Use the component's actual path for matching
+  const invalidStyle = getInvalidStyle(v.__comp, compPath || fullPath, basePath, invalidFields, invalidComponents);
+
   if (isFormComponent) {
     return renderFormComponent(v, k, depth, basePath, invalidFields, invalidComponents);
   } else if (isEmptyDatagrid) {
-    return `<div idx="7" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields, invalidComponents)}">${v.__label || k}:</strong> <span style="font-style: italic; color: #666;">No data to display</span></div>`;
+    return `<div idx="7" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${invalidStyle}">${v.__label || k}:</strong> <span style="font-style: italic; color: #666;">No data to display</span></div>`;
   } else if (isTagpadDot) {
-    return `<div idx="5" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields, invalidComponents)}">${v.__label || k}:</strong> ${val}</div>`;
+    return `<div idx="5" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${invalidStyle}">${v.__label || k}:</strong> ${val}</div>`;
   } else if (val && typeof val === 'string' && val.includes('__TEXTAREA__')) {
     const textareaContent = val.replace(/__TEXTAREA__/g, '');
     return `<div idx="6" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc; display: flex; align-items: flex-start;">
-              <strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields, invalidComponents)}">${v.__label || k}:</strong>
+              <strong style="${invalidStyle}">${v.__label || k}:</strong>
               ${textareaContent}
             </div>`;
   } else {
-    return `<div idx="6" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields, invalidComponents)}">${v.__label || k}:</strong> ${val}</div>`;
+    return `<div idx="6" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${invalidStyle}">${v.__label || k}:</strong> ${val}</div>`;
   }
 }
 
@@ -542,8 +752,45 @@ function renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath,
     return `${header}<div style="margin-bottom:10px;"><strong>${displayLabel}</strong></div><div style="font-style: italic; color: #666;">No data to display</div></div>`;
   }
 
+  // Check if this container is nested inside a datagrid row - if so, don't create row labels
+  const isNestedInDatagrid = basePath && (basePath.includes('[0]') || basePath.includes('[1]') || basePath.includes('[2]') || basePath.match(/\[\d+\]/));
+  
+  // If nested in datagrid and has rows, ALWAYS flatten - never create row labels
+  // Also check if this is a panel/well component - they should NEVER create rows when nested in datagrid
+  const isPanelOrWell = v.__comp?.component?.type === 'panel' || v.__comp?.type === 'panel' ||
+                        v.__comp?.component?.type === 'well' || v.__comp?.type === 'well';
+  // Panels/wells inside datagrid rows should ALWAYS flatten, even if they somehow have rows
+  const shouldFlattenRows = isNestedInDatagrid || (isPanelOrWell && isNestedInDatagrid);
+  
+  // CRITICAL: If this is a panel/well and we're inside a datagrid row, NEVER render rows
+  // Force flatten even if hasRows is true - this prevents duplicate "Row 1:" labels
+  if (isPanelOrWell && isNestedInDatagrid && hasRows) {
+    // Flatten immediately - don't create row labels
+    // Merge all row children into a single flat structure
+    const allFlattenedChildren = {};
+    Object.entries(v.__rows).forEach(([i, r]) => {
+      if (r.__children) {
+        Object.assign(allFlattenedChildren, r.__children);
+      }
+    });
+    // Also include direct children if any
+    if (v.__children) {
+      Object.assign(allFlattenedChildren, v.__children);
+    }
+    // Render all children directly without row labels
+    const flattenedContent = Object.keys(allFlattenedChildren).length > 0
+      ? renderNode(allFlattenedChildren, depth, rootInstance, invalidFields, basePath ? `${basePath}.${k}` : k, invalidComponents, true)
+      : '';
+    return `${header}${flattenedContent}</div>`;
+  }
+  
+  // Also check: if panel/well is nested and has children but no rows, render children directly
+  if (isPanelOrWell && isNestedInDatagrid && !hasRows && hasChildren) {
+    return `${header}${renderNode(v.__children, depth, rootInstance, invalidFields, basePath ? `${basePath}.${k}` : k, invalidComponents, true)}</div>`;
+  }
+  
   const childrenHtml = [
-    hasRows
+    hasRows && !shouldFlattenRows
       ? `<ul style="list-style-type:circle; padding-left:30px; margin:0; border-left:1px dotted #ccc;">${(() => {
         return Object.entries(v.__rows).map(([i, r]) => {
           const isTagpad = k === 'tagpad' ||
@@ -557,15 +804,27 @@ function renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath,
 
           const hasChildren = r.__children && Object.keys(r.__children).length;
           const content = hasChildren
-            ? renderNode(r.__children, depth + 1, rootInstance, invalidFields, `${basePath ? basePath + '.' : ''}${k}[${i}]`, invalidComponents)
+            ? renderNode(r.__children, depth + 1, rootInstance, invalidFields, `${basePath ? basePath + '.' : ''}${k}[${i}]`, invalidComponents, true)
             : ``;
 
           const rowClass = isTagpad ? 'tagpad-row' : 'data-row';
 
           return `<li class="${rowClass}" style="margin-left:0 !important; padding-left: 0 !important;"><strong style="${rowLabelStyle}">${rowLabel}:</strong>${content}</li>`;
         }).join('');
-      })()}</ul>` : '',
-    hasChildren ? renderNode(v.__children, depth + 1, rootInstance, invalidFields, basePath ? `${basePath}.${k}` : k, invalidComponents) : ''
+      })()}</ul>` : 
+    hasRows && shouldFlattenRows
+      ? (() => {
+          // Flatten nested rows - don't create row labels, just render children directly
+          // This prevents duplicate "Row 1:" labels when panels are nested in datagrid rows
+          const flattenedContent = Object.entries(v.__rows).map(([i, r]) => {
+            const hasChildren = r.__children && Object.keys(r.__children).length;
+            return hasChildren
+              ? renderNode(r.__children, depth, rootInstance, invalidFields, `${basePath ? basePath + '.' : ''}${k}[${i}]`, invalidComponents, true)
+              : '';
+          }).join('');
+          return flattenedContent;
+        })() : '',
+    hasChildren ? renderNode(v.__children, depth + 1, rootInstance, invalidFields, basePath ? `${basePath}.${k}` : k, invalidComponents, shouldFlattenRows || isNestedInDatagrid) : ''
   ].join('');
   return `${header}${childrenHtml}</div>`;
 }
@@ -732,33 +991,45 @@ function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, 
         if (cell.__leaf || (v?.__rows && v?.__rows?.length > 0)) {
           const val = firstLeafVal(cell);
           const cellPath = `${k}[${rowIdx}].${colKey}`;
+          // Check if this cell is invalid using the full path
+          const cellIsInvalid = isFieldInvalid(cell.__comp, cellPath, invalidFields) || 
+                               (cell.__comp && invalidComponents.has(cell.__comp)) ||
+                               invalidFields.has(cellPath);
+          const invalidStyle = getInvalidStyle(cell.__comp, cellPath, `${k}[${rowIdx}]`, invalidFields, invalidComponents);
+          
           if (val && typeof val === 'string' && val.includes('__TEXTAREA__')) {
             const textareaContent = val.replace(/__TEXTAREA__/g, '');
             cellContent = `<div idx="20" style="${padCol}">
-                            <strong style="${getInvalidStyle(cell.__comp, colKey, `${k}[${rowIdx}]`, invalidFields, invalidComponents)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong><br/>
+                            <strong style="${invalidStyle}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong><br/>
                             ${textareaContent}
                           </div>`;
           } else {
-            cellContent = `<div idx="21" style="${padCol}"><strong style="${getInvalidStyle(cell.__comp, colKey, `${k}[${rowIdx}]`, invalidFields, invalidComponents)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${val}</div>`;
+            cellContent = `<div idx="21" style="${padCol}"><strong style="${invalidStyle}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${val}</div>`;
           }
         } else {
           const hasChildren = cell?.__children && Object.keys(cell.__children).length > 0;
           let nestedHtml = '';
           
           if (hasChildren) {
-            nestedHtml = renderNode(cell.__children, depth + 1, rootInstance, invalidFields, `${k}[${rowIdx}].${colKey}`, invalidComponents);
+            nestedHtml = renderNode(cell.__children, depth + 1, rootInstance, invalidFields, `${k}[${rowIdx}].${colKey}`, invalidComponents, true);
           }
           
           const hasNestedContent = nestedHtml && nestedHtml.trim().length > 0;
           
           const directVal = cell?.__value !== undefined ? formatValue(cell.__value, cell.__comp) : firstLeafVal(cell);
+          const cellPath = `${k}[${rowIdx}].${colKey}`;
+          // Check if this cell is invalid using the full path
+          const cellIsInvalid = isFieldInvalid(cell.__comp, cellPath, invalidFields) || 
+                               (cell.__comp && invalidComponents.has(cell.__comp)) ||
+                               invalidFields.has(cellPath);
+          const invalidStyle = getInvalidStyle(cell.__comp, cellPath, `${k}[${rowIdx}]`, invalidFields, invalidComponents);
           
           if (hasNestedContent) {
-            cellContent = `<div idx="23" style="${padCol}"><strong>${cell.__label || labelByKey.get(colKey) || colKey}:</strong></div>${nestedHtml}`;
+            cellContent = `<div idx="23" style="${padCol}"><strong style="${invalidStyle}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong></div>${nestedHtml}`;
           } else if (directVal) {
-            cellContent = `<div idx="22" style="${padCol}"><strong style="${getInvalidStyle(cell.__comp, colKey, `${k}[${rowIdx}]`, invalidFields, invalidComponents)}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${directVal}</div>`;
+            cellContent = `<div idx="22" style="${padCol}"><strong style="${invalidStyle}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${directVal}</div>`;
           } else {
-            cellContent = `<div idx="24" style="${padCol}"><strong>${cell.__label || labelByKey.get(colKey) || colKey}:</strong></div>`;
+            cellContent = `<div idx="24" style="${padCol}"><strong style="${invalidStyle}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong></div>`;
           }
         }
         return `${cellContent}`;
@@ -770,18 +1041,24 @@ function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, 
     } else {
       const onlyKey = orderedKeys[0];
       const cell = row.__children[onlyKey];
+      const cellPath = `${k}[${rowIdx}].${onlyKey}`;
+      // Check if this cell is invalid using the full path
+      const cellIsInvalid = isFieldInvalid(cell.__comp, cellPath, invalidFields) || 
+                           (cell.__comp && invalidComponents.has(cell.__comp)) ||
+                           invalidFields.has(cellPath);
+      const invalidStyle = getInvalidStyle(cell.__comp, cellPath, `${k}[${rowIdx}]`, invalidFields, invalidComponents);
       const val = cell?.__leaf ? firstLeafVal(cell) : null;
       const inner = cell?.__leaf
         ? (val && typeof val === 'string' && val.includes('__TEXTAREA__'))
           ? (() => {
               const textareaContent = val.replace(/__TEXTAREA__/g, '');
               return `<div idx="21" style="${padRow}">
-                       <strong style="${getInvalidStyle(cell.__comp, onlyKey, `${k}[${rowIdx}]`, invalidFields, invalidComponents)}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong><br/>
+                       <strong style="${invalidStyle}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong><br/>
                        ${textareaContent}
                      </div>`;
             })()
-          : `<div idx="21" style="${padRow}"><strong style="${getInvalidStyle(cell.__comp, onlyKey, `${k}[${rowIdx}]`, invalidFields, invalidComponents)}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong> ${val}</div>`
-        : renderNode(cell?.__children || {}, depth + 1, rootInstance, invalidFields, `${k}[${rowIdx}].${onlyKey}`, invalidComponents);
+          : `<div idx="21" style="${padRow}"><strong style="${invalidStyle}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong> ${val}</div>`
+        : renderNode(cell?.__children || {}, depth + 1, rootInstance, invalidFields, cellPath, invalidComponents, true);
       return `<li style="margin-left:0 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;', '')}"><strong style="${rowLabelStyle}">Row ${rowIdx + 1}:</strong>${inner}</li>`;
     }
   }).join('');
