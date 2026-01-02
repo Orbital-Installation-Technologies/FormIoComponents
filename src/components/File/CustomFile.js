@@ -622,4 +622,13 @@ export default class CustomFile extends FileComponent {
     }, { once: false });
   }
 
+  detach() {
+    // Disconnect the MutationObserver if it exists
+    if (this._fileInputObserver) {
+      this._fileInputObserver.disconnect();
+      this._fileInputObserver = null;
+    }
+    return super.detach();
+  }  
+
 }
