@@ -1148,7 +1148,7 @@ export default class BarcodeScanner extends FieldComponent {
       radio.type = 'radio';
       radio.name = 'barcode-selection'; // All radios share the same name for single selection
       radio.checked = isSelected; // First selected by default
-      radio.value = barcode.data;
+      radio.value = barcode.data ;
       radio.style.cssText = 'margin-right: 12px; cursor: pointer; width: 18px; height: 18px;';
       radio.onchange = (e) => {
         if (e.target.checked) {
