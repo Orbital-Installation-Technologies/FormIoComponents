@@ -3,7 +3,7 @@
  * Creates and configures the review modal DOM element
  */
 
-export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, supportNumber, showSupportFields = true) {
+export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, supportNumber, showSupportFields = true, errorDetails = []) {
   if (typeof document !== "undefined" && !document.getElementById("customDropdownStyle")) {
     const styleTag = document.createElement("style");
     styleTag.id = "customDropdownStyle";
@@ -23,7 +23,7 @@ export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, suppor
         ${reviewHtml}
       </div>
       ${hasErrors ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-         <p class="text-red-700 font-medium">⚠️ Fix the ${fieldErrorCount} error${fieldErrorCount === 1 ? '' : 's'} in the form before submitting</p>
+         <p class="text-red-700 font-medium">⚠️ Fix the errors in the form before submitting</p>
       </div>` : ''}
       
  ${!hasErrors && showSupportFields ? `

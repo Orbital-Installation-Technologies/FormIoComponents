@@ -1580,9 +1580,65 @@ export default class ReviewButton extends FieldComponent {
         })));
         console.log('=== End Review Data Map ===');
 
-        const invalidData = this.countVisibleErrors(invalidFieldsArray, invalidComponents);
-        const filteredInvalidFields = invalidData.filteredInvalidFields || invalidData.uniqueErrorFields || new Set(invalidFieldsArray);
-        const fieldErrorsCounter = invalidData.uniqueErrorFieldsCount || invalidData.fieldErrorsCounter || 0;
+        // Helper function to check if a path/component is a container (should be excluded from error counting)
+        const isContainerPathOrComponent = (path, component) => {
+          if (!component && !path) return false;
+          
+          const componentType = component?.type || component?.component?.type;
+          const containerTypes = new Set(['panel', 'columns', 'well', 'fieldset', 'datamap', 'editgrid', 'table', 'tabs', 'row', 'column', 'content', 'htmlelement', 'datagrid', 'datatable', 'components']);
+          
+          if (componentType && containerTypes.has(componentType)) {
+            return true;
+          }
+          
+          // Also check path patterns for container components
+          if (path) {
+            const trimKey = (k) => typeof k === 'string' ? k.trimEnd() : k;
+            const normalizedPath = trimKey(path)
+              .replace(/\.data\./g, '.')
+              .replace(/^data\./, '')
+              .replace(/^form\./, '')
+              .replace(/^submission\./, '');
+            
+            // Check if path ends with just a container name (like "dataGrid" or "dataGrid[0]")
+            // but not a field within a container
+            const pathParts = normalizedPath.split('.');
+            const lastPart = pathParts[pathParts.length - 1];
+            
+            // If the path is just a container name or container[index], exclude it
+            if (pathParts.length <= 2 && (lastPart.match(/^(dataGrid|datagrid|datatable|panel|well|table)(\[\d+\])?$/) || 
+                containerTypes.has(lastPart.replace(/\[\d+\]/, '')))) {
+              return true;
+            }
+            
+            // Check if path matches container patterns like "hardwareForm.data.dataGrid" or "hardwareForm.data.dataGrid[0]"
+            if (normalizedPath.match(/\.(dataGrid|datagrid|datatable)(\[\d+\])?$/) ||
+                normalizedPath.match(/\.(panel|well|table)(\[\d+\])?$/)) {
+              return true;
+            }
+          }
+          
+          return false;
+        };
+        
+        // Filter out container components from invalid fields and components before counting
+        const filteredInvalidFieldsForCount = new Set();
+        invalidFieldsArray.forEach(fieldPath => {
+          if (!isContainerPathOrComponent(fieldPath, null)) {
+            filteredInvalidFieldsForCount.add(fieldPath);
+          }
+        });
+        
+        const filteredInvalidComponentsForCount = new Set();
+        invalidComponents.forEach(component => {
+          if (!isContainerPathOrComponent(component.path, component)) {
+            filteredInvalidComponentsForCount.add(component);
+          }
+        });
+        
+        const invalidData = this.countVisibleErrors(Array.from(filteredInvalidFieldsForCount), filteredInvalidComponentsForCount);
+        const filteredInvalidFields = invalidData.filteredInvalidFields || invalidData.uniqueErrorFields || filteredInvalidFieldsForCount;
+        const fieldErrorsCounter = invalidData.uniqueErrorFieldsCount || invalidData.fieldErrorsCounter || filteredInvalidFieldsForCount.size;
 
         const reviewHtml = renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, this.root, filteredInvalidFields, invalidComponents);
 
@@ -1605,7 +1661,196 @@ export default class ReviewButton extends FieldComponent {
         }
 
         const hasErrors = filteredInvalidFields.size > 0;
-        const modal = createReviewModal(hasErrors, fieldErrorsCounter, reviewHtml, supportNumber, requireSupportFields);
+        
+        // Create a Set of components that are actually in the review tree
+        const visibleComponentsInTree = new Set();
+        const visibleComponentKeys = new Set();
+        const visibleComponentPaths = new Set();
+        
+        leaves.forEach(leaf => {
+          if (leaf.comp) {
+            visibleComponentsInTree.add(leaf.comp);
+            const key = leaf.comp?.key || leaf.comp?.component?.key;
+            const path = leaf.path;
+            if (key) visibleComponentKeys.add(key);
+            if (path) {
+              visibleComponentPaths.add(path);
+              // Also add normalized versions of the path
+              const trimKey = (k) => typeof k === 'string' ? k.trimEnd() : k;
+              const normalizedPath = trimKey(path)
+                .replace(/\.data\./g, '.')
+                .replace(/^data\./, '')
+                .replace(/^form\./, '')
+                .replace(/^submission\./, '')
+                .replace(/\.panel[^.]*\./g, '.')
+                .replace(/\.panel[^.]*$/, '');
+              if (normalizedPath) visibleComponentPaths.add(normalizedPath);
+            }
+          }
+        });
+        
+        // Helper function to check if a component is visible in the review tree
+        const isComponentVisibleInTree = (component) => {
+          if (!component) return false;
+          // Check by component reference (most reliable)
+          if (visibleComponentsInTree.has(component)) return true;
+          
+          // Check by component key
+          const compKey = component.key || component.component?.key;
+          if (compKey && visibleComponentKeys.has(compKey)) return true;
+          
+          // Check by component path (with normalization)
+          const trimKey = (k) => typeof k === 'string' ? k.trimEnd() : k;
+          const compPath = trimKey(component.path || component.component?.path || '');
+          if (compPath) {
+            // Check exact path
+            if (visibleComponentPaths.has(compPath)) return true;
+            
+            // Check normalized path
+            const normalizedPath = compPath
+              .replace(/\.data\./g, '.')
+              .replace(/^data\./, '')
+              .replace(/^form\./, '')
+              .replace(/^submission\./, '')
+              .replace(/\.panel[^.]*\./g, '.')
+              .replace(/\.panel[^.]*$/, '');
+            if (normalizedPath && visibleComponentPaths.has(normalizedPath)) return true;
+            
+            // Check if any visible path ends with this component's key
+            if (compKey) {
+              for (const visiblePath of visibleComponentPaths) {
+                if (visiblePath.endsWith('.' + compKey) || visiblePath === compKey) {
+                  return true;
+                }
+              }
+            }
+          }
+          
+          return false;
+        };
+        
+        // Helper function to check if a component is a container (should be excluded from error counting)
+        const isContainerComponent = (component, path) => {
+          return isContainerPathOrComponent(path, component);
+        };
+        
+        // Collect detailed error messages for display (deduplicated, only from visible components, excluding containers)
+        const errorDetailsMap = new Map();
+        
+        if (validation && validation.errors) {
+          Object.entries(validation.errors).forEach(([errorPath, errorInfo]) => {
+            if (errorInfo && errorInfo.errors && Array.isArray(errorInfo.errors)) {
+              // Skip container component errors
+              if (isContainerComponent(null, errorPath)) {
+                return;
+              }
+              
+              // Check if this error path corresponds to a visible component
+              const trimKey = (k) => typeof k === 'string' ? k.trimEnd() : k;
+              const normalizedErrorPath = trimKey(errorPath)
+                .replace(/\.data\./g, '.')
+                .replace(/^data\./, '')
+                .replace(/^form\./, '')
+                .replace(/^submission\./, '')
+                .replace(/\.panel[^.]*\./g, '.')
+                .replace(/\.panel[^.]*$/, '');
+              
+              // Check if any leaf matches this error path
+              const matchingLeaf = leaves.find(leaf => {
+                if (!leaf.comp) return false;
+                
+                // Skip if the leaf component is a container
+                if (isContainerComponent(leaf.comp, leaf.path)) {
+                  return false;
+                }
+                
+                const leafPath = trimKey(leaf.path || '')
+                  .replace(/\.data\./g, '.')
+                  .replace(/^data\./, '')
+                  .replace(/^form\./, '')
+                  .replace(/^submission\./, '')
+                  .replace(/\.panel[^.]*\./g, '.')
+                  .replace(/\.panel[^.]*$/, '');
+                const leafKey = trimKey(leaf.comp?.key || leaf.comp?.component?.key || '');
+                
+                // Exact match
+                if (leafPath === normalizedErrorPath || leafKey === normalizedErrorPath) return true;
+                
+                // Check if paths end with the same field name
+                const errorFieldName = normalizedErrorPath.split('.').pop();
+                const leafFieldName = leafPath.split('.').pop();
+                if (errorFieldName && leafFieldName && errorFieldName === leafFieldName) {
+                  // Check if they're in the same container (same path up to the field name)
+                  const errorContainer = normalizedErrorPath.substring(0, normalizedErrorPath.lastIndexOf('.'));
+                  const leafContainer = leafPath.substring(0, leafPath.lastIndexOf('.'));
+                  if (errorContainer === leafContainer || 
+                      (errorContainer && leafContainer && (errorContainer.endsWith(leafContainer) || leafContainer.endsWith(errorContainer)))) {
+                    return true;
+                  }
+                }
+                
+                return false;
+              });
+              
+              if (matchingLeaf) {
+                const fieldLabel = errorInfo.label || errorPath;
+                errorInfo.errors.forEach(errorMsg => {
+                  const errorMessage = typeof errorMsg === 'string' ? errorMsg : errorMsg.message || 'Invalid field';
+                  const errorKey = `${fieldLabel}:${errorMessage}`;
+                  if (!errorDetailsMap.has(errorKey)) {
+                    errorDetailsMap.set(errorKey, {
+                      field: fieldLabel,
+                      message: errorMessage
+                    });
+                  }
+                });
+              }
+            }
+          });
+        }
+        
+        // Also collect errors from invalid components (only if visible in tree and not a container)
+        if (validation && validation.invalidComponents) {
+          validation.invalidComponents.forEach(invalidComp => {
+            const component = invalidComp.component;
+            if (component && !isContainerComponent(component, invalidComp.path) && 
+                isComponentVisibleInTree(component) && component.errors && Array.isArray(component.errors)) {
+              const fieldLabel = invalidComp.label || component.component?.label || component.key || 'Unknown field';
+              component.errors.forEach(errorMsg => {
+                const errorMessage = typeof errorMsg === 'string' ? errorMsg : errorMsg.message || 'Invalid field';
+                const errorKey = `${fieldLabel}:${errorMessage}`;
+                if (!errorDetailsMap.has(errorKey)) {
+                  errorDetailsMap.set(errorKey, {
+                    field: fieldLabel,
+                    message: errorMessage
+                  });
+                }
+              });
+            }
+          });
+        }
+        
+        // Also check invalidComponents Set for errors (only if visible in tree and not a container)
+        invalidComponents.forEach(component => {
+          if (component && !isContainerComponent(component, component.path) && 
+              isComponentVisibleInTree(component) && component.errors && Array.isArray(component.errors)) {
+            const fieldLabel = component.component?.label || component.key || 'Unknown field';
+            component.errors.forEach(errorMsg => {
+              const errorMessage = typeof errorMsg === 'string' ? errorMsg : errorMsg.message || 'Invalid field';
+              const errorKey = `${fieldLabel}:${errorMessage}`;
+              if (!errorDetailsMap.has(errorKey)) {
+                errorDetailsMap.set(errorKey, {
+                  field: fieldLabel,
+                  message: errorMessage
+                });
+              }
+            });
+          }
+        });
+        
+        const errorDetails = Array.from(errorDetailsMap.values());
+        
+        const modal = createReviewModal(hasErrors, fieldErrorsCounter, reviewHtml, supportNumber, requireSupportFields, errorDetails);
 
         let screenshotComp = null;
         this.root.everyComponent((comp) => {
