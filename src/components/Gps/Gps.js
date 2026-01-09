@@ -96,6 +96,7 @@ export default class Gps extends FieldComponent {
         value="${latitude}"
         placeholder="Latitude"
         style="flex-grow: 1;"
+        readonly
       >
       <input 
         ref="longitude" 
@@ -104,6 +105,7 @@ export default class Gps extends FieldComponent {
         value="${longitude}"
         placeholder="Longitude"
         style="flex-grow: 1;"
+        readonly
       >
       <button 
         ref="gpsButton" 
