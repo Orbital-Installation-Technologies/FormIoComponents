@@ -2475,7 +2475,6 @@ export default class BarcodeScanner extends FieldComponent {
 
   setValue(value, flags = {}) {
     const changed = super.setValue(value);
-    this.redraw();
     return changed;
   }
 
