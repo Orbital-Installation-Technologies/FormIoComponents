@@ -2046,7 +2046,17 @@ export default class BarcodeScanner extends FieldComponent {
       this.refs.barcodePreviewList.appendChild(card);
     });
   }
+  getBoundingBox(location) {
+    const xs = [location._topLeft._x, location._topRight._x, location._bottomLeft._x, location._bottomRight._x];
+    const ys = [location._topLeft._y, location._topRight._y, location._bottomLeft._y, location._bottomRight._y];
 
+    const x = Math.min(...xs);
+    const y = Math.min(...ys);
+    const width = Math.max(...xs) - x;
+    const height = Math.max(...ys) - y;
+
+    return { x, y, width, height };
+  }
   _captureBarcodeImage(barcodes, canvas) {
     try {
       const MARGIN = 20;
@@ -2118,7 +2128,7 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
-  _sendBarcodeImageToFileUpload(barcodeData) {
+  async _sendBarcodeImageToFileUpload(barcodeData) {
     try {
       // If no image upload field configured, skip
       if (!this.component.imageUploadField) {
@@ -2138,37 +2148,67 @@ export default class BarcodeScanner extends FieldComponent {
       }
 
       const fileUploadComponent = this.root.getComponent(this.component.imageUploadField);
+      console.log("fileUploadComponent", fileUploadComponent);
       if (!fileUploadComponent) {
         console.warn(`File upload component "${this.component.imageUploadField}" not found`);
         return;
       }
+      async function uploadToFileComponent(fileComponent, file) {
+        // file is a File object
+        const uploadedData = await fileComponent.uploadFile(file);
+        // uploadedData contains Form.io file metadata
+        fileComponent.setValue(uploadedData);
+        fileComponent.triggerChange();
+        fileComponent.dirty = true;
+        fileComponent.pristine = false;
+        return uploadedData;
+      }
+      function base64ToFile(base64Data, fileName) {
+        if (typeof base64Data !== 'string') {
+          throw new Error('Expected base64Data to be a string');
+        }
+      
+        const arr = base64Data.split(',');
+        const mimeMatch = arr[0].match(/:(.*?);/);
+        if (!mimeMatch) throw new Error('Invalid base64 format');
+      
+        const mime = mimeMatch[1];
+        const bstr = atob(arr[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) u8arr[n] = bstr.charCodeAt(n);
+      
+        return new File([u8arr], fileName, { type: mime });
+      }
+      
+      
 
-      // Convert data URL to blob
-      fetch(imageDataUrl)
-        .then(res => res.blob())
-        .then(blob => {
-          // Create a File object from the blob with sanitized filename
-          // Sanitize barcode data: remove/replace special characters, limit length
-          const sanitizedBarcode = barcodeData
-            .replace(/[^a-zA-Z0-9-_]/g, '_') // Replace special chars with underscore
-            .substring(0, 50); // Limit to 50 chars
-          const fileName = `barcode-${sanitizedBarcode}-${Date.now()}.png`;
-          const file = new File([blob], fileName, { type: 'image/png' });
+      const sanitizedBarcode = barcodeData.replace(/[^a-zA-Z0-9-_]/g, '_').substring(0, 50);
+      const fileName = `barcode-${sanitizedBarcode}-${Date.now()}.png`;
 
-          // Add file to the file upload component
-          if (fileUploadComponent.addFile) {
-            fileUploadComponent.addFile(file);
-          } else if (fileUploadComponent.setValue) {
-            // Alternative: set as base64 data URL
-            fileUploadComponent.setValue(imageDataUrl);
-          }
-        })
-        .catch(error => {
-          console.warn('Error sending barcode image to file upload:', error);
-        });
+      const file = await base64ToFile(imageDataUrl, fileName);
+      var fileToSync = {
+        dir: "",
+        file: file,
+        hash: "",
+        name: fileName,
+        options: null,
+        originalName: fileName,
+        size: file.size,
+        storage: "s3"
+            };
+      const uploadedFiles = await fileUploadComponent.uploadFile(fileToSync);
+      fileUploadComponent.setValue(uploadedFiles);
+      fileUploadComponent.triggerChange();
+      fileUploadComponent.dirty = true;
+      fileUploadComponent.pristine = false;
+      console.log('Uploaded barcode to S3:', uploadedFiles);
+      console.log('Submission value:', fileUploadComponent.root.submission.data[fileUploadComponent.key]);
+     
     } catch (error) {
       console.warn('Error in _sendBarcodeImageToFileUpload:', error);
     }
+        
   }
 
   _removeBarcodeAt(index) {
