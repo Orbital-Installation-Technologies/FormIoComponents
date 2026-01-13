@@ -1224,7 +1224,7 @@ export default class BarcodeScanner extends FieldComponent {
 
     // For single barcode, save just that one to main field
     const barcode = this._pendingBarcodes[0];
-    this._captureBarcodeImage(barcode.data);
+    this._captureBarcodeImage([barcode], this._canvas);
     this.setValue(barcode.data);
     if (this.refs.barcode) {
       this.refs.barcode.value = barcode.data;
@@ -1233,6 +1233,8 @@ export default class BarcodeScanner extends FieldComponent {
     this._updateBarcodePreview();
 
     // Send image to optional file upload field
+    console.log("confirmed barcode.data", barcode.data);
+    console.log("confirmed barcode", this._barcodeImages);
     this._sendBarcodeImageToFileUpload(barcode.data);
 
     // Save ALL detected barcodes to backup field
@@ -1308,16 +1310,20 @@ export default class BarcodeScanner extends FieldComponent {
       if (this._pendingBarcodes[index]) {
         const barcodeData = this._pendingBarcodes[index].data;
         selectedBarcodes.push(barcodeData);
-        this._captureBarcodeImage(barcodeData);
+        this._captureBarcodeImage(this._pendingBarcodes, this._canvas);
       }
     });
 
+    console.log("selectedBarcodes", selectedBarcodes);
+    console.log("_pendingBarcodes", this._pendingBarcodes);
     if (selectedBarcodes.length > 0) {
       const value = selectedBarcodes.join(", ");
+      console.log("value in confirm multi select", value);
       this.setValue(value);
       if (this.refs.barcode) {
         this.refs.barcode.value = value;
       }
+
       this.validateAndSetDirty();
       this._updateBarcodePreview();
 
@@ -2041,13 +2047,47 @@ export default class BarcodeScanner extends FieldComponent {
     });
   }
 
-  _captureBarcodeImage(barcodeData) {
+  _captureBarcodeImage(barcodes, canvas) {
     try {
-      // Capture barcode image from the bounding box canvas
-      if (this._boundingBoxCanvas) {
-        const imageData = this._boundingBoxCanvas.toDataURL('image/png');
-        this._barcodeImages[barcodeData] = imageData;
-      }
+      const MARGIN = 20;
+      console.log("barcodes", barcodes);
+      barcodes.forEach(barcode => {
+        const { x, y, width, height } = this.getBoundingBox(barcode._location);
+    
+        // Expand bounding box with margin
+        const bx = Math.max(0, x - MARGIN);
+        const by = Math.max(0, y - MARGIN);
+    
+        const bWidth = Math.min(
+            width + MARGIN * 2,
+            canvas.width - bx
+        );
+    
+        const bHeight = Math.min(
+            height + MARGIN * 2,
+            canvas.height - by
+        );
+    
+        // Validate dimensions
+        if (bWidth <= 0 || bHeight <= 0) return;
+    
+        const croppedCanvas = document.createElement('canvas');
+        croppedCanvas.width = bWidth;
+        croppedCanvas.height = bHeight;
+        const croppedCtx = croppedCanvas.getContext('2d');
+    
+        // Draw expanded crop
+        croppedCtx.drawImage(
+            canvas,
+            bx, by, bWidth, bHeight,   // source
+            0, 0, bWidth, bHeight      // destination
+        );
+    
+        const croppedDataURL = croppedCanvas.toDataURL('image/jpeg');
+        console.log('Cropped barcode image:', croppedDataURL);
+        console.log('barcode data', barcode.data);
+        this._barcodeImages[barcode.data] = croppedDataURL;
+      })
     } catch (error) {
       console.warn('Error capturing barcode image:', error);
     }
