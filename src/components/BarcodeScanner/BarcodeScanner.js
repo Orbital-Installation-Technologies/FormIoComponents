@@ -816,10 +816,8 @@ export default class BarcodeScanner extends FieldComponent {
                         const ctx = canvas.getContext('2d');
                       
                         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                        console.log('barcodes', barcodes);
                         this._canvas = canvas;
                         this._captureBarcodeImage(barcodes, this._canvas);
-                        console.log('barcodes after crop', barcodes);
                     } else {
                         console.log('Video not ready yet or no barcodes detected.');
                     }
@@ -1250,8 +1248,6 @@ export default class BarcodeScanner extends FieldComponent {
     this._updateBarcodePreview();
 
     // Send image to optional file upload field
-    console.log("confirmed barcode.data", barcode.data);
-    console.log("confirmed barcode", this._barcodeImages);
     this._sendBarcodeImageToFileUpload(barcode.data);
 
     // Save ALL detected barcodes to backup field
@@ -1331,8 +1327,7 @@ export default class BarcodeScanner extends FieldComponent {
       }
     });
 
-    console.log("selectedBarcodes", selectedBarcodes);
-    console.log("_pendingBarcodes", this._pendingBarcodes);
+
     if (selectedBarcodes.length > 0) {
       const value = selectedBarcodes.join(", ");
       console.log("value in confirm multi select", value);
