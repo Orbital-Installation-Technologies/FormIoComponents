@@ -794,7 +794,7 @@ export default class BarcodeScanner extends FieldComponent {
 
         this._trackedBarcodes = {};
         this._barcodeBatch.addListener({
-            didUpdateSession: (barcodeBatchMode, session) => {
+             didUpdateSession: (barcodeBatchMode, session) => {
                 this._trackedBarcodes = session.trackedBarcodes || {};
                 const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
                 this._currentBarcodes = barcodes;
@@ -806,10 +806,27 @@ export default class BarcodeScanner extends FieldComponent {
                         window.ReactNativeWebView.postMessage('FLASH_OFF');
                         this._torchEnabled = false;
                     }
+                    // --- NEW: Capture the video frame and crop barcodes ---
+                    const video = this.refs.scanditContainer?.querySelector('video');
+        
+                    if (video && video.videoWidth > 0 && video.videoHeight > 0 && barcodes.length > 0) {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        const ctx = canvas.getContext('2d');
+                      
+                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                        console.log('barcodes', barcodes);
+                        this._canvas = canvas;
+                        this._captureBarcodeImage(barcodes, this._canvas);
+                        console.log('barcodes after crop', barcodes);
+                    } else {
+                        console.log('Video not ready yet or no barcodes detected.');
+                    }
                     this._autoFreezeAndConfirm();
-                } else {
-                }
-            }
+                }  
+  
+            },
         });
 
         this._dataCaptureView = await DataCaptureView.forContext(this._dataCaptureContext);
