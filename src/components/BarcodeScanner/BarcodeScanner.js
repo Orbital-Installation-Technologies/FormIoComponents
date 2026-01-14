@@ -794,7 +794,7 @@ export default class BarcodeScanner extends FieldComponent {
 
         this._trackedBarcodes = {};
         this._barcodeBatch.addListener({
-            didUpdateSession: (barcodeBatchMode, session) => {
+             didUpdateSession: (barcodeBatchMode, session) => {
                 this._trackedBarcodes = session.trackedBarcodes || {};
                 const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
                 this._currentBarcodes = barcodes;
@@ -806,10 +806,25 @@ export default class BarcodeScanner extends FieldComponent {
                         window.ReactNativeWebView.postMessage('FLASH_OFF');
                         this._torchEnabled = false;
                     }
+                    // --- NEW: Capture the video frame and crop barcodes ---
+                    const video = this.refs.scanditContainer?.querySelector('video');
+        
+                    if (video && video.videoWidth > 0 && video.videoHeight > 0 && barcodes.length > 0) {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        const ctx = canvas.getContext('2d');
+                      
+                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                        this._canvas = canvas;
+                        this._captureBarcodeImage(barcodes, this._canvas);
+                    } else {
+                        console.log('Video not ready yet or no barcodes detected.');
+                    }
                     this._autoFreezeAndConfirm();
-                } else {
-                }
-            }
+                }  
+  
+            },
         });
 
         this._dataCaptureView = await DataCaptureView.forContext(this._dataCaptureContext);
@@ -1224,7 +1239,7 @@ export default class BarcodeScanner extends FieldComponent {
 
     // For single barcode, save just that one to main field
     const barcode = this._pendingBarcodes[0];
-    this._captureBarcodeImage(barcode.data);
+    this._captureBarcodeImage([barcode], this._canvas);
     this.setValue(barcode.data);
     if (this.refs.barcode) {
       this.refs.barcode.value = barcode.data;
@@ -1308,16 +1323,19 @@ export default class BarcodeScanner extends FieldComponent {
       if (this._pendingBarcodes[index]) {
         const barcodeData = this._pendingBarcodes[index].data;
         selectedBarcodes.push(barcodeData);
-        this._captureBarcodeImage(barcodeData);
+        this._captureBarcodeImage(this._pendingBarcodes, this._canvas);
       }
     });
 
+
     if (selectedBarcodes.length > 0) {
       const value = selectedBarcodes.join(", ");
+      console.log("value in confirm multi select", value);
       this.setValue(value);
       if (this.refs.barcode) {
         this.refs.barcode.value = value;
       }
+
       this.validateAndSetDirty();
       this._updateBarcodePreview();
 
@@ -2040,14 +2058,58 @@ export default class BarcodeScanner extends FieldComponent {
       this.refs.barcodePreviewList.appendChild(card);
     });
   }
+  getBoundingBox(location) {
+    const xs = [location._topLeft._x, location._topRight._x, location._bottomLeft._x, location._bottomRight._x];
+    const ys = [location._topLeft._y, location._topRight._y, location._bottomLeft._y, location._bottomRight._y];
 
-  _captureBarcodeImage(barcodeData) {
+    const x = Math.min(...xs);
+    const y = Math.min(...ys);
+    const width = Math.max(...xs) - x;
+    const height = Math.max(...ys) - y;
+
+    return { x, y, width, height };
+  }
+  _captureBarcodeImage(barcodes, canvas) {
     try {
-      // Capture barcode image from the bounding box canvas
-      if (this._boundingBoxCanvas) {
-        const imageData = this._boundingBoxCanvas.toDataURL('image/png');
-        this._barcodeImages[barcodeData] = imageData;
-      }
+      const MARGIN = 20;
+      console.log("barcodes", barcodes);
+      barcodes.forEach(barcode => {
+        const { x, y, width, height } = this.getBoundingBox(barcode._location);
+    
+        // Expand bounding box with margin
+        const bx = Math.max(0, x - MARGIN);
+        const by = Math.max(0, y - MARGIN);
+    
+        const bWidth = Math.min(
+            width + MARGIN * 2,
+            canvas.width - bx
+        );
+    
+        const bHeight = Math.min(
+            height + MARGIN * 2,
+            canvas.height - by
+        );
+    
+        // Validate dimensions
+        if (bWidth <= 0 || bHeight <= 0) return;
+    
+        const croppedCanvas = document.createElement('canvas');
+        croppedCanvas.width = bWidth;
+        croppedCanvas.height = bHeight;
+        const croppedCtx = croppedCanvas.getContext('2d');
+    
+        // Draw expanded crop
+        croppedCtx.drawImage(
+            canvas,
+            bx, by, bWidth, bHeight,   // source
+            0, 0, bWidth, bHeight      // destination
+        );
+    
+        const croppedDataURL = croppedCanvas.toDataURL('image/jpeg');
+        console.log('Cropped barcode image:', croppedDataURL);
+        console.log('barcode data', barcode.data);
+        this._barcodeImages[barcode.data] = croppedDataURL;
+      })
     } catch (error) {
       console.warn('Error capturing barcode image:', error);
     }
@@ -2078,7 +2140,7 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
-  _sendBarcodeImageToFileUpload(barcodeData) {
+  async _sendBarcodeImageToFileUpload(barcodeData) {
     try {
       // If no image upload field configured, skip
       if (!this.component.imageUploadField) {
@@ -2098,37 +2160,67 @@ export default class BarcodeScanner extends FieldComponent {
       }
 
       const fileUploadComponent = this.root.getComponent(this.component.imageUploadField);
+      console.log("fileUploadComponent", fileUploadComponent);
       if (!fileUploadComponent) {
         console.warn(`File upload component "${this.component.imageUploadField}" not found`);
         return;
       }
+      async function uploadToFileComponent(fileComponent, file) {
+        // file is a File object
+        const uploadedData = await fileComponent.uploadFile(file);
+        // uploadedData contains Form.io file metadata
+        fileComponent.setValue(uploadedData);
+        fileComponent.triggerChange();
+        fileComponent.dirty = true;
+        fileComponent.pristine = false;
+        return uploadedData;
+      }
+      function base64ToFile(base64Data, fileName) {
+        if (typeof base64Data !== 'string') {
+          throw new Error('Expected base64Data to be a string');
+        }
+      
+        const arr = base64Data.split(',');
+        const mimeMatch = arr[0].match(/:(.*?);/);
+        if (!mimeMatch) throw new Error('Invalid base64 format');
+      
+        const mime = mimeMatch[1];
+        const bstr = atob(arr[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) u8arr[n] = bstr.charCodeAt(n);
+      
+        return new File([u8arr], fileName, { type: mime });
+      }
+      
+      
 
-      // Convert data URL to blob
-      fetch(imageDataUrl)
-        .then(res => res.blob())
-        .then(blob => {
-          // Create a File object from the blob with sanitized filename
-          // Sanitize barcode data: remove/replace special characters, limit length
-          const sanitizedBarcode = barcodeData
-            .replace(/[^a-zA-Z0-9-_]/g, '_') // Replace special chars with underscore
-            .substring(0, 50); // Limit to 50 chars
-          const fileName = `barcode-${sanitizedBarcode}-${Date.now()}.png`;
-          const file = new File([blob], fileName, { type: 'image/png' });
+      const sanitizedBarcode = barcodeData.replace(/[^a-zA-Z0-9-_]/g, '_').substring(0, 50);
+      const fileName = `barcode-${sanitizedBarcode}-${Date.now()}.png`;
 
-          // Add file to the file upload component
-          if (fileUploadComponent.addFile) {
-            fileUploadComponent.addFile(file);
-          } else if (fileUploadComponent.setValue) {
-            // Alternative: set as base64 data URL
-            fileUploadComponent.setValue(imageDataUrl);
-          }
-        })
-        .catch(error => {
-          console.warn('Error sending barcode image to file upload:', error);
-        });
+      const file = await base64ToFile(imageDataUrl, fileName);
+      var fileToSync = {
+        dir: "",
+        file: file,
+        hash: "",
+        name: fileName,
+        options: null,
+        originalName: fileName,
+        size: file.size,
+        storage: "s3"
+            };
+      const uploadedFiles = await fileUploadComponent.uploadFile(fileToSync);
+      fileUploadComponent.setValue(uploadedFiles);
+      fileUploadComponent.triggerChange();
+      fileUploadComponent.dirty = true;
+      fileUploadComponent.pristine = false;
+      console.log('Uploaded barcode to S3:', uploadedFiles);
+      console.log('Submission value:', fileUploadComponent.root.submission.data[fileUploadComponent.key]);
+     
     } catch (error) {
       console.warn('Error in _sendBarcodeImageToFileUpload:', error);
     }
+        
   }
 
   _removeBarcodeAt(index) {
@@ -2378,7 +2470,6 @@ export default class BarcodeScanner extends FieldComponent {
 
   setValue(value, flags = {}) {
     const changed = super.setValue(value);
-    this.redraw();
     return changed;
   }
 
