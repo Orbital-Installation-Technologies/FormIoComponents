@@ -78,7 +78,8 @@ export default class BarcodeScanner extends FieldComponent {
     this._selectedBarcodeIndices = new Set(); // For tracking radio selections
     this._barcodeImages = {}; // Store barcode images by their data value
     this._allDetectedBarcodes = []; // Store ALL barcodes for backup field
-
+    this._scanButtonClicked = false;
+    
     // License key can come from (in priority order):
     // 1. Component configuration (scanditLicenseKey set in Formio builder)
     // 2. Component data (scanditLicenseKey property)
@@ -201,7 +202,40 @@ export default class BarcodeScanner extends FieldComponent {
                 <div style="font-size:12px;">Loading camera...</div>
               </div>
             </div>
+<div style="position: absolute; bottom: 15px; left: 0; right: 0; display: flex; justify-content: center; gap: 8px; padding: 0 10px; z-index: 9999;">
+ <button
+  ref="scanBarcodeButton"
+  type="button"
+  style="background: #4caf50; color: white; border: none; border-radius: 20px; padding: 0 12px; height: 36px; display: flex; align-items: center; justify-content: center; gap: 5px; font-family: sans-serif; font-weight: 600; font-size: 10px; text-transform: uppercase; cursor: pointer; transition: all 0.2s ease;"
+>
+  <span ref="scanIcon" style="display: flex; align-items: center;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <path d="M3 5v14M8 5v14M12 5v14M17 5v14M21 5v14" />
+          <path d="M2 12h20" stroke="#ff0000" stroke-width="2" />
+        </svg>
+    </span>
+  <span ref="scanText">SCAN</span>
+</button>
 
+  <button
+  ref="expandConfirmationModalButton"
+  type="button"
+  disabled="true"
+  style="background: #9e9e9e; color: white; border: none; border-radius: 20px; padding: 0 12px; height: 36px; display: flex; align-items: center; justify-content: center; gap: 5px; font-family: sans-serif; font-weight: 600; font-size: 10px; text-transform: uppercase; cursor: not-allowed; opacity: 0.7; pointer-events: none; transition: all 0.2s ease;"
+>
+  <span ref="viewIcon" style="display: flex; align-items: center;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="8" y1="6" x2="21" y2="6"></line>
+        <line x1="8" y1="12" x2="21" y2="12"></line>
+        <line x1="8" y1="18" x2="21" y2="18"></line>
+        <path d="M3 6l1 1 2-2"></path>
+        <path d="M3 12l1 1 2-2"></path>
+        <path d="M3 18l1 1 2-2"></path>
+      </svg>
+    </span>
+  <span>VIEW</span>
+</button>
+</div>
             <!-- Flashlight Button (Bottom-Left) -->
             <button
               ref="flashlightButton"
@@ -484,6 +518,11 @@ export default class BarcodeScanner extends FieldComponent {
       // Flashlight and Freeze refs
       flashlightButton: "single",
       freezeButton: "single",
+      scanBarcodeButton: "single",
+      expandConfirmationModalButton: "single",
+      scanIcon: 'single',
+      viewIcon: 'single',
+      scanText: 'single'
     });
 
     if (
@@ -494,11 +533,16 @@ export default class BarcodeScanner extends FieldComponent {
       !this.refs.closeModal ||
       !this.refs.confirmationDialog ||
       !this.refs.confirmButton ||
-      !this.refs.rescanButton
+      !this.refs.rescanButton ||
+      !this.refs.scanBarcodeButton ||
+      !this.refs.expandConfirmationModalButton
     ) {
       return attached;
     }
 
+    this.updateScanButtonStyle(false); 
+    this.resetViewButton();
+   
     if (this.dataValue) {
       this.refs.barcode.value = this.dataValue;
     }
@@ -523,6 +567,13 @@ export default class BarcodeScanner extends FieldComponent {
         this.openScanditModal();
       });
 
+      this.refs.scanBarcodeButton.addEventListener("click", () => {
+        this.scanBarcodeButton();
+      });
+      this.refs.expandConfirmationModalButton.addEventListener("click", () => {
+        this._showConfirmationDialog(this._currentBarcodes);
+      });
+      
       this.refs.closeModal.addEventListener("click", async () => {
         try {
           if (window.ReactNativeWebView && this._torchEnabled === true) {
