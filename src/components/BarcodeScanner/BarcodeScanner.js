@@ -1001,7 +1001,7 @@ export default class BarcodeScanner extends FieldComponent {
         return;
     }
 
-    const iconSpan = this.refs.viewIcon || btn.querySelector('[ref="viewIcon"]');
+    const iconSpan = this.refs.viewIcon || this.element.querySelector('[ref="viewIcon"]');
     if (iconSpan) {
       iconSpan.innerHTML = `
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
