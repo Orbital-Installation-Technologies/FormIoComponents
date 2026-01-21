@@ -732,7 +732,7 @@ export default class BarcodeScanner extends FieldComponent {
     }
     
     this._camera = Camera.default;
-    if (this._camera) {
+    if (this._camera && this._dataCaptureContext) {
         await this._camera.applySettings(BarcodeBatch.recommendedCameraSettings);
         await this._dataCaptureContext.setFrameSource(this._camera);
         await this._camera.switchToDesiredState(FrameSourceState.On);
