@@ -684,7 +684,6 @@ export default class BarcodeScanner extends FieldComponent {
       this._autoFreezeTimeout = null;
     }
 
-    this._openModal();
     this._lastCodes = [];
     this._isVideoFrozen = false;
     this._showingConfirmation = false;
@@ -693,6 +692,10 @@ export default class BarcodeScanner extends FieldComponent {
     this._selectedBarcodeIndices.clear();
     this._autoFreezeTimeout = null; // Clear any existing timeout
 
+    this._preSelectedBarcode = null;
+    this._scanButtonClicked = false;
+    this.updateScanButtonStyle(false);
+    this._openModal();
     // Hide confirmation dialog on modal open
     if (this.refs.confirmationDialog) {
       this.refs.confirmationDialog.style.display = 'none';
@@ -716,7 +719,7 @@ export default class BarcodeScanner extends FieldComponent {
       this.refs.freezeButton.style.background = 'rgba(255, 255, 255, 0.2)';
     }
     this.refs.quaggaModal.style.display = 'flex'; 
-       if (!this._camera) {
+    if (!this._camera) {
       await this._initializeScandit();
     } 
     if (this._barcodeBatch) {
@@ -842,14 +845,9 @@ export default class BarcodeScanner extends FieldComponent {
         await this._barcodeBatch.setEnabled(true);
         this._usingBatch = true;
 
-        this._trackedBarcodes = {};
+        
         this._barcodeBatch.addListener({
              didUpdateSession: (barcodeBatchMode, session) => {
-                if (!this._scanButtonClicked) {
-                  this._trackedBarcodes = {};
-                  this._currentBarcodes = [];
-                  this._drawBoundingBoxes([]);
-                }
                 this._trackedBarcodes = session.trackedBarcodes || {};
                 const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
                 this._currentBarcodes = barcodes;
