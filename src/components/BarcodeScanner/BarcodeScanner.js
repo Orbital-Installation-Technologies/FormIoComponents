@@ -693,8 +693,6 @@ export default class BarcodeScanner extends FieldComponent {
     this._autoFreezeTimeout = null; // Clear any existing timeout
 
     this._preSelectedBarcode = null;
-    this._scanButtonClicked = false;
-    this.updateScanButtonStyle(false);
     this._openModal();
     // Hide confirmation dialog on modal open
     if (this.refs.confirmationDialog) {
@@ -712,6 +710,10 @@ export default class BarcodeScanner extends FieldComponent {
     this._isVideoFrozen = false;
     this._scanButtonClicked = false;
     this.updateScanButtonStyle(false);
+    this._trackedBarcodes = {};
+    this._pendingBarcodes = [];
+    this._selectedBarcodeIndices.clear();
+    this._currentBarcodes = [];
     // Hide freeze button on modal open - will show when barcodes detected
     if (this.refs.freezeButton) {
       this.refs.freezeButton.style.display = 'none';
@@ -1491,7 +1493,6 @@ export default class BarcodeScanner extends FieldComponent {
     // Resume scanning
     this._isVideoFrozen = false;
     this._scanButtonClicked = false;
-    this.updateScanButtonStyle(false);
     this._trackedBarcodes = {}; 
     this._currentBarcodes = [];
 
@@ -1517,9 +1518,6 @@ export default class BarcodeScanner extends FieldComponent {
 
     // Resume camera monitoring
     this._startCameraMonitoring();
-
-    // Resume drawing bounding boxes
-    this._drawBoundingBoxes(this._currentBarcodes || []);
 
     // Reset freeze button
     if (this.refs.freezeButton) {
