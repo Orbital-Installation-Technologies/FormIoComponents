@@ -738,7 +738,7 @@ export default class BarcodeScanner extends FieldComponent {
         await this._camera.switchToDesiredState(FrameSourceState.On);
     }
   }
---------
+
   _resizeBoundingBoxCanvas() {
     try {
       if (!this._boundingBoxCanvas || !this.refs.scanditContainer) return;
