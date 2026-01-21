@@ -706,41 +706,39 @@ export default class BarcodeScanner extends FieldComponent {
 
     const video = this.refs.scanditContainer.querySelector('video');
     if (video) video.style.display = '';
-
+    this._isVideoFrozen = false;
+    this._scanButtonClicked = false;
+    this.updateScanButtonStyle(false);
     // Hide freeze button on modal open - will show when barcodes detected
     if (this.refs.freezeButton) {
       this.refs.freezeButton.style.display = 'none';
       this.refs.freezeButton.innerHTML = '⏸';
       this.refs.freezeButton.style.background = 'rgba(255, 255, 255, 0.2)';
     }
-
-    try {
-      if (!this._dataCaptureContext) {
-        await this._initializeScandit();
-      } else {
-        if (this._dataCaptureView && this.refs.scanditContainer) {
-          this._dataCaptureView.connectToElement(this.refs.scanditContainer);
+    this.refs.quaggaModal.style.display = 'flex'; 
+       if (!this._camera) {
+      await this._initializeScandit();
+    } 
+    if (this._barcodeBatch) {
+      try {
+        await this._barcodeBatch.setEnabled(false);
+        if (this._barcodeBatch.resetSession) {
+          await this._barcodeBatch.resetSession();
         }
         
-        if (!this._boundingBoxCanvas || !this._boundingBoxCanvas.parentNode) {
-          this._createBoundingBoxOverlay();
-        } else {
-          this._resizeBoundingBoxCanvas();
-        }
-        
-        this._startLiveScanningMode();
-        this._startCameraMonitoring();
-        this._currentBarcodes = [];
-        this._drawBoundingBoxes(this._currentBarcodes);
+      } catch (error) {
+        console.warn("Error re-enabling barcode batch:", error);
       }
-      if (this._dataCaptureContext) {
-        await this._setupCamera();
-      }
-    } catch (error) {
-      console.warn("Scanner initialization error (handled):", error);
+    }
+    
+    this._camera = Camera.default;
+    if (this._camera) {
+        await this._camera.applySettings(BarcodeBatch.recommendedCameraSettings);
+        await this._dataCaptureContext.setFrameSource(this._camera);
+        await this._camera.switchToDesiredState(FrameSourceState.On);
     }
   }
-
+--------
   _resizeBoundingBoxCanvas() {
     try {
       if (!this._boundingBoxCanvas || !this.refs.scanditContainer) return;
@@ -765,19 +763,20 @@ export default class BarcodeScanner extends FieldComponent {
       }
 
       const videoElement = container.querySelector('video');
-      const imageElement = this._uploadedImageElement;
-      if (imageElement && imageElement.naturalWidth && imageElement.naturalHeight) {
-        this._cachedScaleFactors = {
-          scaleX: displayWidth / imageElement.naturalWidth,
-          scaleY: displayHeight / imageElement.naturalHeight
-        };
-      } else if (videoElement && videoElement.videoWidth && videoElement.videoHeight) {
-        this._cachedScaleFactors = {
-          scaleX: displayWidth / videoElement.videoWidth,
-          scaleY: displayHeight / videoElement.videoHeight
-        };
+      if (videoElement && videoElement.videoWidth && videoElement.videoHeight) {
+        const vW = videoElement.videoWidth;
+        const vH = videoElement.videoHeight;
+        const cW = displayWidth;
+        const cH = displayHeight;
+        const scale = Math.max(cW / vW, cH / vH); 
+    
+        // Calculate offsets to center the coordinate system
+        const dx = (cW - vW * scale) / 2;
+        const dy = (cH - vH * scale) / 2;
+    
+        this._cachedScaleFactors = { scale, dx, dy };
       } else {
-        this._cachedScaleFactors = { scaleX: 1, scaleY: 1 };
+        this._cachedScaleFactors = { scale: 1, dx: 0, dy: 0 };
       }
     } catch (error) {}
   }
@@ -846,6 +845,11 @@ export default class BarcodeScanner extends FieldComponent {
         this._trackedBarcodes = {};
         this._barcodeBatch.addListener({
              didUpdateSession: (barcodeBatchMode, session) => {
+                if (!this._scanButtonClicked) {
+                  this._trackedBarcodes = {};
+                  this._currentBarcodes = [];
+                  this._drawBoundingBoxes([]);
+                }
                 this._trackedBarcodes = session.trackedBarcodes || {};
                 const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
                 this._currentBarcodes = barcodes;
@@ -881,12 +885,12 @@ export default class BarcodeScanner extends FieldComponent {
         this._dataCaptureView = await DataCaptureView.forContext(this._dataCaptureContext);
         this._dataCaptureView.connectToElement(this.refs.scanditContainer);
 
-        await BarcodeBatchBasicOverlay.withBarcodeBatchForViewWithStyle(
-            this._barcodeBatch,
-            this._dataCaptureView,
-            BarcodeBatchBasicOverlayStyle.Frame
+        this.overlay = BarcodeBatchBasicOverlay.withBarcodeBatchForView(
+          this._barcodeBatch,
+          this._dataCaptureView
         );
-
+      
+        this.overlay.proxyType = 'none';
         if (!document.getElementById('hide-scandit-blue-frames')) {
             const style = document.createElement('style');
             style.id = 'hide-scandit-blue-frames';
@@ -910,6 +914,161 @@ export default class BarcodeScanner extends FieldComponent {
         console.warn("Barcode scanner initialization error (handled):", error);
     } finally {
         console.error = originalConsoleError;
+    }
+  }
+
+  async _setupCameraForScanningButton(newScanButtonState) {
+    const originalConsoleError = console.error;
+    console.error = (...args) => {
+      const message = args.join(' ');
+      if (message.includes('NotAllowedError') || message.includes('Permission denied')) {
+        console.warn('[Suppressed camera error]:', ...args);
+      } else {
+        originalConsoleError.apply(console, args);
+      }
+    };
+
+    try {
+      if (!this._barcodeBatch) {
+        console.warn("Scanner not ready yet. Still initializing BarcodeBatch...");
+        return; 
+      }
+      await this._barcodeBatch.setEnabled(newScanButtonState);
+    
+        
+    } catch (error) {
+        console.warn("Camera access error (handled):", error);
+        
+        if (this.refs.freezeButton) {
+            this.refs.freezeButton.style.display = 'none';
+        }
+        
+        if (this.refs.scanditContainer) {
+            const rnWebView = typeof window !== 'undefined' ? window.ReactNativeWebView : null;
+            const canPost = rnWebView && typeof rnWebView.postMessage === 'function';
+
+            if (canPost) {
+              rnWebView.postMessage('cameraAccessDenied');
+            } else {
+              // Web fallback: show something actionable instead of leaving "Loading camera..."
+                this.refs.scanditContainer.textContent =
+                 'Camera access denied. Please enable camera permissions in your browser settings and try again.';
+            }
+        }
+    } finally {
+        console.error = originalConsoleError;
+    }
+    this.refs.scanButton.style.opacity = "1";
+    this.refs.scanButton.style.pointerEvents = "auto";
+  }
+
+  async scanBarcodeButton() {
+    if (!this._barcodeBatch) {
+      console.warn("Scanner not initialized yet.");
+      return;
+     }
+    const currentScanButtonState = this._scanButtonClicked;
+    const newScanButtonState = currentScanButtonState ? false : true ;
+    this._scanButtonClicked = newScanButtonState;
+    
+    // Toggle only the recognition engine, NOT the camera state
+    try {
+    // Update UI Feedback
+      if (newScanButtonState) {
+          
+          console.log("Recognition started");
+          this.updateScanButtonStyle(true);
+          await this._barcodeBatch.setEnabled(true);
+          
+      } else {
+          this.updateScanButtonStyle(false);
+          console.log("Recognition paused");
+          await this._barcodeBatch.setEnabled(false);
+          
+      }
+    } catch (err) {
+      console.error("Failed to toggle recognition:", err);
+      // Reset state on error so the next click tries again
+      this._scanButtonClicked = !newScanButtonState;
+      await this._barcodeBatch.setEnabled(!newScanButtonState);
+    }
+  } 
+  resetViewButton() {
+    // 1. Get the button using the ref or a manual search fallback
+    const viewBtn = this.refs.expandConfirmationModalButton || this.element.querySelector('[ref="expandConfirmationModalButton"]');
+    
+    if (!viewBtn) {
+        console.warn("View Button ref not found");
+        return;
+    }
+
+    const iconSpan = this.refs.viewIcon || btn.querySelector('[ref="viewIcon"]');
+    if (iconSpan) {
+      iconSpan.innerHTML = `
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="8" y1="6" x2="21" y2="6"></line>
+        <line x1="8" y1="12" x2="21" y2="12"></line>
+        <line x1="8" y1="18" x2="21" y2="18"></line>
+        <path d="M3 6l1 1 2-2"></path>
+        <path d="M3 12l1 1 2-2"></path>
+        <path d="M3 18l1 1 2-2"></path>
+      </svg>`;
+    }
+    // 2. Set to DISABLED / GRAY State
+    viewBtn.disabled = true;
+    viewBtn.style.setProperty('background', '#9e9e9e', 'important'); // Gray
+    viewBtn.style.setProperty('opacity', '0.7', 'important');
+    viewBtn.style.setProperty('cursor', 'not-allowed', 'important');
+    viewBtn.style.setProperty('pointer-events', 'none', 'important');
+    viewBtn.style.setProperty('box-shadow', 'none', 'important');
+    
+    console.log("View Button has been reset to gray");
+  }
+
+  activateViewButton() {
+    // Call this when barcodes ARE found
+    const viewBtn = this.refs.expandConfirmationModalButton || this.element.querySelector('[ref="expandConfirmationModalButton"]');
+    
+    if (!viewBtn) return;
+
+    // 3. Set to ACTIVE / BLUE State
+    viewBtn.disabled = false;
+    viewBtn.style.setProperty('background', '#2196f3', 'important'); // Blue
+    viewBtn.style.setProperty('opacity', '1', 'important');
+    viewBtn.style.setProperty('cursor', 'pointer', 'important');
+    viewBtn.style.setProperty('pointer-events', 'auto', 'important');
+    viewBtn.style.setProperty('box-shadow', '0 2px 8px rgba(0,0,0,0.3)', 'important');
+    
+    console.log("View Button is now active and blue");
+  }
+  updateScanButtonStyle(isScanning) {
+    const btn = this.refs.scanBarcodeButton;
+    if (!btn) return;
+  
+    const iconSpan = this.refs.scanIcon || btn.querySelector('[ref="scanIcon"]');
+    const textSpan = this.refs.scanText || btn.querySelector('[ref="scanText"]');
+  
+    if (isScanning) {
+      // STOP STATE (RED)
+      btn.style.setProperty('background', '#f44336', 'important');
+      if (textSpan) textSpan.innerText = 'STOP';
+      if (iconSpan) {
+        iconSpan.innerHTML = `
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="6" y="6" width="12" height="12"></rect>
+          </svg>`;
+      }
+    } else {
+      // SCAN STATE (GREEN)
+      btn.style.setProperty('background', '#4caf50', 'important');
+      if (textSpan) textSpan.innerText = 'SCAN';
+      if (iconSpan) {
+        iconSpan.innerHTML = `
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <path d="M3 5v14M8 5v14M12 5v14M17 5v14M21 5v14" />
+            <path d="M2 12h20" stroke="#ff0000" stroke-width="2" />
+          </svg>`;
+      }
     }
   }
 
@@ -1056,8 +1215,16 @@ export default class BarcodeScanner extends FieldComponent {
 
         // Get the barcodes and show appropriate confirmation dialog
         const detectedBarcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
-        this._showConfirmationDialog(detectedBarcodes);
       } else {
+      }
+      if (this.refs.expandConfirmationModalButton) {
+        const viewBtn = this.refs.expandConfirmationModalButton;
+        viewBtn.disabled = false;
+        viewBtn.style.background = '#2196f3'; // Change to Blue
+        viewBtn.style.cursor = 'pointer';
+        viewBtn.style.opacity = '1';
+        viewBtn.style.pointerEvents = 'auto';
+        viewBtn.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
       }
     }, delayTime);
   }
@@ -1303,7 +1470,8 @@ export default class BarcodeScanner extends FieldComponent {
 
     // Save ALL detected barcodes to backup field
     this._saveBackupBarcodes();
-
+    this._scanButtonClicked = false;
+    this.updateScanButtonStyle(false);
     // Close everything
     this._hideConfirmationDialog();
     setTimeout(async () => {
@@ -1320,10 +1488,18 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   async _rescanBarcode() {
-    this._hideConfirmationDialog();
+    this.resetViewButton();
+    this.updateScanButtonStyle(false);
 
     // Resume scanning
     this._isVideoFrozen = false;
+    this._scanButtonClicked = false;
+    this.updateScanButtonStyle(false);
+    this._trackedBarcodes = {}; 
+    this._currentBarcodes = [];
+
+    this._clearBoundingBoxes();
+    this._hideConfirmationDialog();
 
     if (this._camera) {
       try {
@@ -1336,7 +1512,7 @@ export default class BarcodeScanner extends FieldComponent {
     // Resume bounding box drawing
     if (this._barcodeBatch) {
       try {
-        await this._barcodeBatch.setEnabled(true);
+        await this._barcodeBatch.setEnabled(false);
       } catch (error) {
         console.warn("Error re-enabling barcode batch:", error);
       }
@@ -1363,7 +1539,7 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
-  _confirmMultiSelect() {
+  async _confirmMultiSelect() {
     if (this._pendingBarcodes.length === 0) {
       return;
     }
@@ -1396,7 +1572,8 @@ export default class BarcodeScanner extends FieldComponent {
 
     // Save ALL detected barcodes to backup field
     this._saveBackupBarcodes();
-
+    this._scanButtonClicked = false;
+    this.updateScanButtonStyle(false);
     this._hideConfirmationDialog();
     setTimeout(() => {
       this.stopScanner();
@@ -1405,6 +1582,8 @@ export default class BarcodeScanner extends FieldComponent {
 
   async stopScanner() {
     try {
+      this._scanButtonClicked = false;
+      this.updateScanButtonStyle(false);
       // Hide confirmation dialog if shown
       if (this.refs.confirmationDialog && this.refs.confirmationDialog.style.display !== 'none') {
         this.refs.confirmationDialog.style.display = 'none';
@@ -1426,7 +1605,15 @@ export default class BarcodeScanner extends FieldComponent {
         clearTimeout(this._autoFreezeTimeout);
         this._autoFreezeTimeout = null;
       }
-
+      this._isVideoFrozen = false;
+      this._showingConfirmation = false;
+      this._confirmingBarcode = false;
+      this._pendingBarcodes = [];
+      this._trackedBarcodes = {}; 
+      this._currentBarcodes = [];
+      this._drawBoundingBoxes([]);
+      this._clearBoundingBoxes();
+      this.resetViewButton();
       if (this._camera) {
         try {
           await this._camera.switchToDesiredState(FrameSourceState.Off);
@@ -1435,18 +1622,15 @@ export default class BarcodeScanner extends FieldComponent {
         }
       }
 
-      this._stopLiveScanningMode();
+      
 
       if (this._cameraMonitoringInterval) {
         clearInterval(this._cameraMonitoringInterval);
         this._cameraMonitoringInterval = null;
       }
 
-      this._clearBoundingBoxes();
-      this._isVideoFrozen = false;
-      this._showingConfirmation = false;
-      this._confirmingBarcode = false;
-      this._pendingBarcodes = [];
+      await this._barcodeBatch.setEnabled(false);
+      this._stopLiveScanningMode();
     } catch (e) {
       console.warn("Error in stopScanner:", e);
     } finally {
@@ -1675,9 +1859,13 @@ export default class BarcodeScanner extends FieldComponent {
 
       const draw = () => {
         try {
-          if (!this._boundingBoxContext || !this._boundingBoxCanvas) {
-            return;
+         if (!this._scanButtonClicked) {
+          if (this._boundingBoxContext) {
+              this._boundingBoxContext.clearRect(0, 0, this._boundingBoxCanvas.width, this._boundingBoxCanvas.height);
           }
+          this._animationFrameId = null; // Stop the loop
+          return; 
+         } 
 
           let trackedBarcodes = this._trackedBarcodes || {};
           const barcodeEntries = Object.entries(trackedBarcodes);
@@ -1706,13 +1894,15 @@ export default class BarcodeScanner extends FieldComponent {
             const container = this.refs.scanditContainer;
 
             if (videoElement && videoElement.videoWidth && videoElement.videoHeight && container) {
-              const containerRect = container.getBoundingClientRect();
-              const containerWidth = containerRect.width;
-              const containerHeight = containerRect.height;
-              this._cachedScaleFactors = {
-                scaleX: containerWidth / videoElement.videoWidth,
-                scaleY: containerHeight / videoElement.videoHeight
-              };
+              const rect = container.getBoundingClientRect();
+              const containerW = rect.width;
+              const containerH = rect.height;
+              const videoW = videoElement.videoWidth;
+              const videoH = videoElement.videoHeight;
+              const scale = Math.max(containerW / videoW, containerH / videoH);
+              const dx = (containerW - videoW * scale) / 2;
+              const dy = (containerH - videoH * scale) / 2;
+              this._cachedScaleFactors = { scale, dx, dy, videoW, videoH };
             } else {
               this._cachedScaleFactors = { scaleX: 1, scaleY: 1 };
             }
@@ -1721,19 +1911,27 @@ export default class BarcodeScanner extends FieldComponent {
           const { scaleX, scaleY } = this._cachedScaleFactors;
 
           this._clickableRegions = [];
-
+          const { scale, dx, dy } = this._cachedScaleFactors;
+      
+          const containerW = this._boundingBoxCanvas.width / (window.devicePixelRatio || 1);
           for (const [id, trackedBarcode] of barcodeEntries) {
             let anchor = trackedBarcode._anchorPositions || trackedBarcode._location || (trackedBarcode.barcode && trackedBarcode.barcode.location);
             if (!anchor || !anchor.topLeft) continue;
             const { topLeft, topRight, bottomRight, bottomLeft } = anchor;
-            const x1 = topLeft.x * scaleX;
-            const y1 = topLeft.y * scaleY;
-            const x2 = topRight.x * scaleX;
-            const y2 = topRight.y * scaleY;
-            const x3 = bottomRight.x * scaleX;
-            const y3 = bottomRight.y * scaleY;
-            const x4 = bottomLeft.x * scaleX;
-            const y4 = bottomLeft.y * scaleY;
+            let x1 = (topLeft.x * scale) + dx;
+            let x2 = (topRight.x * scale) + dx;
+            let x3 = (bottomRight.x * scale) + dx;
+            let x4 = (bottomLeft.x * scale) + dx;
+            // This fixes the "Left becomes Right" issue
+            x1 = containerW - x1;
+            x2 = containerW - x2;
+            x3 = containerW - x3;
+            x4 = containerW - x4;
+
+            const y1 = (topLeft.y * scale) + dy;
+            const y2 = (topRight.y * scale) + dy;
+            const y3 = (bottomRight.y * scale) + dy;
+            const y4 = (bottomLeft.y * scale) + dy;
 
             if (this._isVideoFrozen) {
               this._boundingBoxContext.save();
@@ -1816,15 +2014,19 @@ export default class BarcodeScanner extends FieldComponent {
 
         // If single barcode, directly confirm
         if (this._currentBarcodes.length === 1) {
-          this.setValue(barcode.data);
-          if (this.refs.barcode) {
-            this.refs.barcode.value = barcode.data;
-          }
-          this.validateAndSetDirty();
-          this.stopScanner();
+          this._pendingBarcodes = this._currentBarcodes;
+          this._confirmBarcode();
         } else {
           // Multiple barcodes - show dialog with this one pre-selected
-          this._showConfirmationDialog(this._currentBarcodes, barcode);
+          this._pendingBarcodes = this._currentBarcodes;
+     
+          this._preSelectedBarcode = barcode;
+          let selectedIndex = this._currentBarcodes.findIndex(b => b.data === this._preSelectedBarcode.data);
+          if (selectedIndex === -1) {
+            selectedIndex = 0; // Fallback to first if not found
+          }
+          this._selectedBarcodeIndices.add(selectedIndex);
+          this._confirmMultiSelect();
         }
         break;
       }
@@ -1926,8 +2128,13 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   _clearBoundingBoxes() {
+    if (this._animationFrameId) {
+      cancelAnimationFrame(this._animationFrameId);
+      this._animationFrameId = null;
+    }
+    
     if (this._boundingBoxContext && this._boundingBoxCanvas) {
-      this._boundingBoxContext.clearRect(0, 0, this._boundingBoxCanvas.width, this._boundingBoxCanvas.height);
+        this._boundingBoxContext.clearRect(0, 0, this._boundingBoxCanvas.width, this._boundingBoxCanvas.height);
     }
   }
 
