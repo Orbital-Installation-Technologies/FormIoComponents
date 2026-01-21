@@ -719,9 +719,8 @@ export default class BarcodeScanner extends FieldComponent {
       this.refs.freezeButton.style.background = 'rgba(255, 255, 255, 0.2)';
     }
     this.refs.quaggaModal.style.display = 'flex'; 
-    if (!this._camera) {
-      await this._initializeScandit();
-    } 
+    await this._initializeScandit();
+ 
     if (this._barcodeBatch) {
       try {
         await this._barcodeBatch.setEnabled(false);
@@ -1849,7 +1848,9 @@ export default class BarcodeScanner extends FieldComponent {
       if (!this._boundingBoxContext || !this._boundingBoxCanvas) {
         return;
       }
-
+      if (!this._isVideoFrozen) {
+        this._cachedScaleFactors = null; 
+      }
       if (this._animationFrameId) {
         cancelAnimationFrame(this._animationFrameId);
         this._animationFrameId = null;
