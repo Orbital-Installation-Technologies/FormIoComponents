@@ -123,74 +123,49 @@ export default class CustomFile extends FileComponent {
   }
 
   // New method to ensure image previews are displayed
-  updateImagePreviews() {
-    if (typeof document === 'undefined') return; // SSR: skip in server environment
-    // Use multiple attempts to catch images as they're added to DOM
-    const updateImages = () => {
-      const rootEl = this.element;
-      if (!rootEl) return;
+ updateImagePreviews() {
+  if (typeof document === 'undefined' || !this.element) return;
 
-      // Find all image elements that should show previews
-      const imageElements = rootEl.querySelectorAll('img[ref="fileImage"], img.file-image, [ref="fileImage"] img');
-      
-      imageElements.forEach(img => {
-        // Get the file value to find the preview URL
-        const fileValue = this.dataValue;
-        if (fileValue && Array.isArray(fileValue) && fileValue.length > 0) {
-          const fileData = fileValue.find(f => f.name === img.alt || img.getAttribute('data-file-name'));
-          if (fileData && fileData.url && !img.src) {
-            img.src = fileData.url;
-            img.style.display = 'block';
-            img.style.opacity = '1';
-          } else if (fileData && fileData.url && img.src !== fileData.url) {
-            // Update if URL changed
-            img.src = fileData.url;
-          }
-        }
-        
-        // Also check if there's a blob URL in the parent element's data
-        const currentHref = typeof window !== 'undefined' ? window.location.href : '';
-        if (!img.src || img.src === '' || img.src === currentHref) {
-          const parent = img.closest('[data-file-url]');
-          if (parent) {
-            const url = parent.getAttribute('data-file-url');
-            if (url) {
-              img.src = url;
-              img.style.display = 'block';
-            }
-          }
-        }
-        
-        // Ensure image is visible
-        if (img.src && img.src.startsWith('blob:')) {
-          img.style.display = 'block';
-          img.style.opacity = '1';
-          img.style.width = '80px';
-          img.style.height = '80px';
-          img.style.objectFit = 'cover';
-        }
-      });
-    };
-
-    // Try immediately
-    updateImages();
-    
-    // Try after a short delay (Form.io might update DOM asynchronously)
-    if (typeof setTimeout !== 'undefined') {
-      setTimeout(updateImages, 100);
-      setTimeout(updateImages, 500);
-    }
-    
-    // Also hook into next render cycle
-    if (typeof window !== 'undefined' && window.requestAnimationFrame) {
-      requestAnimationFrame(() => {
-        updateImages();
-        if (typeof setTimeout !== 'undefined') {
-          setTimeout(updateImages, 100);
-        }
-      });
-    }
+  // CLEAR any existing pending updates to stop the "snowball" effect
+  if (this._previewTimer) {
+    clearTimeout(this._previewTimer);
   }
+
+  // Schedule a SINGLE update
+  this._previewTimer = setTimeout(() => {
+    const rootEl = this.element;
+    if (!rootEl) return;
+
+    // Use a unified selector
+    const imageElements = rootEl.querySelectorAll('img[ref="fileImage"], .file img, img.wrapped');
+    
+    if (imageElements.length === 0) return;
+
+    const fileValue = this.dataValue || [];
+
+    imageElements.forEach(img => {
+      const fileName = img.alt || img.getAttribute('data-file-name');
+      const fileData = Array.isArray(fileValue) 
+        ? fileValue.find(f => f.name === fileName || f.originalName === fileName)
+        : null;
+
+      // Only update if we have a URL and it's DIFFERENT from current src
+      // This check is CRITICAL to prevent infinite loops
+      if (fileData && fileData.url && img.src !== fileData.url) {
+        img.src = fileData.url;
+        
+        // Apply styles once
+        Object.assign(img.style, {
+          display: 'block',
+          opacity: '1',
+          width: '80px',
+          height: '80px',
+          objectFit: 'cover'
+        });
+      }
+    });
+  }, 200); 
+}
 
   fileToImage(file) {
     return new Promise((resolve, reject) => {
@@ -461,21 +436,32 @@ export default class CustomFile extends FileComponent {
     });
   }
 
- setValue(value, flags) {
-    const result = super.setValue(value, flags);
-    // Reset so wrapper runs again only ONE TIME
-    this.wrapDefaultImagesOnce = false;
-
-    // Run only after DOM settles (single cycle only)
-    if (typeof window !== 'undefined' && window.requestAnimationFrame) {
-      requestAnimationFrame(() => {
-        this.wrapDefaultImages();
-        // Also update image previews after value is set
-        setTimeout(() => this.updateImagePreviews(), 100);
-      });
+ setValue(value, flags = {}) {
+    //  Standard Form.io update
+    const changed = super.setValue(value, flags);
+  
+    //  If this is a draft/submission, we need to ensure the files 
+    // are marked as 'scrambled' immediately so validation doesn't trip.
+    if (flags.fromSubmission || flags.init) {
+      if (Array.isArray(value)) {
+        value.forEach(f => {
+          if (f && !f.__scrambledName) {
+            f.__scrambledName = f.name; // Use existing name as the stable key
+          }
+        });
+      }
     }
-
-    return result;
+  
+    //  Debounced UI Update
+    if (this.element && !flags.noUpdateConfig) {
+      clearTimeout(this.uiTimer);
+      this.uiTimer = setTimeout(() => {
+        this.wrapDefaultImages();
+        this.updateImagePreviews();
+      }, 200);
+    }
+  
+    return changed;
   }
 
   attach(element) {
