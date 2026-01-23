@@ -436,21 +436,32 @@ export default class CustomFile extends FileComponent {
     });
   }
 
- setValue(value, flags) {
-    const result = super.setValue(value, flags);
-    // Reset so wrapper runs again only ONE TIME
-    this.wrapDefaultImagesOnce = false;
-
-    // Run only after DOM settles (single cycle only)
-    if (typeof window !== 'undefined' && window.requestAnimationFrame) {
-      requestAnimationFrame(() => {
-        this.wrapDefaultImages();
-        // Also update image previews after value is set
-        setTimeout(() => this.updateImagePreviews(), 100);
-      });
+ setValue(value, flags = {}) {
+    //  Standard Form.io update
+    const changed = super.setValue(value, flags);
+  
+    //  If this is a draft/submission, we need to ensure the files 
+    // are marked as 'scrambled' immediately so validation doesn't trip.
+    if (flags.fromSubmission || flags.init) {
+      if (Array.isArray(value)) {
+        value.forEach(f => {
+          if (f && !f.__scrambledName) {
+            f.__scrambledName = f.name; // Use existing name as the stable key
+          }
+        });
+      }
     }
-
-    return result;
+  
+    //  Debounced UI Update
+    if (this.element && !flags.noUpdateConfig) {
+      clearTimeout(this.uiTimer);
+      this.uiTimer = setTimeout(() => {
+        this.wrapDefaultImages();
+        this.updateImagePreviews();
+      }, 200);
+    }
+  
+    return changed;
   }
 
   attach(element) {
