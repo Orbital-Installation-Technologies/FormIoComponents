@@ -57,6 +57,13 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.ref }}
 
+      - name: Bump version and push tag
+        id: tag_version
+        uses: tvdias/github-tagger@v0.0.1
+        with:
+          repo-token: "${{ secrets.GITHUB_TOKEN }}"
+          tag: "${{ env.BUNDLE_NAME }}"
+
       - name: PR Comment
         if: github.actor != 'dependabot[bot]'
         uses: thollander/actions-comment-pull-request@v3
