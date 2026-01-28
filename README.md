@@ -70,6 +70,80 @@ npm --version
    npm run dev
    ```
 
+### Using with NPM Link
+
+To use any component in another application via NPM link:
+
+1. **In this repository** (FormIoComponents):
+
+   ```bash
+   npm link
+   ```
+
+2. **In your renderer application**:
+
+   ```bash
+   npm link formiocomponents
+   ```
+
+3. **Configure Next.js** (if using Next.js):
+
+   Update your `next.config.js` to transpile the linked package:
+
+   ```javascript
+   /** @type {import('next').NextConfig} */
+   const nextConfig = {
+     transpilePackages: ['formiocomponents'],
+     webpack: (config) => {
+       config.resolve.symlinks = true;
+       return config;
+     },
+   };
+
+   module.exports = nextConfig;
+   ```
+
+4. **Import and use components**:
+
+   ```javascript
+   // Import individual components
+   import BarcodeScanner from 'formiocomponents/BarcodeScanner';
+   import Rating from 'formiocomponents/Rating';
+   import Gps from 'formiocomponents/Gps';
+   import ReviewButton from 'formiocomponents/ReviewButton';
+   import CustomFile from 'formiocomponents/File';
+   import CustomSelect from 'formiocomponents/Select';
+   
+   // Or import with form configurations
+   import BarcodeScanner, { BarcodeScannerForm } from 'formiocomponents/BarcodeScanner';
+   import Rating, { RatingForm } from 'formiocomponents/Rating';
+   import Gps, { GpsForm } from 'formiocomponents/Gps';
+   import ReviewButton, { ReviewButtonForm } from 'formiocomponents/ReviewButton';
+   
+   // Import ReviewButton helpers if needed
+   import ReviewButton, { 
+     validateSelectedComponents,
+     createReviewModal,
+     formatValue 
+   } from 'formiocomponents/ReviewButton';
+   
+   // Register with Formio
+   import { Formio } from '@formio/js';
+   
+   Formio.use([
+     {
+       components: {
+         barcode: BarcodeScanner,
+         rating: Rating,
+         gps: Gps,
+         reviewbutton: ReviewButton,
+         file: CustomFile,
+         select: CustomSelect,
+       },
+     },
+   ]);
+   ```
+
 ---
 
 
