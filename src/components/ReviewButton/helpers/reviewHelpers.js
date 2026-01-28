@@ -35,11 +35,11 @@ export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, suppor
         <div class="custom-dropdown">
           <label class="dropdown-label">Verified</label>
           <div id="verified" class="dropdown-selected w-full border rounded p-2 text-sm" tabindex="0" data-value="Empty">
-            <span class="selected-text">Select verification type</span>
+            <span class="selected-text">Verification type</span>
             <i class="dropdown icon"></i> 
           </div>
           <ul class="dropdown-list">
-            <li data-value="Empty">Select verification type</li>
+            <li data-value="Empty">Verification type</li>
             <li data-value="App">App</li>
             <li data-value="Support">Support</li>
             <li data-value="Not Verified">Not Verified</li>
