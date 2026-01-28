@@ -70,3 +70,4 @@ jobs:
         with:
           message: |
             Latest Bundle name: `components.bundle.${{ env.BUNDLE_NAME }}.js` found at https://form-cdn.orbitalcustoms.com/components/components.bundle.${{ env.BUNDLE_NAME }}.js
+            Tag name: #${{ env.BUNDLE_NAME }}
