@@ -15,7 +15,7 @@ export default class CustomFile extends FileComponent {
   constructor(...args) {
     super(...args);
     this.picaInstance = null;
-  }
+  } 
 
   /**
    * This is the key: fileToSync is an object containing:
