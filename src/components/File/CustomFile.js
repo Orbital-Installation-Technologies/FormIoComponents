@@ -24,7 +24,7 @@ export default class CustomFile extends FileComponent {
    *  - storage: 's3' | 'base64'
    *  - url: preview
    */
-  async uploadFile(fileToSync) {
+    async uploadFile(fileToSync) {
     if (!fileToSync?.file) {
       return super.uploadFile(fileToSync);
     }
@@ -41,14 +41,20 @@ export default class CustomFile extends FileComponent {
       }
     }
 
-    // --- CUSTOM SCRAMBLING LOGIC ---
+    // --- COLLISION-PROOF SCRAMBLING ---
     const ext = file.name.substring(file.name.lastIndexOf('.')) || '.jpg';
-    const fixedSeed = file.size ? file.size.toString(36) : Math.random().toString(36).slice(2, 7);
-    const uniqueId = Math.random().toString(36).slice(2, 10);
-    const i = Math.floor(Math.random() * 100); // Random index
 
-    // Your specific naming format
-    const scrambledName = `file-${fixedSeed}-${uniqueId}-${i}${ext}`;
+    // 1. Fixed Seed: Use size + high-res timestamp (sub-millisecond)
+    const highResTime = typeof performance !== 'undefined' ? performance.now().toString(36).replace('.', '') : '';
+    const fixedSeed = file.size ? file.size.toString(36) : highResTime;
+
+    // 2. Unique ID: Standard random string
+    const uniqueId = Math.random().toString(36).slice(2, 10);
+
+    // 3. Instance Index: Use the current length of files to prevent same-batch collisions
+    const currentFiles = Array.isArray(this.dataValue) ? this.dataValue.length : 0;
+
+    const scrambledName = `file-${fixedSeed}-${uniqueId}-${currentFiles}-${highResTime}${ext}`;
 
     const scrambledFile = new File(
       [processedBlob],
@@ -56,15 +62,21 @@ export default class CustomFile extends FileComponent {
       { type: processedBlob.type }
     );
 
-    const previewUrl = URL.createObjectURL(processedBlob);
-
-    // Update object with the scrambled name
+    // CRITICAL: We must also update 'originalName' so Form.io doesn't
+    // try to validate against the browser's original filename.
     fileToSync.file = scrambledFile;
     fileToSync.name = scrambledName;
-    fileToSync.url = previewUrl;
+    fileToSync.originalName = scrambledName;
+    fileToSync.url = URL.createObjectURL(processedBlob);
 
     if (typeof setTimeout !== 'undefined') {
       setTimeout(() => this.resetFileInputs(), 0);
+    }
+
+    // --- PREVENT VALIDATION ERROR ---
+    // Ensure the internal state doesn't already think this name exists
+    if (this.component.multiple && Array.isArray(this.dataValue)) {
+      this.dataValue = this.dataValue.filter(f => f.name !== scrambledName);
     }
 
     const uploadedData = await super.uploadFile(fileToSync);
@@ -72,7 +84,6 @@ export default class CustomFile extends FileComponent {
 
     return uploadedData;
   }
-
   // Reset file input elements to prevent mobile browsers from reusing cached files
   resetFileInputs() {
     if (typeof document === 'undefined') return; // SSR: skip in server environment
