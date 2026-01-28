@@ -538,8 +538,6 @@ div.file img:hover {
  setValue(value, flags = {}) {
     // Normalize to array for consistent handling
     const normalizedValue = value ? (Array.isArray(value) ? value : [value]) : [];
-
-    //  Standard Form.io update
     const changed = super.setValue(normalizedValue, flags);
 
     // Sync internal files property so validation sees the correct state
