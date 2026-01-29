@@ -81,7 +81,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh workflow run build-pr.yml \
+          gh workflow run "Build PR" \
             --repo Orbital-Installation-Technologies/formio-renderer \
             --ref main \
             -f tag_number="${{ env.BUNDLE_NAME }}"
