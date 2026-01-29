@@ -44,6 +44,27 @@ jobs:
           SOURCE_DIR: "dist"
           DEST_DIR: "components"
 
+  tag_version:
+    name: Tag Version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    if: success()
+    needs:
+      - build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Bump version and push tag
+        id: tag_version
+        uses: tvdias/github-tagger@v0.0.1
+        with:
+          repo-token: "${{ secrets.GITHUB_TOKEN }}"
+          tag: "${{ env.BUNDLE_NAME }}"
+
   trigger-renderer-build:
     name: Trigger formio-renderer build
     runs-on: ubuntu-latest
@@ -54,6 +75,7 @@ jobs:
     if: success()
     needs:
       - build
+      - tag_version
     outputs:
       pr-url: ${{ steps.get-pr-url.outputs.pr-url }}
     steps:
@@ -117,19 +139,13 @@ jobs:
     if: success()
     needs:
       - build
+      - tag_version
       - trigger-renderer-build
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
           ref: ${{ github.event.pull_request.head.ref }}
-
-      - name: Bump version and push tag
-        id: tag_version
-        uses: tvdias/github-tagger@v0.0.1
-        with:
-          repo-token: "${{ secrets.GITHUB_TOKEN }}"
-          tag: "${{ env.BUNDLE_NAME }}"
 
       - name: PR Comment
         if: github.actor != 'dependabot[bot]'
