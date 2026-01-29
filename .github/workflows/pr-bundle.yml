@@ -44,10 +44,11 @@ jobs:
           SOURCE_DIR: "dist"
           DEST_DIR: "components"
 
-  finalize:
-    name: Finalize
+  tag_version:
+    name: Tag Version
     runs-on: ubuntu-latest
-    permissions: write-all
+    permissions:
+      contents: write
     if: success()
     needs:
       - build
@@ -64,6 +65,88 @@ jobs:
           repo-token: "${{ secrets.GITHUB_TOKEN }}"
           tag: "${{ env.BUNDLE_NAME }}"
 
+  trigger-renderer-build:
+    name: Trigger formio-renderer build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: read
+    if: success()
+    needs:
+      - build
+      - tag_version
+    outputs:
+      pr-url: ${{ steps.get-pr-url.outputs.pr-url }}
+    steps:
+      - name: Trigger FormIO Renderer Build
+        id: trigger
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run build-pr.yml \
+            --repo Orbital-Installation-Technologies/formio-renderer \
+            --ref main \
+            -f tag_number="${{ env.BUNDLE_NAME }}"
+          
+          echo "Workflow triggered, waiting for PR creation..."
+
+      - name: Wait for workflow and find PR
+        id: get-pr-url
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUNDLE_NAME: ${{ env.BUNDLE_NAME }}
+          PR_NUMBER: ${{ github.event.number }}
+        run: |
+          echo "Waiting for formio-renderer workflow to create PR..."
+          
+          # Wait up to 5 minutes for PR to be created, checking every 10 seconds
+          MAX_ATTEMPTS=30
+          ATTEMPT=0
+          PR_URL=""
+          
+          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+            # Search for PRs in formio-renderer that mention this PR number or bundle name
+            PR_URL=$(gh pr list \
+              --repo Orbital-Installation-Technologies/formio-renderer \
+              --state open \
+              --json number,title,url \
+              --jq ".[] | select(.title | contains(\"PR $PR_NUMBER\") or contains(\"$BUNDLE_NAME\")) | .url" \
+              | head -n 1)
+            
+            if [ -n "$PR_URL" ]; then
+              echo "Found PR: $PR_URL"
+              echo "pr-url=$PR_URL" >> $GITHUB_OUTPUT
+              break
+            fi
+            
+            ATTEMPT=$((ATTEMPT + 1))
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: PR not found yet, waiting 10 seconds..."
+              sleep 10
+            fi
+          done
+          
+          if [ -z "$PR_URL" ]; then
+            echo "PR not found after waiting. It may still be creating."
+            echo "pr-url=" >> $GITHUB_OUTPUT
+          fi
+
+  finalize:
+    name: Finalize
+    runs-on: ubuntu-latest
+    permissions: write-all
+    if: success()
+    needs:
+      - build
+      - tag_version
+      - trigger-renderer-build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
       - name: PR Comment
         if: github.actor != 'dependabot[bot]'
         uses: thollander/actions-comment-pull-request@v3
@@ -71,3 +154,5 @@ jobs:
           message: |
             Latest Bundle name: `components.bundle.${{ env.BUNDLE_NAME }}.js` found at https://form-cdn.orbitalcustoms.com/components/components.bundle.${{ env.BUNDLE_NAME }}.js
             Tag name: #${{ env.BUNDLE_NAME }}
+            
+            ${{ needs.trigger-renderer-build.outputs.pr-url != '' && format('Formio-renderer PR created: {0}', needs.trigger-renderer-build.outputs.pr-url) || format('Formio-renderer build workflow triggered with tag_number: `{0}` (PR link pending...)', env.BUNDLE_NAME) }}
