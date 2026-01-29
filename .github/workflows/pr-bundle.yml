@@ -79,7 +79,7 @@ jobs:
     steps:
       - name: Trigger FormIO Renderer Build
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TRIGGER_TOKEN }}
         run: |
           gh workflow run build-pr.yml \
             --repo Orbital-Installation-Technologies/formio-renderer \
@@ -106,7 +106,7 @@ jobs:
       - name: Find formio-renderer PR
         id: find-pr
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TRIGGER_TOKEN }}
           BUNDLE_NAME: ${{ env.BUNDLE_NAME }}
           PR_NUMBER: ${{ github.event.number }}
         run: |
