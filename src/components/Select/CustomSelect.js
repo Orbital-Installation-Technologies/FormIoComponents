@@ -24,6 +24,7 @@ export default class CustomSelect extends SelectComponent {
     // Function to adjust the error icon
     const adjustErrorIcon = () => {
       // Look for the error icon inside the parent of the element
+      if (!element || !element.parentNode) return;
       const errorIcon = element.parentNode.querySelector(
         '.form-control.ui.fluid.selection.dropdown.is-invalid'
       );
@@ -33,7 +34,7 @@ export default class CustomSelect extends SelectComponent {
       }
     };
     adjustErrorIcon();
-    if (element.parentNode) {
+    if (element && element.parentNode) {
       this.errorIconObserver = new MutationObserver(() => adjustErrorIcon());
       this.errorIconObserver.observe(element.parentNode, { childList: true, subtree: true });
     }
@@ -88,6 +89,7 @@ export default class CustomSelect extends SelectComponent {
   }
   detach() {
     this.errorIconObserver?.disconnect();
+    this.dropdownObserver?.disconnect();
     return super.detach();
   }
 }
