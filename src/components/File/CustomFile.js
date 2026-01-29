@@ -349,90 +349,51 @@ export default class CustomFile extends FileComponent {
 
   wrapDefaultImagesOnce = false;
   wrapDefaultImages() {
-    if (typeof document === 'undefined') return; // SSR: skip in server environment
-    if (this.wrapDefaultImagesOnce) return;  // already applied
-    this.wrapDefaultImagesOnce = true;
+    if (typeof document === 'undefined' || !this.element) return;
     const rootEl = this.element;
-    if (!rootEl) return;
 
-    // Use a more robust selector that works on mobile
     const imageSelectors = [
-      '[ref="fileImage"]',
-      'img[ref="fileImage"]',
-      '.file-image img',
-      '.file-preview img',
-      'img[src*="blob:"]',
-      'img[src*="data:image"]'
+      'img[ref="fileImage"]:not(.wrapped)',
+      '.file-image img:not(.wrapped)',
+      'img[src*="blob:"]:not(.wrapped)'
     ];
 
-    let foundImages = [];
     imageSelectors.forEach(selector => {
-      rootEl.querySelectorAll(selector).forEach(img => {
-        if (!foundImages.includes(img)) {
-          foundImages.push(img);
-        }
+      rootEl.querySelectorAll(selector).forEach(defaultImg => {
+        const componentEl = defaultImg.closest('.formio-component');
+        const comp = componentEl ? componentEl.component : null;
+        const parent = defaultImg.parentElement;
+        if (!parent || parent.classList.contains("file")) return;
+
+        // Mark it so we don't wrap it twice
+        defaultImg.classList.add('wrapped');
+
+        const oldDeleteBtn = parent.querySelector('i[ref="removeLink"]');
+        if (oldDeleteBtn) oldDeleteBtn.style.display = "none";
+
+        const container = document.createElement("div");
+        container.className = "file";
+        parent.insertBefore(container, defaultImg);
+        container.appendChild(defaultImg);
+
+        const delBtn = document.createElement("span");
+        delBtn.className = "file-delete";
+        delBtn.innerText = "✕";
+        delBtn.removeLink = oldDeleteBtn;
+        container.appendChild(delBtn);
+
+        delBtn.onclick = () => {
+          if (comp) {
+            // Force dataValue to be an array so File.js doesn't crash
+            if (comp.dataValue && !Array.isArray(comp.dataValue)) {
+              comp.dataValue = [comp.dataValue];
+            }
+          }
+          if (delBtn.removeLink) delBtn.removeLink.click();
+          
+          container.remove();
+        };
       });
-    });
-
-    // Also get file value to set image src
-    const fileValue = this.dataValue;
-    const fileUrls = {};
-    if (fileValue && Array.isArray(fileValue)) {
-      fileValue.forEach(file => {
-        if (file.url) {
-          fileUrls[file.name] = file.url;
-        }
-      });
-    }
-
-    foundImages.forEach(defaultImg => {
-      const parent = defaultImg.parentElement;
-      if (!parent) return;
-
-      // Hide the original Form.io delete button
-      const oldDeleteBtn = parent.querySelector('i[ref="removeLink"]');
-      if (oldDeleteBtn) oldDeleteBtn.style.display = "none";
-
-      // Avoid double wrapping
-      if (parent.classList.contains("file")) return;
-
-      // Set image src if we have a URL for it
-      const currentHref = typeof window !== 'undefined' ? window.location.href : '';
-      if (!defaultImg.src || defaultImg.src === '' || defaultImg.src === currentHref) {
-        const fileName = defaultImg.alt || defaultImg.getAttribute('data-file-name') || '';
-        if (fileUrls[fileName]) {
-          defaultImg.src = fileUrls[fileName];
-        } else if (fileValue && fileValue.length > 0 && fileValue[0].url) {
-          defaultImg.src = fileValue[0].url;
-        }
-      }
-
-      // Ensure image is visible on mobile
-      defaultImg.style.display = "block";
-      defaultImg.style.maxWidth = "100%";
-      defaultImg.style.height = "auto";
-      defaultImg.style.opacity = "1";
-
-      // Build wrapper
-      if (typeof document === 'undefined') return; // SSR: skip in server environment
-      const container = document.createElement("div");
-      container.className = "file";
-
-      parent.insertBefore(container, defaultImg);
-      container.appendChild(defaultImg);
-
-      // Custom delete button
-      if (typeof document === 'undefined') return; // SSR: skip in server environment
-      const delBtn = document.createElement("span");
-      delBtn.className = "file-delete";
-      delBtn.innerText = "✕";
-      delBtn.removeLink = oldDeleteBtn;
-      container.appendChild(delBtn);
-
-      delBtn.onclick = () => {
-        if (delBtn.removeLink) delBtn.removeLink.click();
-        container.remove();
-      };
     });
   }
 
