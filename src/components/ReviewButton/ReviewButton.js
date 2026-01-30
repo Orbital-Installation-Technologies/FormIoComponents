@@ -929,13 +929,26 @@ export default class ReviewButton extends FieldComponent {
     }
   }
 
-  async handleFormSubmission(modalData) {
-    try {
-      updateFormWithModalData(this.root, modalData);
-      
-      if (this.root && typeof this.root.submit === 'function') {
-        await this.root.submit();
+   async handleFormSubmission(modalData) {
+    const submitWithRetry = async (attempt = 1) => {
+      try {
+        updateFormWithModalData(this.root, modalData);
+        if (this.root && typeof this.root.submit === 'function') {
+          return await this.root.submit();
+        }
+      } catch (e) {
+        // Check if the error is specifically a timeout
+        const isTimeout = e?.message?.includes("timed out") || (Array.isArray(e) && e[0]?.message?.includes("timed out"));
+        
+        if (isTimeout && attempt < 2) {
+          console.warn("Backend cold start detected. Retrying...");
+          return await submitWithRetry(attempt + 1);
+        }
+        throw e; // Rethrow if it's not a timeout or we already retried
       }
+    };
+    try {
+      await submitWithRetry();
     } catch (e) {
       if(Array.isArray(e) && e.length > 0 && e[0].ruleName){
         var inputErrors = ""
