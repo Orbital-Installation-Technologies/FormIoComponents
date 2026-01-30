@@ -91,7 +91,7 @@ export default class BarcodeScanner extends FieldComponent {
     } else if (typeof process !== 'undefined' && process?.env && process.env.NEXT_PUBLIC_SCANDIT_KEY) {
       envKey = process?.env?.NEXT_PUBLIC_SCANDIT_KEY;
     }
-    this._licenseKey = envKey || 'undefined' 
+    this._licenseKey = envKey || 'undefined'
   }
 
 
@@ -101,7 +101,9 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   render() {
-    const cameraSVG = `<i class="fa fa-camera bi bi-camera" aria-hidden="true"></i>`;
+    const cameraSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="16" height="16" fill="currentColor">
+      <path d="M149.1 64.8L138.7 96H64C28.7 96 0 124.7 0 160V416c0 35.3 28.7 64 64 64H448c35.3 0 64-28.7 64-64V160c0-35.3-28.7-64-64-64H373.3L362.9 64.8C356.4 45.2 338.1 32 317.4 32H194.6c-20.7 0-39 13.2-45.5 32.8zM256 192a96 96 0 1 1 0 192 96 96 0 1 1 0-192z"/>
+    </svg>`;
 
     const fileImageSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512" width="16" height="16" fill="currentColor">
       <path d="M64 0C28.7 0 0 28.7 0 64V448c0 35.3 28.7 64 64 64H320c35.3 0 64-28.7 64-64V160H256c-17.7 0-32-14.3-32-32V0H64zM256 0V128H384L256 0zM64 256a32 32 0 1 1 64 0 32 32 0 1 1 -64 0zm152 32c5.3 0 10.2 2.6 13.2 6.9l88 128c3.4 4.9 3.7 11.3 1 16.5s-8.2 8.6-14.2 8.6H216 176 128 80c-5.8 0-11.1-3.1-13.9-8.1s-2.8-11.2 .2-16.1l48-80c2.9-4.8 8.1-7.8 13.7-7.8s10.8 2.9 13.7 7.8l12.8 21.4 48.3-70.2c3-4.3 7.9-6.9 13.2-6.9z"/>
@@ -201,7 +203,7 @@ export default class BarcodeScanner extends FieldComponent {
             </div>
 
             <!-- Flashlight Button (Bottom-Left) -->
-            <button
+           <!-- <button
               ref="flashlightButton"
               type="button"
               style="
@@ -228,7 +230,7 @@ export default class BarcodeScanner extends FieldComponent {
               onmouseover="this.style.background='rgba(255, 255, 255, 0.3)'; this.style.boxShadow='0 4px 16px rgba(255, 255, 200, 0.4)'"
               onmouseout="this.style.background='rgba(255, 255, 255, 0.2)'; this.style.boxShadow='0 4px 12px rgba(0, 0, 0, 0.3)'">
               ⚡
-            </button>
+            </button>-->
 
             <!-- Freeze Button (Bottom-Right) - Always visible during scan -->
             <button
@@ -480,7 +482,7 @@ export default class BarcodeScanner extends FieldComponent {
       // Common refs
       scannerInstructions: "single",
       // Flashlight and Freeze refs
-      flashlightButton: "single",
+      // flashlightButton: "single",
       freezeButton: "single",
     });
 
@@ -562,11 +564,11 @@ export default class BarcodeScanner extends FieldComponent {
       }
 
       // Flashlight button listeners
-      if (this.refs.flashlightButton) {
+    /*  if (this.refs.flashlightButton) {
         this.refs.flashlightButton.addEventListener("click", () => {
           this._toggleFlashlight();
         });
-      }
+      }*/
 
       // Freeze button listener
       if (this.refs.freezeButton) {
@@ -1826,9 +1828,9 @@ export default class BarcodeScanner extends FieldComponent {
       this.refs.quaggaModal.style.opacity = "0";
 
       // Hide flashlight button
-      if (this.refs.flashlightButton) {
+     /* if (this.refs.flashlightButton) {
         this.refs.flashlightButton.style.display = "none";
-      }
+      }*/
 
       // Hide freeze button
       if (this.refs.freezeButton) {
@@ -1861,9 +1863,9 @@ export default class BarcodeScanner extends FieldComponent {
       this.refs.quaggaModal.style.opacity = "1";
 
       // Show flashlight button
-      if (this.refs.flashlightButton) {
+     /* if (this.refs.flashlightButton) {
         this.refs.flashlightButton.style.display = "flex";
-      }
+      }*/
     } catch (error) {
       console.warn("Error opening modal:", error);
       if (this.refs.quaggaModal) {
@@ -2070,7 +2072,6 @@ export default class BarcodeScanner extends FieldComponent {
   _captureBarcodeImage(barcodes, canvas) {
     try {
       const MARGIN = 20;
-      console.log("barcodes", barcodes);
       barcodes.forEach(barcode => {
         const { x, y, width, height } = this.getBoundingBox(barcode._location);
     
@@ -2104,8 +2105,6 @@ export default class BarcodeScanner extends FieldComponent {
         );
     
         const croppedDataURL = croppedCanvas.toDataURL('image/jpeg');
-        console.log('Cropped barcode image:', croppedDataURL);
-        console.log('barcode data', barcode.data);
         this._barcodeImages[barcode.data] = croppedDataURL;
       })
     } catch (error) {
@@ -2158,7 +2157,6 @@ export default class BarcodeScanner extends FieldComponent {
       }
 
       const fileUploadComponent = this.root.getComponent(this.component.imageUploadField);
-      console.log("fileUploadComponent", fileUploadComponent);
       if (!fileUploadComponent) {
         console.warn(`File upload component "${this.component.imageUploadField}" not found`);
         return;
@@ -2212,9 +2210,6 @@ export default class BarcodeScanner extends FieldComponent {
       fileUploadComponent.triggerChange();
       fileUploadComponent.dirty = true;
       fileUploadComponent.pristine = false;
-      console.log('Uploaded barcode to S3:', uploadedFiles);
-      console.log('Submission value:', fileUploadComponent.root.submission.data[fileUploadComponent.key]);
-     
     } catch (error) {
       console.warn('Error in _sendBarcodeImageToFileUpload:', error);
     }
@@ -2259,6 +2254,7 @@ export default class BarcodeScanner extends FieldComponent {
     this._updateBarcodePreview();
   }
 
+/*
   _toggleFlashlight() {
     if (!this._camera) {
       console.warn('Camera not available');
@@ -2305,8 +2301,9 @@ export default class BarcodeScanner extends FieldComponent {
       this._showFlashlightNotSupported();
     }
   }
+*/
 
-  _updateFlashlightButtonState(isOn) {
+  /*_updateFlashlightButtonState(isOn) {
     if (!this.refs.flashlightButton) {
       return;
     }
@@ -2320,9 +2317,9 @@ export default class BarcodeScanner extends FieldComponent {
       this.refs.flashlightButton.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
       this.refs.flashlightButton.title = 'Toggle camera flash (for dark environments)';
     }
-  }
+  }*/
 
-  _showFlashlightNotSupported() {
+/*  _showFlashlightNotSupported() {
     // Show a temporary notification that camera flash is not supported
     const notification = document.createElement('div');
     notification.style.cssText = `
@@ -2358,7 +2355,7 @@ export default class BarcodeScanner extends FieldComponent {
     setTimeout(() => {
       notification.remove();
     }, 3000);
-  }
+  }*/
 
   _manualFreeze() {
     // Toggle between frozen and running states
