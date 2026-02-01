@@ -2417,7 +2417,7 @@ export default class BarcodeScanner extends FieldComponent {
       this._animationFrameId = null;
     }
 
-    if (this._barcodeBatch) {
+    if (this._barcodeBatch && typeof this._barcodeBatch.removeFromContext === 'function') {
       this._barcodeBatch.removeFromContext();
     }
 
