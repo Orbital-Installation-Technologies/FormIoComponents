@@ -929,37 +929,36 @@ export default class ReviewButton extends FieldComponent {
     }
   }
 
-   async handleFormSubmission(modalData) {
-    const submitWithRetry = async (attempt = 1) => {
-      try {
-        updateFormWithModalData(this.root, modalData);
-        if (this.root && typeof this.root.submit === 'function') {
-          return await this.root.submit();
-        }
-      } catch (e) {
-        // Check if the error is specifically a timeout
-        const isTimeout = e?.message?.includes("timed out") || (Array.isArray(e) && e[0]?.message?.includes("timed out"));
-        
-        if (isTimeout && attempt < 2) {
-          console.warn("Backend cold start detected. Retrying...");
-          return await submitWithRetry(attempt + 1);
-        }
-        throw e; // Rethrow if it's not a timeout or we already retried
-      }
-    };
-    try {
-      await submitWithRetry();
-    } catch (e) {
-      if(Array.isArray(e) && e.length > 0 && e[0].ruleName){
-        var inputErrors = ""
-        inputErrors = e.map(err => `- ${err.message}`).join('\n');
-        alert("Please fill all the following required fields and try again. \n" + inputErrors);
-      }else{
-        console.error("Error submitting form:", e);
-        alert("An error occurred while submitting the form. Please try again.");
-      }
+ async handleFormSubmission(modalData) {
+  // 1. Visual Feedback is crucial if you aren't retrying. 
+  // Tell the user "This might take a minute" so they don't refresh.
+  this.setLoadingState(true); 
+
+  try {
+    updateFormWithModalData(this.root, modalData);
+
+    if (this.root && typeof this.root.submit === 'function') {
+      // Logic: Tell the underlying request to wait 'forever' (0) 
+      const result = await this.root.submit({
+        timeout: 0, // 0 usually disables the timeout in most JS libraries
+        keepalive: true
+      });
+      
+      return result;
     }
+  } catch (e) {
+    // Handle actual errors (Validation, Server 500), not just timeouts
+    if (Array.isArray(e) && e.length > 0 && e[0].ruleName) {
+      const inputErrors = e.map(err => `- ${err.message}`).join('\n');
+      alert("Please fill all the following required fields:\n" + inputErrors);
+    } else {
+      console.error("Error submitting form:", e);
+      alert("The server is taking a bit too long to respond. Please try one more time.");
+    }
+  } finally {
+    this.setLoadingState(false);
   }
+}
 
   executeDataGridValidationScript(instance) {
     const p = instance.getParent ? instance.getParent() : instance.parent;
