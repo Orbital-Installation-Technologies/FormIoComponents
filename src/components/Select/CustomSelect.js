@@ -16,6 +16,35 @@ export default class CustomSelect extends SelectComponent {
     super(...args);
   }
 
+  hasDataValue() {
+    if (Array.isArray(this.dataValue)) {
+      return this.dataValue.length > 0;
+    }
+    if (this.dataValue && typeof this.dataValue === 'object') {
+      return Object.keys(this.dataValue).length > 0;
+    }
+    return this.dataValue !== null && this.dataValue !== undefined && this.dataValue !== '';
+  }
+
+  clearStaleDropdownSelection(dropdown) {
+    if (this.hasDataValue()) {
+      return;
+    }
+
+    const staleSelectedChoices = dropdown.querySelectorAll(
+      '.choices__item--choice.is-selected'
+    );
+
+    if (!staleSelectedChoices.length) {
+      return;
+    }
+
+    staleSelectedChoices.forEach((choice) => {
+      choice.classList.remove('is-selected', 'is-highlighted');
+      choice.setAttribute('aria-selected', 'false');
+    });
+  }
+
   attach(element) {
     const result = super.attach(element);
 
@@ -78,6 +107,9 @@ export default class CustomSelect extends SelectComponent {
         dropdown.style.top = 'auto';
         dropdown.style.maxHeight = `${maxHeight}px`;
         dropdown.style.overflowY = 'auto';
+
+        // Keep visual option state aligned with cleared value state.
+        this.clearStaleDropdownSelection(dropdown);
       });
 
       observer.observe(element.parentNode, { childList: true, subtree: true });
@@ -88,6 +120,7 @@ export default class CustomSelect extends SelectComponent {
   }
   detach() {
     this.errorIconObserver?.disconnect();
+    this.dropdownObserver?.disconnect();
     return super.detach();
   }
 }
