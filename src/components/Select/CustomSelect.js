@@ -50,10 +50,14 @@ export default class CustomSelect extends SelectComponent {
 
     // Store observer for cleanup
     this.errorIconObserver?.disconnect();
+    this.dropdownObserver?.disconnect();
     // Function to adjust the error icon
     const adjustErrorIcon = () => {
+      const parentNode = element?.parentNode;
+      if (!parentNode) return;
+
       // Look for the error icon inside the parent of the element
-      const errorIcon = element.parentNode.querySelector(
+      const errorIcon = parentNode.querySelector(
         '.form-control.ui.fluid.selection.dropdown.is-invalid'
       );
 
@@ -62,17 +66,24 @@ export default class CustomSelect extends SelectComponent {
       }
     };
     adjustErrorIcon();
-    if (element.parentNode) {
+    const parentNode = element?.parentNode;
+    if (parentNode) {
       this.errorIconObserver = new MutationObserver(() => adjustErrorIcon());
-      this.errorIconObserver.observe(element.parentNode, { childList: true, subtree: true });
+      this.errorIconObserver.observe(parentNode, { childList: true, subtree: true });
     }
 
     // DYNAMIC DROPDOWN HEIGHT BASED ON SCREEN
     const choicesInstance = this.choices || this._choices;
 
-    if (choicesInstance) {
+    if (choicesInstance && parentNode) {
       const observer = new MutationObserver(() => {
-        const dropdown = element.parentNode.querySelector(
+        const currentParent = element?.parentNode;
+        if (!currentParent) {
+          observer.disconnect();
+          return;
+        }
+
+        const dropdown = currentParent.querySelector(
           '.choices__list.choices__list--dropdown.is-active'
         );
         if (!dropdown) return;
@@ -112,7 +123,7 @@ export default class CustomSelect extends SelectComponent {
         this.clearStaleDropdownSelection(dropdown);
       });
 
-      observer.observe(element.parentNode, { childList: true, subtree: true });
+      observer.observe(parentNode, { childList: true, subtree: true });
       this.dropdownObserver = observer;
     }
 
@@ -120,7 +131,9 @@ export default class CustomSelect extends SelectComponent {
   }
   detach() {
     this.errorIconObserver?.disconnect();
+    this.errorIconObserver = null;
     this.dropdownObserver?.disconnect();
+    this.dropdownObserver = null;
     return super.detach();
   }
 }
