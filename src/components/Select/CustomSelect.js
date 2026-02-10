@@ -20,6 +20,9 @@ export default class CustomSelect extends SelectComponent {
     if (Array.isArray(this.dataValue)) {
       return this.dataValue.length > 0;
     }
+    if (this.dataValue && typeof this.dataValue === 'object') {
+      return Object.keys(this.dataValue).length > 0;
+    }
     return this.dataValue !== null && this.dataValue !== undefined && this.dataValue !== '';
   }
 
@@ -29,7 +32,7 @@ export default class CustomSelect extends SelectComponent {
     }
 
     const staleSelectedChoices = dropdown.querySelectorAll(
-      '.choices__item--choice.is-selected[aria-selected="true"]'
+      '.choices__item--choice.is-selected'
     );
 
     if (!staleSelectedChoices.length) {
