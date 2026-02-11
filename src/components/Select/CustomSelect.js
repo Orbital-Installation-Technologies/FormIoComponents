@@ -83,7 +83,6 @@ export default class CustomSelect extends SelectComponent {
         const dropdown = currentParent.querySelector(
           '.choices__list.choices__list--dropdown.is-active'
         );
-        console.log('Dropdown', dropdown);
         if (!dropdown) return;
 
         // Make dropdown overlay content
