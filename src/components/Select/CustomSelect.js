@@ -18,13 +18,16 @@ export default class CustomSelect extends SelectComponent {
 
   attach(element) {
     const result = super.attach(element);
+    const parent = element.parentNode;
 
     // Store observer for cleanup
     this.errorIconObserver?.disconnect();
+    this.dropdownObserver?.disconnect();
     // Function to adjust the error icon
     const adjustErrorIcon = () => {
+      if (!parent) return;
       // Look for the error icon inside the parent of the element
-      const errorIcon = element.parentNode.querySelector(
+      const errorIcon = parent.querySelector(
         '.form-control.ui.fluid.selection.dropdown.is-invalid'
       );
 
@@ -33,17 +36,17 @@ export default class CustomSelect extends SelectComponent {
       }
     };
     adjustErrorIcon();
-    if (element.parentNode) {
+    if (parent) {
       this.errorIconObserver = new MutationObserver(() => adjustErrorIcon());
-      this.errorIconObserver.observe(element.parentNode, { childList: true, subtree: true });
+      this.errorIconObserver.observe(parent, { childList: true, subtree: true });
     }
 
     // DYNAMIC DROPDOWN HEIGHT BASED ON SCREEN
     const choicesInstance = this.choices || this._choices;
 
-    if (choicesInstance) {
+    if (choicesInstance && parent) {
       const observer = new MutationObserver(() => {
-        const dropdown = element.parentNode.querySelector(
+        const dropdown = parent.querySelector(
           '.choices__list.choices__list--dropdown.is-active'
         );
         if (!dropdown) return;
@@ -52,6 +55,8 @@ export default class CustomSelect extends SelectComponent {
         dropdown.style.position = 'absolute';
         dropdown.style.zIndex = 9999;
         dropdown.style.width = `${element.offsetWidth}px`;
+        dropdown.style.left = '0';
+        dropdown.style.right = 'auto';
 
         const rect = element.getBoundingClientRect();
         const margin = 10; // Safe margin
@@ -70,17 +75,18 @@ export default class CustomSelect extends SelectComponent {
         // Open upwards if more space above
         if (spaceBelow < 200 && spaceAbove > spaceBelow) {
           maxHeight = Math.min(spaceAbove, maxHeight);
-          dropdown.style.bottom = `${rect.height}px`; // open upward
+          dropdown.style.top = 'auto';
+          dropdown.style.bottom = '100%'; // open upward
         } else {
-          dropdown.style.bottom = 'auto'; // open downward
+          dropdown.style.top = '100%'; // open downward
+          dropdown.style.bottom = 'auto';
         }
 
-        dropdown.style.top = 'auto';
         dropdown.style.maxHeight = `${maxHeight}px`;
         dropdown.style.overflowY = 'auto';
       });
 
-      observer.observe(element.parentNode, { childList: true, subtree: true });
+      observer.observe(parent, { childList: true, subtree: true });
       this.dropdownObserver = observer;
     }
 
@@ -88,6 +94,7 @@ export default class CustomSelect extends SelectComponent {
   }
   detach() {
     this.errorIconObserver?.disconnect();
+    this.dropdownObserver?.disconnect();
     return super.detach();
   }
 }
