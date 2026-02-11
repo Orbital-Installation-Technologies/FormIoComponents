@@ -353,7 +353,6 @@ export default class Gps extends FieldComponent {
     const changed = this.dataValue !== value;
     if (changed) {
       super.setValue(value, flags);
-      console.log("for testing update....");
       if (!flags.noUpdateEvent) {
         this.triggerChange();
       }
