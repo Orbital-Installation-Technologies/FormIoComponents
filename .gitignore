@@ -24,3 +24,11 @@ yarn-error.log
 .terraform*
 
 dist
+# Ignore Windows reserved device files anywhere
+**/nul
+
+# Claude Code configuration
+.claude/
+
+formiocomponents-1.1.0.tgz
+formiocomponents-1.1.1.tgz
