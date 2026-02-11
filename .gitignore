@@ -30,5 +30,4 @@ dist
 # Claude Code configuration
 .claude/
 
-formiocomponents-1.1.0.tgz
-formiocomponents-1.1.1.tgz
+formiocomponents-*.tgz
