@@ -39,21 +39,26 @@ export default class CustomSelect extends SelectComponent {
     }
 
     // DYNAMIC DROPDOWN HEIGHT BASED ON SCREEN
+    this.dropdownObserver?.disconnect();
     const choicesInstance = this.choices || this._choices;
 
     if (choicesInstance) {
       const observer = new MutationObserver(() => {
-        const dropdown = element.parentNode.querySelector(
+        const dropdown = element.querySelector(
           '.choices__list.choices__list--dropdown.is-active'
         );
         if (!dropdown) return;
 
+        // Use the .choices container for width/position reference
+        const choicesEl = element.querySelector('.choices');
+        const refEl = choicesEl || element;
+
         // Make dropdown overlay content
         dropdown.style.position = 'absolute';
         dropdown.style.zIndex = 9999;
-        dropdown.style.width = `${element.offsetWidth}px`;
+        dropdown.style.width = `${refEl.offsetWidth}px`;
 
-        const rect = element.getBoundingClientRect();
+        const rect = refEl.getBoundingClientRect();
         const margin = 10; // Safe margin
 
         const spaceBelow = window.innerHeight - rect.bottom - margin;
@@ -70,17 +75,18 @@ export default class CustomSelect extends SelectComponent {
         // Open upwards if more space above
         if (spaceBelow < 200 && spaceAbove > spaceBelow) {
           maxHeight = Math.min(spaceAbove, maxHeight);
-          dropdown.style.bottom = `${rect.height}px`; // open upward
+          dropdown.style.top = 'auto';
+          dropdown.style.bottom = `${refEl.offsetHeight}px`; // open upward
         } else {
+          dropdown.style.top = '100%'; // restore Choices.js default
           dropdown.style.bottom = 'auto'; // open downward
         }
 
-        dropdown.style.top = 'auto';
         dropdown.style.maxHeight = `${maxHeight}px`;
         dropdown.style.overflowY = 'auto';
       });
 
-      observer.observe(element.parentNode, { childList: true, subtree: true });
+      observer.observe(element, { childList: true, subtree: true });
       this.dropdownObserver = observer;
     }
 
@@ -88,6 +94,7 @@ export default class CustomSelect extends SelectComponent {
   }
   detach() {
     this.errorIconObserver?.disconnect();
+    this.dropdownObserver?.disconnect();
     return super.detach();
   }
 }
