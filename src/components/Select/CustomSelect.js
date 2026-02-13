@@ -66,13 +66,9 @@ export default class CustomSelect extends SelectComponent {
         const spaceBelow = window.innerHeight - rect.bottom - margin;
         const spaceAbove = rect.top - margin;
 
-        let maxHeight = 400;
-
-        // Small screen / rotated landscape adjustment
-        const smallScreenThreshold = 400; // pixels, adjust if needed
-        if (window.innerHeight < smallScreenThreshold) {
-          maxHeight = Math.min(spaceBelow,200); // limit max-height to 200px for tiny screens
-        }
+        const isSmallScreen = window.innerHeight < 400;
+        const smallScreenCap = 200;
+        let maxHeight = isSmallScreen ? smallScreenCap : 400;
 
         // Open upwards if more space above
         if (spaceBelow < 200 && spaceAbove > spaceBelow) {
@@ -80,6 +76,7 @@ export default class CustomSelect extends SelectComponent {
           dropdown.style.top = 'auto';
           dropdown.style.bottom = `${refEl.offsetHeight}px`; // open upward
         } else {
+          maxHeight = Math.min(spaceBelow, maxHeight);
           dropdown.style.top = '100%'; // restore Choices.js default
           dropdown.style.bottom = 'auto'; // open downward
         }
