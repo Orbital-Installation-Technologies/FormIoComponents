@@ -39,48 +39,53 @@ export default class CustomSelect extends SelectComponent {
     }
 
     // DYNAMIC DROPDOWN HEIGHT BASED ON SCREEN
+    this.dropdownObserver?.disconnect();
     const choicesInstance = this.choices || this._choices;
 
     if (choicesInstance) {
       const observer = new MutationObserver(() => {
-        const dropdown = element.parentNode.querySelector(
+        const dropdown = element.querySelector(
           '.choices__list.choices__list--dropdown.is-active'
         );
         if (!dropdown) return;
 
-        // Make dropdown overlay content
-        dropdown.style.position = 'absolute';
-        dropdown.style.zIndex = 9999;
-        dropdown.style.width = `${element.offsetWidth}px`;
+        // Use the .choices container for width/position reference
+        const choicesEl = element.querySelector('.choices');
+        const refEl = choicesEl || element;
 
-        const rect = element.getBoundingClientRect();
+        // Make dropdown overlay content; pin left so empty/no-results state doesn't offset right
+        dropdown.style.position = 'absolute';
+        dropdown.style.left = '0';
+        dropdown.style.right = 'auto';
+        dropdown.style.zIndex = 9999;
+        dropdown.style.width = `${refEl.offsetWidth}px`;
+
+        const rect = refEl.getBoundingClientRect();
         const margin = 10; // Safe margin
 
         const spaceBelow = window.innerHeight - rect.bottom - margin;
         const spaceAbove = rect.top - margin;
 
-        let maxHeight = 400;
-
-        // Small screen / rotated landscape adjustment
-        const smallScreenThreshold = 400; // pixels, adjust if needed
-        if (window.innerHeight < smallScreenThreshold) {
-          maxHeight = Math.min(spaceBelow,200); // limit max-height to 200px for tiny screens
-        }
+        const isSmallScreen = window.innerHeight < 400;
+        const smallScreenCap = 200;
+        let maxHeight = isSmallScreen ? smallScreenCap : 400;
 
         // Open upwards if more space above
         if (spaceBelow < 200 && spaceAbove > spaceBelow) {
           maxHeight = Math.min(spaceAbove, maxHeight);
-          dropdown.style.bottom = `${rect.height}px`; // open upward
+          dropdown.style.top = 'auto';
+          dropdown.style.bottom = `${refEl.offsetHeight}px`; // open upward
         } else {
+          maxHeight = Math.min(spaceBelow, maxHeight);
+          dropdown.style.top = '100%'; // restore Choices.js default
           dropdown.style.bottom = 'auto'; // open downward
         }
 
-        dropdown.style.top = 'auto';
         dropdown.style.maxHeight = `${maxHeight}px`;
         dropdown.style.overflowY = 'auto';
       });
 
-      observer.observe(element.parentNode, { childList: true, subtree: true });
+      observer.observe(element, { childList: true, subtree: true });
       this.dropdownObserver = observer;
     }
 
@@ -88,6 +93,7 @@ export default class CustomSelect extends SelectComponent {
   }
   detach() {
     this.errorIconObserver?.disconnect();
+    this.dropdownObserver?.disconnect();
     return super.detach();
   }
 }
