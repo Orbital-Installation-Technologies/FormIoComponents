@@ -13,7 +13,6 @@ export default class CustomFile extends FileComponent {
   }
 
   constructor(...args) {
-
     super(...args);
     this.picaInstance = null;
   }
@@ -25,7 +24,7 @@ export default class CustomFile extends FileComponent {
    *  - storage: 's3' | 'base64'
    *  - url: preview
    */
-  async uploadFile(fileToSync) {
+    async uploadFile(fileToSync) {
     if (!fileToSync?.file) {
       return super.uploadFile(fileToSync);
     }
@@ -85,7 +84,6 @@ export default class CustomFile extends FileComponent {
 
     return uploadedData;
   }
-
   // Reset file input elements to prevent mobile browsers from reusing cached files
   resetFileInputs() {
     if (typeof document === 'undefined') return; // SSR: skip in server environment
@@ -131,7 +129,6 @@ export default class CustomFile extends FileComponent {
     }
 
     this._previewTimer = setTimeout(() => {
-     
       const rootEl = this.element;
       // Unified selector to find all possible image containers
       const imageElements = rootEl.querySelectorAll('img[ref="fileImage"], .file img, img.wrapped');
@@ -311,8 +308,8 @@ export default class CustomFile extends FileComponent {
 
   loadImageCssOnce = () => {
     if (typeof document === 'undefined') return; // SSR: skip in server environment
-    if (document.getElementById("custom-file-css")) return;
- 
+    if (document.getElementById("custom-file-css")) return; // already added
+
     const style = document.createElement("style");
     style.id = "custom-file-css";
 
@@ -461,18 +458,13 @@ div.file img:hover {
     const rootEl = this.element;
 
     const imageSelectors = [
-      '[ref="fileImage"]',
-      'img[ref="fileImage"]',
-      '.file-image img',
-      '.file-preview img',
-      'img[src*="blob:"]',
-      'img[src*="data:image"]'
+      'img[ref="fileImage"]:not(.wrapped)',
+      '.file-image img:not(.wrapped)',
+      'img[src*="blob:"]:not(.wrapped)'
     ];
 
     imageSelectors.forEach(selector => {
       rootEl.querySelectorAll(selector).forEach(defaultImg => {
-        const componentEl = defaultImg.closest('.formio-component');
-        const comp = componentEl ? componentEl.component : null;
         const parent = defaultImg.parentElement;
         if (!parent || parent.classList.contains("file")) return;
 
@@ -494,14 +486,7 @@ div.file img:hover {
         container.appendChild(delBtn);
 
         delBtn.onclick = () => {
-          if (comp) {
-            // Force dataValue to be an array so File.js doesn't crash
-            if (comp.dataValue && !Array.isArray(comp.dataValue)) {
-              comp.dataValue = [comp.dataValue];
-            }
-          }
           if (delBtn.removeLink) delBtn.removeLink.click();
-          
           container.remove();
         };
       });
@@ -546,23 +531,22 @@ div.file img:hover {
     closeBtn.onclick = closeModal;
   }
   setValue(value, flags = {}) {
-    //  Standard Form.io update
     const normalizedValue = value ? (Array.isArray(value) ? value : [value]) : [];
-    const changed = super.setValue(normalizedValue,{
-      ...flags,
-      noUpdateConfig: true
-    });
+    const changed = super.setValue(normalizedValue, flags);
+
+    // Sync internal files property so validation sees the correct state
+    if (this.files !== undefined) {
+      this.files = normalizedValue;
+    }
 
     //  If this is a draft/submission, we need to ensure the files
     // are marked as 'scrambled' immediately so validation doesn't trip.
     if (flags.fromSubmission || flags.init) {
-      if (Array.isArray(value)) {
-        value.forEach(f => {
-          if (f && !f.__scrambledName) {
-            f.__scrambledName = f.name; // Use existing name as the stable key
-          }
-        });
-      }
+      normalizedValue.forEach(f => {
+        if (f && !f.__scrambledName) {
+          f.__scrambledName = f.name; // Use existing name as the stable key
+        }
+      });
     }
 
     //  Debounced UI Update
