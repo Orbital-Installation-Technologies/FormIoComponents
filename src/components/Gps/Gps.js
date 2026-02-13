@@ -208,7 +208,33 @@ export default class Gps extends FieldComponent {
     if (!Number.isFinite(n)) return value;
     return Number(n.toString().replace(/(\.\d{6})\d+$/, '$1'));
   }
+  handleChange = () => {
+    const maxDigits = this.getMaxVisibleDigits(latitudeField);  // both have the same size
 
+
+    const truncateDigits = val => val ? val.toString().slice(0, maxDigits) : "";
+
+    var latitude = latitudeField.value;
+    var longitude = longitudeField.value;
+
+    latitude = this.trimTo6DecimalsNumber(latitude);
+    longitude = this.trimTo6DecimalsNumber(longitude);
+    const errors = this.validate(true, `${latitude},${longitude}`);
+
+    this.errorMessage = errors.length ? errors[0].message : "";
+    this.setCustomValidity(errors.length ? errors[0].key : "", this.errorMessage);
+
+    this.updateValue(`${latitude},${longitude}`, { modified: true });
+    // Reacquire refs AFTER updateValue if needed
+    this.loadRefs(this.element, {
+      latitude: "single",
+      longitude: "single"
+    });
+    this.updateState();
+    this.refs.latitude.value = truncateDigits(latitude);
+    this.refs.longitude.value = truncateDigits(longitude);
+
+  };
   attach(element) {
     const attached = super.attach(element);
     this.loadRefs(element, {
@@ -234,37 +260,11 @@ export default class Gps extends FieldComponent {
 
     if (!this.component.disabled) {
 
-      const handleChange = () => {
-        const maxDigits = this.getMaxVisibleDigits(latitudeField);  // both have the same size
-
-
-        const truncateDigits = val => val ? val.toString().slice(0, maxDigits) : "";
-
-        var latitude = latitudeField.value;
-        var longitude = longitudeField.value;
-
-        latitude = this.trimTo6DecimalsNumber(latitude);
-        longitude = this.trimTo6DecimalsNumber(longitude);
-        const errors = this.validate(true, `${latitude},${longitude}`);
-
-        this.errorMessage = errors.length ? errors[0].message : "";
-        this.setCustomValidity(errors.length ? errors[0].key : "", this.errorMessage);
-
-        this.updateValue(`${latitude},${longitude}`, { modified: true });
-        // Reacquire refs AFTER updateValue if needed
-        this.loadRefs(this.element, {
-          latitude: "single",
-          longitude: "single"
-        });
-        this.updateState();
-        this.refs.latitude.value = truncateDigits(latitude);
-        this.refs.longitude.value = truncateDigits(longitude);
-
-      };
+      
 
       // Attach a single handler to both fields
-      latitudeField.addEventListener("change", handleChange);
-      longitudeField.addEventListener("change", handleChange);
+      latitudeField.addEventListener("change", this.handleChange);
+      longitudeField.addEventListener("change", this.handleChange);
     }
 
     if (this.refs.gpsButton) {
@@ -316,6 +316,11 @@ export default class Gps extends FieldComponent {
         this.setError("Unable to retrieve location.");
         this.updateState();
       },
+      {
+        enableHighAccuracy: false, // Set to false if you don't need sub-meter precision
+        timeout: 10000,            // Don't let the GPS search forever
+        maximumAge: 60000          // Use a cached location if it's less than 1 minute old
+      }
     );
   }
 
@@ -337,6 +342,15 @@ export default class Gps extends FieldComponent {
   }
 
   detach() {
+    if (this.refs.gpsButton) {
+      this.refs.gpsButton.removeEventListener("click", this.getLocation);
+    }
+    if (this.refs.latitude) {
+      this.refs.latitude.removeEventListener("change", this.handleChange);
+    }
+    if (this.refs.longitude) {
+      this.refs.longitude.removeEventListener("change", this.handleChange);
+    }
     return super.detach();
   }
 
@@ -350,9 +364,10 @@ export default class Gps extends FieldComponent {
   }
 
   setValue(value, flags = {}) {
-    const changed = this.dataValue !== value;
-    if (changed) {
+    if (this.dataValue !== value) {
+
       super.setValue(value, flags);
+
       if (!flags.noUpdateEvent) {
         this.triggerChange();
       }
@@ -362,10 +377,6 @@ export default class Gps extends FieldComponent {
       const [latitude, longitude] = value ? value.split(",") : ["", ""];
       this.refs.latitude.value = latitude;
       this.refs.longitude.value = longitude;
-    }
-
-    if (changed) {
-      this.redraw();
     }
   }
 
@@ -383,8 +394,8 @@ export default class Gps extends FieldComponent {
         this.triggerChange(updatedFlags);
       }
     }
-
-    this.redraw();
+    this.refs.latitude.value = value.split(",")[0];
+    this.refs.longitude.value = value.split(",")[1];
   }
 
   get emptyValue(){
