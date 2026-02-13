@@ -53,8 +53,10 @@ export default class CustomSelect extends SelectComponent {
         const choicesEl = element.querySelector('.choices');
         const refEl = choicesEl || element;
 
-        // Make dropdown overlay content
+        // Make dropdown overlay content; pin left so empty/no-results state doesn't offset right
         dropdown.style.position = 'absolute';
+        dropdown.style.left = '0';
+        dropdown.style.right = 'auto';
         dropdown.style.zIndex = 9999;
         dropdown.style.width = `${refEl.offsetWidth}px`;
 
