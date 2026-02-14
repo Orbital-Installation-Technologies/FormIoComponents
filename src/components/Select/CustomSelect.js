@@ -29,9 +29,17 @@ export default class CustomSelect extends SelectComponent {
         .form-control.ui.fluid.selection.dropdown.is-invalid {
           background-position: calc(100% - 1.5rem) calc(50% - 0.5px) !important;
         }
-        .choices__list--dropdown.is-active {
+       
+        .choices {
+          position: relative !important;
+          overflow: visible !important;
+        }
+        .choices__list--dropdown {
           position: absolute !important;
-          z-index: 9999 !important;
+          top: 100% !important; /* Forces it right below the input */
+          left: 0 !important;
+          width: 100% !important;
+          z-index: 10000 !important;
         }
       `;
       document.head.appendChild(style);
