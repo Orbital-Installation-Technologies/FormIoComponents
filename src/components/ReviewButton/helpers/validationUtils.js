@@ -1,5 +1,5 @@
 import { Components } from "@formio/js";
-import editForm from "./ReviewButton.form";
+import editForm from "./../ReviewButton.form";
 import {
   hasActualFileData,
   initializeValidationResults,
