@@ -31,7 +31,7 @@ import {
   collectReviewLeavesAndLabels,
   renderLeaves,
   scrollToEndOfPage
-} from "./helpers/index.js";
+} from "./index.js";
 
 const FieldComponent = Components.components.field;
 const CONTAINER_TYPES = new Set(['panel', 'columns', 'well', 'fieldset', 'datagrid', 'datamap', 'form', 'editgrid', 'table', 'tabs', 'row', 'column', 'content', 'htmlelement']);
