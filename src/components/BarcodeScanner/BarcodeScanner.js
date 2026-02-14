@@ -6,8 +6,8 @@ import {
   BarcodeBatch,
   BarcodeBatchSettings,
   BarcodeBatchBasicOverlay,
-  BarcodeBatchBasicOverlayStyle
-} from "@scandit/web-datacapture-barcode";
+  BarcodeBatchBasicOverlayStyle, Barcode,
+} from '@scandit/web-datacapture-barcode';
 import {
   DataCaptureView,
   DataCaptureContext,
@@ -78,6 +78,10 @@ export default class BarcodeScanner extends FieldComponent {
     this._selectedBarcodeIndices = new Set(); // For tracking radio selections
     this._barcodeImages = {}; // Store barcode images by their data value
     this._allDetectedBarcodes = []; // Store ALL barcodes for backup field
+    this._cameraMonitoringInterval = null; // Camera monitoring interval
+    this._isPageVisible = true; // Track page visibility for battery optimization
+    this._visibilityChangeHandler = null; // Page visibility change handler
+    this._drawBoundingBoxesThrottle = false; // Throttle flag for bounding box drawing
 
     // License key can come from (in priority order):
     // 1. Component configuration (scanditLicenseKey set in Formio builder)
@@ -91,17 +95,104 @@ export default class BarcodeScanner extends FieldComponent {
     } else if (typeof process !== 'undefined' && process?.env && process.env.NEXT_PUBLIC_SCANDIT_KEY) {
       envKey = process?.env?.NEXT_PUBLIC_SCANDIT_KEY;
     }
-    this._licenseKey = envKey || 'undefined' 
+    this._licenseKey = "Au8G/21VRMq5Lvn7WaAk+zVFZTuJBRkTUBAg0ffx98NbZe+mNG10R6Ijzj2/XQ26BVoZJWBzCp8Eb4OGwQ9ZyMYtdylQcDI1STqNz9NO5OptVRRZtFGuFPcOJ2OjBdOrOxsrfzFszQEhIbuc1RtVI0esLsGWE1nhzjkXQ2flTbOUo//+aUcytCvX0FP0nYEI913wnW34WX/5Zqj08aAka3HMn2B24cchIWYl+X3m+O6Y6kN5WAlGBTDINqDqbC25mgDxe2G2kYQeb3b0Ls0Qsb2+hT+pH/Ry+ZUGTmJ5ZMsB1hkl5kcVHgKF5+lZkY9A3ApxiUh5ic/p2HzUIEfVLCDAa5Wvpi61CAeL3iGPtBBMI01SQl4t3RSnFbUb3GzAWhlGffUjvbIgR66YsjzcwnXn/f0oU/MPsMsYs/kyDnlzi+P1ZwminBd7xNmNJ2kAJQrBWZ8GHO5g0NbsmMJL59U2Wgopvxus6lyrS/fyr3wB1VjXMggEdZRIkQKdhesJXp912VK62679cU66i33J61R90eqAohJ0lfr5iITlMj7epRZ3Yx23crUeydQX7LmyONuDFLCEMu9fJHiAphzmSBmQRJfkfwGyIYdn+WRmBU09XB6TBG1aa9WvvD5mgY4zjgYJzkdYvv3MFL0NOFX8aukKVU1H8WiBzgFuVfgRq1aMBNkr1ZshXh9waOKQ67Siu2KebPxv2Qb2hgcnBkMv0CJVeVLqN5rgxzJvdBQyhKNWR++SBgNffwV2Ex4Wwc003npe2maC9X9QWjI7MjOxUcshAAn5ZdOWgyJYupgpoUxU/LasmQ=="
   }
-
-
 
   init() {
     super.init();
   }
 
+  isUpca(barcode) {
+    console.log("barcode ", barcode);
+    if (barcode.symbology !== Symbology.EAN13UPCA) {
+      return false;
+    }
+    return barcode.data?.length === 12 || (barcode.data?.length === 13 && barcode.data?.charAt(0) === "0");
+  }
+
+  isEan13(barcode) {
+    console.log("barcode ", barcode);
+    if (barcode.symbology !== Symbology.EAN13UPCA) {
+      return false;
+    }
+    return barcode.data?.length === 13 && barcode.data?.charAt(0) !== "0";
+  }
+
+ /**
+ * Validate UPC-A (12 digits)
+ * Weighting: Odd positions (1, 3, 5...) x 3, Even positions x 1
+ */
+isValidUpcaChecksum(code) {
+  if (!code || !/^\d{12}$/.test(code)) return false;
+  const digits = code.split('').map(Number);
+  let sum = 0;
+  for (let i = 0; i < 11; i++) {
+    // i is 0-indexed, so 0, 2, 4 are the "odd" positions in 1-indexing
+    sum += (i % 2 === 0) ? digits[i] * 3 : digits[i];
+  }
+  const checkDigit = (10 - (sum % 10)) % 10;
+  return checkDigit === digits[11];
+}
+
+/**
+ * Validate EAN-13 (13 digits)
+ * Weighting: Odd positions x 1, Even positions x 3
+ */
+isValidEan13Checksum(code) {
+  if (!code || !/^\d{13}$/.test(code)) return false;
+  const digits = code.split('').map(Number);
+  let sum = 0;
+  for (let i = 0; i < 12; i++) {
+    // i is 0-indexed, so 0, 2, 4 are "odd" (x1) and 1, 3, 5 are "even" (x3)
+    sum += (i % 2 === 0) ? digits[i] : digits[i] * 3;
+  }
+  const checkDigit = (10 - (sum % 10)) % 10;
+  return checkDigit === digits[12];
+}
+
+/**
+ * The Smart Normalizer
+ * This handles the 084296... -> 84296... logic correctly.
+ */
+normalizeBarcodeData(barcode) {
+  if (!barcode || !barcode.data) return '';
+  
+  // Only apply this logic to EAN13/UPCA symbology
+  if (barcode.symbology !== 'ean13-upca' && barcode.symbology !== Symbology.EAN13UPCA) {
+    return barcode.data;
+  }
+
+  let data = barcode.data.trim();
+
+  // Scenario A: It's already 12 digits. Keep it as UPC-A.
+  if (data.length === 12) {
+    return data;
+  }
+
+  // Scenario B: 13 digits starting with 0
+  if (data.length === 13 && data.startsWith('0')) {
+    const candidateUpc = data.substring(1);
+
+    // If the 12-digit version is a valid UPC-A, we normalize to 12 digits.
+    // This catches the '084296...' case and correctly strips the 0.
+    if (this.isValidUpcaChecksum(candidateUpc)) {
+      return candidateUpc; 
+    }
+
+    // If stripping the 0 made it invalid, but the 13-digit version IS valid,
+    // then the leading 0 is a necessary part of a true EAN-13.
+    if (this.isValidEan13Checksum(data)) {
+      return data;
+    }
+  }
+
+  // Scenario C: It's 13 digits but doesn't start with 0 (Standard International EAN)
+  return data;
+}
   render() {
-    const cameraSVG = `<i class="fa fa-camera bi bi-camera" aria-hidden="true"></i>`;
+    const cameraSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="16" height="16" fill="currentColor">
+      <path d="M149.1 64.8L138.7 96H64C28.7 96 0 124.7 0 160V416c0 35.3 28.7 64 64 64H448c35.3 0 64-28.7 64-64V160c0-35.3-28.7-64-64-64H373.3L362.9 64.8C356.4 45.2 338.1 32 317.4 32H194.6c-20.7 0-39 13.2-45.5 32.8zM256 192a96 96 0 1 1 0 192 96 96 0 1 1 0-192z"/>
+    </svg>`;
 
     const fileImageSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512" width="16" height="16" fill="currentColor">
       <path d="M64 0C28.7 0 0 28.7 0 64V448c0 35.3 28.7 64 64 64H320c35.3 0 64-28.7 64-64V160H256c-17.7 0-32-14.3-32-32V0H64zM256 0V128H384L256 0zM64 256a32 32 0 1 1 64 0 32 32 0 1 1 -64 0zm152 32c5.3 0 10.2 2.6 13.2 6.9l88 128c3.4 4.9 3.7 11.3 1 16.5s-8.2 8.6-14.2 8.6H216 176 128 80c-5.8 0-11.1-3.1-13.9-8.1s-2.8-11.2 .2-16.1l48-80c2.9-4.8 8.1-7.8 13.7-7.8s10.8 2.9 13.7 7.8l12.8 21.4 48.3-70.2c3-4.3 7.9-6.9 13.2-6.9z"/>
@@ -631,6 +722,9 @@ export default class BarcodeScanner extends FieldComponent {
       this._autoFreezeTimeout = null;
     }
 
+    // Battery optimization: Set up page visibility detection
+    this._setupPageVisibilityDetection();
+
     this._openModal();
     this._lastCodes = [];
     this._isVideoFrozen = false;
@@ -755,7 +849,7 @@ export default class BarcodeScanner extends FieldComponent {
         let settings = new BarcodeBatchSettings();
         const allSymbologies = [
             Symbology.Code128, Symbology.Code39, Symbology.Code93, Symbology.Code11, Symbology.Codabar,
-            Symbology.EAN13UPCA, Symbology.EAN8, Symbology.UPCE, Symbology.ITF, Symbology.MSIPlessey,
+          Symbology.EAN13UPCA, Symbology.EAN8, Symbology.UPCE, Symbology.ITF, Symbology.MSIPlessey,
             Symbology.QR, Symbology.DataMatrix, Symbology.PDF417, Symbology.Aztec, Symbology.MaxiCode,
             Symbology.KIX, Symbology.RM4SCC, Symbology.GS1Databar, Symbology.GS1DatabarExpanded,
             Symbology.GS1DatabarLimited, Symbology.MicroPDF417, Symbology.MicroQR, Symbology.DotCode,
@@ -765,18 +859,20 @@ export default class BarcodeScanner extends FieldComponent {
         const availableSymbologies = allSymbologies.filter(sym => sym !== undefined);
         settings.enableSymbologies(availableSymbologies);
 
-        settings.codeDuplicateFilter = 0;
-
+        // Battery optimization: Increase duplicate filter to reduce processing
+        settings.codeDuplicateFilter = 500; // Filter duplicates within 500ms
         if (settings.locationSelection) {
             settings.locationSelection = null;
         }
 
+        // Battery optimization: Reduce max codes per frame
         if (typeof settings.maxNumberOfCodesPerFrame !== 'undefined') {
-            settings.maxNumberOfCodesPerFrame = 10;
+            settings.maxNumberOfCodesPerFrame = 5; // Reduced from 10 to save battery
         }
 
+        // Battery optimization: Enable battery saving mode
         if (typeof settings.batterySaving !== 'undefined') {
-            settings.batterySaving = false;
+            settings.batterySaving = true; // Enable battery saving mode
         }
 
         this._configureAdvancedSymbologySettings(settings);
@@ -793,10 +889,26 @@ export default class BarcodeScanner extends FieldComponent {
         this._trackedBarcodes = {};
         this._barcodeBatch.addListener({
              didUpdateSession: (barcodeBatchMode, session) => {
+                // Battery optimization: Skip processing if page is not visible
+                if (!this._isPageVisible || this._isVideoFrozen) {
+                  return;
+                }
+                
                 this._trackedBarcodes = session.trackedBarcodes || {};
+                console.log("_trackedBarcodes ", this._trackedBarcodes.data);
                 const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
                 this._currentBarcodes = barcodes;
-                this._drawBoundingBoxes(this._currentBarcodes);
+                
+                // Battery optimization: Throttle bounding box drawing
+                if (!this._drawBoundingBoxesThrottle) {
+                  this._drawBoundingBoxesThrottle = true;
+                  requestAnimationFrame(() => {
+                    this._drawBoundingBoxes(this._currentBarcodes);
+                    setTimeout(() => {
+                      this._drawBoundingBoxesThrottle = false;
+                    }, 100); // Throttle to max once per 100ms
+                  });
+                }
 
                 // Trigger auto-freeze and confirmation when barcode is detected
                 if (barcodes.length > 0 && !this._isVideoFrozen && !this._showingConfirmation) {
@@ -873,12 +985,26 @@ export default class BarcodeScanner extends FieldComponent {
 
     try {
         const cameraSettings = BarcodeBatch.recommendedCameraSettings;
+        
+        // Battery optimization: Reduce camera resolution for mobile devices
+        if (typeof window !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+          // Use lower resolution on mobile to save battery
+          if (cameraSettings.preferredResolution) {
+            // Prefer lower resolution for mobile
+            cameraSettings.preferredResolution = 'p480'; // 480p instead of default higher resolution
+          }
+        }
+        
         this._camera = Camera.default;
 
         if (this._camera) {
             await this._camera.applySettings(cameraSettings);
             await this._dataCaptureContext.setFrameSource(this._camera);
-            await this._camera.switchToDesiredState(FrameSourceState.On);
+            
+            // Only start camera if page is visible (battery optimization)
+            if (this._isPageVisible) {
+              await this._camera.switchToDesiredState(FrameSourceState.On);
+            }
 
             if (this._barcodeBatch) {
                 await this._barcodeBatch.setEnabled(true);
@@ -960,6 +1086,7 @@ export default class BarcodeScanner extends FieldComponent {
 
     if (this._usingBatch && this._trackedBarcodes) {
       const barcodes = Object.values(this._trackedBarcodes);
+      console.log("barcodes ", barcodes)
       if (barcodes.length > 0) {
         detectedBarcodes = barcodes.map(tb => tb.barcode);
       }
@@ -1003,6 +1130,7 @@ export default class BarcodeScanner extends FieldComponent {
 
         // Get the barcodes and show appropriate confirmation dialog
         const detectedBarcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
+        console.log("detected barcodes",detectedBarcodes)
         this._showConfirmationDialog(detectedBarcodes);
       } else {
       }
@@ -1094,8 +1222,9 @@ export default class BarcodeScanner extends FieldComponent {
     this.refs.singleModeContent.style.display = 'flex';
     this.refs.singleModeContent.style.flexDirection = 'column';
 
-    // Display barcode data
-    this.refs.barcodeDataDisplay.textContent = barcode.data;
+    // Display barcode data (normalized for UPCA codes)
+    const normalizedData = this.normalizeBarcodeData(barcode);
+    this.refs.barcodeDataDisplay.textContent = normalizedData;
 
     // Display barcode type/format
     const barcodeType = barcode.symbology || 'Unknown';
@@ -1161,7 +1290,8 @@ export default class BarcodeScanner extends FieldComponent {
       radio.type = 'radio';
       radio.name = 'barcode-selection'; // All radios share the same name for single selection
       radio.checked = isSelected; // First selected by default
-      radio.value = barcode.data ;
+      const normalizedData = this.normalizeBarcodeData(barcode);
+      radio.value = normalizedData;
       radio.style.cssText = 'margin-right: 12px; cursor: pointer; width: 18px; height: 18px;';
       radio.onchange = (e) => {
         if (e.target.checked) {
@@ -1191,7 +1321,7 @@ export default class BarcodeScanner extends FieldComponent {
       const dataDisplay = document.createElement('div');
       dataDisplay.style.cssText = 'flex: 1; font-family: Courier New, monospace; font-size: 13px;';
       dataDisplay.innerHTML = `
-        <div style="word-break: break-all; margin-bottom: 4px;">${barcode.data}</div>
+        <div style="word-break: break-all; margin-bottom: 4px;">${normalizedData}</div>
         <div style="font-size: 11px; color: #999;">${barcode.symbology || 'Unknown'}</div>
       `;
 
@@ -1238,9 +1368,10 @@ export default class BarcodeScanner extends FieldComponent {
     // For single barcode, save just that one to main field
     const barcode = this._pendingBarcodes[0];
     this._captureBarcodeImage([barcode], this._canvas);
-    this.setValue(barcode.data);
+    const normalizedData = this.normalizeBarcodeData(barcode);
+    this.setValue(normalizedData);
     if (this.refs.barcode) {
-      this.refs.barcode.value = barcode.data;
+      this.refs.barcode.value = normalizedData;
     }
     this.validateAndSetDirty();
     this._updateBarcodePreview();
@@ -1319,8 +1450,9 @@ export default class BarcodeScanner extends FieldComponent {
     const selectedBarcodes = [];
     this._selectedBarcodeIndices.forEach(index => {
       if (this._pendingBarcodes[index]) {
-        const barcodeData = this._pendingBarcodes[index].data;
-        selectedBarcodes.push(barcodeData);
+        const barcode = this._pendingBarcodes[index];
+        const normalizedData = this.normalizeBarcodeData(barcode);
+        selectedBarcodes.push(normalizedData);
         this._captureBarcodeImage(this._pendingBarcodes, this._canvas);
       }
     });
@@ -1505,9 +1637,18 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   _startCameraMonitoring() {
+    // Battery optimization: Reduce monitoring frequency from 200ms to 1000ms (1 second)
+    // This reduces CPU usage significantly while still maintaining responsive UI
+    if (this._cameraMonitoringInterval) {
+      clearInterval(this._cameraMonitoringInterval);
+    }
+    
     this._cameraMonitoringInterval = setInterval(() => {
-      this._checkAndResizeCamera();
-    }, 200);
+      // Only check if page is visible (battery optimization)
+      if (this._isPageVisible && !this._isVideoFrozen) {
+        this._checkAndResizeCamera();
+      }
+    }, 1000); // Reduced from 200ms to 1000ms
 
     this._checkAndResizeCamera();
   }
@@ -1763,9 +1904,10 @@ export default class BarcodeScanner extends FieldComponent {
 
         // If single barcode, directly confirm
         if (this._currentBarcodes.length === 1) {
-          this.setValue(barcode.data);
+          const normalizedData = this.normalizeBarcodeData(barcode);
+          this.setValue(normalizedData);
           if (this.refs.barcode) {
-            this.refs.barcode.value = barcode.data;
+            this.refs.barcode.value = normalizedData;
           }
           this.validateAndSetDirty();
           this.stopScanner();
@@ -1892,12 +2034,15 @@ export default class BarcodeScanner extends FieldComponent {
       clearInterval(this._liveScanInterval);
     }
 
+    // Battery optimization: Reduce live scan interval from 50ms to 200ms
+    // This reduces CPU usage while still maintaining smooth scanning
     this._liveScanInterval = setInterval(() => {
-      if (!this._isVideoFrozen && this._boundingBoxContext) {
+      // Only process if page is visible and video is not frozen
+      if (this._isPageVisible && !this._isVideoFrozen && this._boundingBoxContext) {
         if (!this._lastBarcodeTime || Date.now() - this._lastBarcodeTime > 100) {
         }
       }
-    }, 50);
+    }, 200); // Increased from 50ms to 200ms for battery optimization
   }
 
   _stopLiveScanningMode() {
@@ -1914,6 +2059,9 @@ export default class BarcodeScanner extends FieldComponent {
     }
 
     this._stopLiveScanningMode();
+
+    // Battery optimization: Clean up page visibility detection
+    this._cleanupPageVisibilityDetection();
 
     if (this._resizeHandler) {
       window.removeEventListener('resize', this._resizeHandler);
@@ -2467,13 +2615,7 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   setValue(value, flags = {}) {
-    const changed = super.setValue(value, flags);
-    if (this.refs && this.refs.barcode) {
-      this.refs.barcode.value = value || "";
-    }
-    if (changed) {
-      this.redraw();
-    }
+    const changed = super.setValue(value);
     return changed;
   }
 
