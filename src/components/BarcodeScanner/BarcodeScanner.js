@@ -2469,7 +2469,13 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   setValue(value, flags = {}) {
-    const changed = super.setValue(value);
+    const changed = super.setValue(value, flags);
+    if (this.refs && this.refs.barcode) {
+      this.refs.barcode.value = value || "";
+    }
+    if (changed) {
+      this.redraw();
+    }
     return changed;
   }
 
