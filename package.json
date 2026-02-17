@@ -21,7 +21,13 @@
     "./File": "./src/components/File/index.js",
     "./File/*": "./src/components/File/*.js",
     "./Select": "./src/components/Select/index.js",
-    "./Select/*": "./src/components/Select/*.js"
+    "./Select/*": "./src/components/Select/*.js",
+    "./src/components/BarcodeScanner/BarcodeScanner": "./src/components/BarcodeScanner/BarcodeScanner.js",
+    "./src/components/Gps/Gps": "./src/components/Gps/Gps.js",
+    "./src/components/Rating/Rating": "./src/components/Rating/Rating.js",
+    "./src/components/ReviewButton/ReviewButton": "./src/components/ReviewButton/ReviewButton.js",
+    "./src/components/File/CustomFile": "./src/components/File/CustomFile.js",
+    "./src/components/Select/CustomSelect": "./src/components/Select/CustomSelect.js"
   },
   "scripts": {
     "dev": "webpack serve --config webpack.config.cjs",
