@@ -350,10 +350,9 @@ export default class Gps extends FieldComponent {
   }
 
   setValue(value, flags = {}) {
-    if (this.dataValue !== value) {
-
+    const changed = this.dataValue !== value;
+    if (changed) {
       super.setValue(value, flags);
-
       if (!flags.noUpdateEvent) {
         this.triggerChange();
       }
@@ -363,6 +362,10 @@ export default class Gps extends FieldComponent {
       const [latitude, longitude] = value ? value.split(",") : ["", ""];
       this.refs.latitude.value = latitude;
       this.refs.longitude.value = longitude;
+    }
+
+    if (changed) {
+      this.redraw();
     }
   }
 

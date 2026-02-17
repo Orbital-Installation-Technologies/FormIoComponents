@@ -78,6 +78,10 @@ export default class BarcodeScanner extends FieldComponent {
     this._selectedBarcodeIndices = new Set(); // For tracking radio selections
     this._barcodeImages = {}; // Store barcode images by their data value
     this._allDetectedBarcodes = []; // Store ALL barcodes for backup field
+    this._lastFrameTime = 0; // Throttle frame processing
+    this._lastDrawTime = 0; // Throttle bounding box drawing
+    this._frameThrottleMs = 100; // Process frames max once per 100ms
+    this._drawThrottleMs = 50; // Draw bounding boxes max once per 50ms
 
     // License key can come from (in priority order):
     // 1. Component configuration (scanditLicenseKey set in Formio builder)
@@ -91,7 +95,7 @@ export default class BarcodeScanner extends FieldComponent {
     } else if (typeof process !== 'undefined' && process?.env && process.env.NEXT_PUBLIC_SCANDIT_KEY) {
       envKey = process?.env?.NEXT_PUBLIC_SCANDIT_KEY;
     }
-    this._licenseKey = envKey || 'undefined'
+    this._licenseKey = envKey || 'undefined' 
   }
 
 
@@ -765,18 +769,21 @@ export default class BarcodeScanner extends FieldComponent {
         const availableSymbologies = allSymbologies.filter(sym => sym !== undefined);
         settings.enableSymbologies(availableSymbologies);
 
-        settings.codeDuplicateFilter = 0;
+        // Performance optimization: Filter duplicate barcodes within 300ms
+        settings.codeDuplicateFilter = 300;
 
         if (settings.locationSelection) {
             settings.locationSelection = null;
         }
 
+        // Performance optimization: Limit codes per frame to reduce processing
         if (typeof settings.maxNumberOfCodesPerFrame !== 'undefined') {
-            settings.maxNumberOfCodesPerFrame = 10;
+            settings.maxNumberOfCodesPerFrame = 5;
         }
 
+        // Performance optimization: Enable battery saving mode
         if (typeof settings.batterySaving !== 'undefined') {
-            settings.batterySaving = false;
+            settings.batterySaving = true;
         }
 
         this._configureAdvancedSymbologySettings(settings);
@@ -793,10 +800,23 @@ export default class BarcodeScanner extends FieldComponent {
         this._trackedBarcodes = {};
         this._barcodeBatch.addListener({
              didUpdateSession: (barcodeBatchMode, session) => {
+                // Performance optimization: Throttle frame processing
+                const now = Date.now();
+                if (now - this._lastFrameTime < this._frameThrottleMs) {
+                  return; // Skip this frame if too soon
+                }
+                this._lastFrameTime = now;
+                
                 this._trackedBarcodes = session.trackedBarcodes || {};
                 const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
                 this._currentBarcodes = barcodes;
-                this._drawBoundingBoxes(this._currentBarcodes);
+                
+                // Performance optimization: Throttle bounding box drawing
+                const drawNow = Date.now();
+                if (drawNow - this._lastDrawTime >= this._drawThrottleMs) {
+                  this._lastDrawTime = drawNow;
+                  this._drawBoundingBoxes(this._currentBarcodes);
+                }
 
                 // Trigger auto-freeze and confirmation when barcode is detected
                 if (barcodes.length > 0 && !this._isVideoFrozen && !this._showingConfirmation) {
@@ -873,6 +893,15 @@ export default class BarcodeScanner extends FieldComponent {
 
     try {
         const cameraSettings = BarcodeBatch.recommendedCameraSettings;
+        
+        // Performance optimization: Use lower resolution on mobile devices
+        if (typeof window !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+          // Prefer lower resolution to reduce processing load
+          if (cameraSettings.preferredResolution) {
+            cameraSettings.preferredResolution = 'p480';
+          }
+        }
+        
         this._camera = Camera.default;
 
         if (this._camera) {
@@ -1505,9 +1534,14 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   _startCameraMonitoring() {
+    // Performance optimization: Reduce monitoring frequency to save CPU
+    if (this._cameraMonitoringInterval) {
+      clearInterval(this._cameraMonitoringInterval);
+    }
+    
     this._cameraMonitoringInterval = setInterval(() => {
       this._checkAndResizeCamera();
-    }, 200);
+    }, 500); // Reduced from 200ms to 500ms
 
     this._checkAndResizeCamera();
   }
@@ -1641,6 +1675,8 @@ export default class BarcodeScanner extends FieldComponent {
           this._boundingBoxContext.clearRect(0, 0, width, height);
 
           if (!barcodeEntries.length) {
+            // Performance optimization: Stop animation loop if no barcodes
+            this._animationFrameId = null;
             return;
           }
 
@@ -1892,12 +1928,13 @@ export default class BarcodeScanner extends FieldComponent {
       clearInterval(this._liveScanInterval);
     }
 
+    // Performance optimization: Increase interval to reduce CPU usage
     this._liveScanInterval = setInterval(() => {
       if (!this._isVideoFrozen && this._boundingBoxContext) {
         if (!this._lastBarcodeTime || Date.now() - this._lastBarcodeTime > 100) {
         }
       }
-    }, 50);
+    }, 150); // Increased from 50ms to 150ms
   }
 
   _stopLiveScanningMode() {
@@ -2462,7 +2499,13 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   setValue(value, flags = {}) {
-    const changed = super.setValue(value);
+    const changed = super.setValue(value, flags);
+    if (this.refs && this.refs.barcode) {
+      this.refs.barcode.value = value || "";
+    }
+    if (changed) {
+      this.redraw();
+    }
     return changed;
   }
 
