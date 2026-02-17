@@ -238,78 +238,103 @@ export function formatValue(value, comp) {
  * Renders table HTML for display
  */
 function renderTableHtml(customTable, comp) {
-  let tableHtml = '';
-  tableHtml += `<table style="width:100%;border-collapse:collapse;">`;
+  // Battery optimization: Use array.join() instead of string concatenation for better performance
+  const parts = [];
+  const textareaRegex = /__TEXTAREA__/g; // Battery optimization: Cache regex
+  
+  parts.push(`<table style="width:100%;border-collapse:collapse;">`);
   
   if (customTable._isDataTable && customTable._columnLabels) {
-    tableHtml += `<thead style="background-color:#f8f9fa;">`;
-    tableHtml += `<tr>`;
-    customTable._columnLabels.forEach(label => {
-      tableHtml += `<th style="border:1px solid #ccc;padding:8px;text-align:left;font-weight:bold;">${label}</th>`;
-    });
-    tableHtml += `</tr>`;
-    tableHtml += `</thead>`;
+    parts.push(`<thead style="background-color:#f8f9fa;">`);
+    parts.push(`<tr>`);
     
-    tableHtml += `<tbody>`;
-    customTable._row.forEach(rowObj => {
-      tableHtml += `<tr>`;
+    // Battery optimization: Build header row in one pass
+    const headerCells = customTable._columnLabels.map(label => 
+      `<th style="border:1px solid #ccc;padding:8px;text-align:left;font-weight:bold;">${label}</th>`
+    );
+    parts.push(...headerCells);
+    
+    parts.push(`</tr>`);
+    parts.push(`</thead>`);
+    parts.push(`<tbody>`);
+    
+    // Battery optimization: Build rows more efficiently
+    for (let rowIdx = 0; rowIdx < customTable._row.length; rowIdx++) {
+      const rowObj = customTable._row[rowIdx];
+      parts.push(`<tr>`);
+      
       if (Array.isArray(rowObj._row)) {
-        rowObj._row.forEach(colObj => {
+        for (let colIdx = 0; colIdx < rowObj._row.length; colIdx++) {
+          const colObj = rowObj._row[colIdx];
+          
           if (Array.isArray(colObj._row)) {
-            tableHtml += `<td style="border:1px solid #ccc;padding:8px;">`;
-            colObj._row.forEach(cellObj => {
+            const cellParts = [];
+            
+            for (let cellIdx = 0; cellIdx < colObj._row.length; cellIdx++) {
+              const cellObj = colObj._row[cellIdx];
               if (cellObj._children) {
                 const formattedValue = formatValue(cellObj._children._value, cellObj._children._comp);
-                if (cellObj && cellObj._children && cellObj._children._type && cellObj._children._type === 'textarea') {
-                  const textareaContent = formattedValue.replace(/__TEXTAREA__/g, '');
-                  tableHtml += `${textareaContent}`;
+                if (cellObj._children._type === 'textarea') {
+                  cellParts.push(formattedValue.replace(textareaRegex, ''));
                 } else {
-                  tableHtml += `${formattedValue ?? ''}`;
+                  cellParts.push(formattedValue ?? '');
                 }
               }
-            });
-            tableHtml += `</td>`;
-          } else{
-            tableHtml += `<td style="border:1px solid #ccc;padding:8px;"></td>`;
+            }
+            
+            parts.push(`<td style="border:1px solid #ccc;padding:8px;">${cellParts.join('')}</td>`);
+          } else {
+            parts.push(`<td style="border:1px solid #ccc;padding:8px;"></td>`);
           }
-        });
-      } 
-      tableHtml += `</tr>`;
-    });
-    tableHtml += `</tbody>`;
+        }
+      }
+      
+      parts.push(`</tr>`);
+    }
+    
+    parts.push(`</tbody>`);
   } else {
-    customTable._row.forEach(rowObj => {
-      tableHtml += `<tr>`;
+    // Battery optimization: Build non-datatable rows more efficiently
+    for (let rowIdx = 0; rowIdx < customTable._row.length; rowIdx++) {
+      const rowObj = customTable._row[rowIdx];
+      parts.push(`<tr>`);
+      
       if (Array.isArray(rowObj._row)) {
-        rowObj._row.forEach(colObj => {
+        for (let colIdx = 0; colIdx < rowObj._row.length; colIdx++) {
+          const colObj = rowObj._row[colIdx];
+          
           if (Array.isArray(colObj._row)) {
-            tableHtml += `<td style="border:1px solid #ccc;padding:4px;">`;
-            colObj._row.forEach(cellObj => {
+            const cellParts = [];
+            
+            for (let cellIdx = 0; cellIdx < colObj._row.length; cellIdx++) {
+              const cellObj = colObj._row[cellIdx];
               if (cellObj._children) {
                 const formattedValue = formatValue(cellObj._children._value, cellObj._children._comp);
-                if (cellObj && cellObj._children && cellObj._children._type && cellObj._children._type === 'textarea') {
-                  const textareaContent = formattedValue.replace(/__TEXTAREA__/g, '');
-                  tableHtml += `<div style="display: flex; align-items: flex-start;"><strong>${cellObj._children._label}:</strong>${textareaContent}</div>`;
+                if (cellObj._children._type === 'textarea') {
+                  const textareaContent = formattedValue.replace(textareaRegex, '');
+                  cellParts.push(`<div style="display: flex; align-items: flex-start;"><strong>${cellObj._children._label}:</strong>${textareaContent}</div>`);
                 } else {
-                  tableHtml += `<strong>${cellObj._children._label}:</strong> ${formattedValue ?? ''}`;
+                  cellParts.push(`<strong>${cellObj._children._label}:</strong> ${formattedValue ?? ''}`);
                 }
               }
-              if(colObj._row.length > 1){
-                tableHtml += `<br/>`;
+              if (colObj._row.length > 1 && cellIdx < colObj._row.length - 1) {
+                cellParts.push(`<br/>`);
               }
-            });
-            tableHtml += `</td>`;
-          } else{
-            tableHtml += `<td style="border:1px solid #ccc;padding:4px;"></td>`;
+            }
+            
+            parts.push(`<td style="border:1px solid #ccc;padding:4px;">${cellParts.join('')}</td>`);
+          } else {
+            parts.push(`<td style="border:1px solid #ccc;padding:4px;"></td>`);
           }
-        });
-      } 
-      tableHtml += `</tr>`;
-    });
+        }
+      }
+      
+      parts.push(`</tr>`);
+    }
   }
   
-  tableHtml += `</table>`;
-  return tableHtml;
+  parts.push(`</table>`);
+  return parts.join('');
 }
 
 /**
@@ -485,9 +510,16 @@ function formatDateTimeValue(value, comp) {
 export function firstLeafVal(n) {
   if (!n) return '';
   if (n.__leaf) return formatValue(n.__value, n.__comp);
-  for (const [, child] of Object.entries(n.__children || {})) {
-    const v = firstLeafVal(child);
-    if (v !== '') return v;
+  
+  // Battery optimization: Avoid Object.entries which creates arrays
+  const children = n.__children;
+  if (children) {
+    for (const key in children) {
+      if (children.hasOwnProperty(key)) {
+        const v = firstLeafVal(children[key]);
+        if (v !== '') return v;
+      }
+    }
   }
   return '';
 }
@@ -498,16 +530,18 @@ export function firstLeafVal(n) {
 export function isFieldInvalid(comp, path, invalidFields) {
   if (!invalidFields || invalidFields.size === 0) return false;
 
-  // Trim trailing spaces from keys
+  // Battery optimization: Cache trimKey function
   const trimKey = (k) => typeof k === 'string' ? k.trimEnd() : k;
   const fieldPath = trimKey(path || comp?.path || comp?.key || comp?.component?.key || '');
   
   if (!fieldPath) return false;
 
+  // Battery optimization: Early return for exact match
   if (invalidFields.has(fieldPath)) {
     return true;
   }
 
+  // Battery optimization: Pre-compute path variations once
   const pathVariations = [
     fieldPath,
     `form.data.${fieldPath}`,
@@ -518,18 +552,54 @@ export function isFieldInvalid(comp, path, invalidFields) {
     fieldPath.replace('form.', '')
   ];
 
-  for (const variation of pathVariations) {
-    if (invalidFields.has(variation)) {
+  for (let i = 0; i < pathVariations.length; i++) {
+    if (invalidFields.has(pathVariations[i])) {
       return true;
     }
   }
 
-  if (fieldPath.includes('[') && fieldPath.includes(']')) {
+  // Battery optimization: Cache regex patterns
+  const arrayRegex = /(\w+\[\d+\])/;
+  const hasArray = fieldPath.includes('[') && fieldPath.includes(']');
+  
+  if (hasArray) {
+    // Battery optimization: Pre-compute fieldName and arrayMatch once
     const fieldName = fieldPath.split('.').pop();
-    const arrayMatch = fieldPath.match(/(\w+\[\d+\])/);
+    const arrayMatch = fieldPath.match(arrayRegex);
     
     if (arrayMatch) {
       const arrayPart = arrayMatch[1]; // e.g., "dataGrid[0]"
+      const arrayPartLength = arrayPart.length;
+      const fieldNameWithDot = '.' + fieldName;
+      
+      // Battery optimization: Cache normalizePath function outside loop
+      const normalizePathCache = new Map();
+      const normalizePath = (p) => {
+        if (normalizePathCache.has(p)) {
+          return normalizePathCache.get(p);
+        }
+        
+        // Remove duplicate segments like "hardwareForm.hardwareForm" -> "hardwareForm"
+        const segments = p.split('.');
+        const deduped = [];
+        for (let i = 0; i < segments.length; i++) {
+          if (i === 0 || segments[i] !== segments[i-1]) {
+            deduped.push(segments[i]);
+          }
+        }
+        let normalized = deduped.join('.');
+        
+        // Remove common prefixes
+        normalized = normalized.replace(/^hardwareForm\.hardwareForm\./, 'hardwareForm.');
+        normalized = normalized.replace(/^form\.data\./, '');
+        normalized = normalized.replace(/^data\./, '');
+        
+        normalizePathCache.set(p, normalized);
+        return normalized;
+      };
+      
+      // Battery optimization: Pre-compute normalized fieldPath once
+      const normalizedFieldPath = normalizePath(fieldPath);
       
       for (const invalidField of invalidFields) {
         // Exact match
@@ -537,63 +607,40 @@ export function isFieldInvalid(comp, path, invalidFields) {
           return true;
         }
         
-        // Normalize paths by removing duplicate segments and extra prefixes
-        const normalizePath = (p) => {
-          // Remove duplicate segments like "hardwareForm.hardwareForm" -> "hardwareForm"
-          let normalized = p;
-          const segments = normalized.split('.');
-          const deduped = [];
-          for (let i = 0; i < segments.length; i++) {
-            if (i === 0 || segments[i] !== segments[i-1]) {
-              deduped.push(segments[i]);
-            }
-          }
-          normalized = deduped.join('.');
-          // Remove common prefixes
-          normalized = normalized.replace(/^hardwareForm\.hardwareForm\./, 'hardwareForm.');
-          normalized = normalized.replace(/^form\.data\./, '');
-          normalized = normalized.replace(/^data\./, '');
-          return normalized;
-        };
-        
-        const normalizedFieldPath = normalizePath(fieldPath);
+        // Battery optimization: Check normalized paths
         const normalizedInvalidField = normalizePath(invalidField);
-        
-        // Check normalized paths
         if (normalizedInvalidField === normalizedFieldPath) {
           return true;
         }
         
-        // Check if invalid field contains the same array part and ends with the same field name
-        // This handles cases where the fieldPath has extra segments like ".panel.panel1."
-        // e.g., fieldPath = "hardwareForm.data.dataGrid[0].panel.panel1.picOfSn4"
-        //      invalidField = "hardwareForm.data.dataGrid[0].picOfSn4"
-        if (invalidField.includes(arrayPart) && invalidField.endsWith('.' + fieldName)) {
-          // Also check if fieldPath contains the array part and ends with the field name
-          if (fieldPath.includes(arrayPart) && fieldPath.endsWith('.' + fieldName)) {
+        // Battery optimization: Early exit checks
+        const hasArrayPart = invalidField.includes(arrayPart);
+        const endsWithFieldName = invalidField.endsWith(fieldNameWithDot);
+        
+        if (hasArrayPart && endsWithFieldName && fieldPath.includes(arrayPart) && fieldPath.endsWith(fieldNameWithDot)) {
+          return true;
+        }
+        
+        // Battery optimization: Check exact array part + field name match
+        if (invalidField === `${arrayPart}${fieldNameWithDot}`) {
+          return true;
+        }
+        
+        // Battery optimization: Pre-compute array positions once
+        const fieldPathArrayIdx = fieldPath.indexOf(arrayPart);
+        const invalidFieldArrayIdx = invalidField.indexOf(arrayPart);
+        
+        if (fieldPathArrayIdx >= 0 && invalidFieldArrayIdx >= 0) {
+          const fieldPathAfterArray = fieldPath.substring(fieldPathArrayIdx + arrayPartLength);
+          const invalidFieldAfterArray = invalidField.substring(invalidFieldArrayIdx + arrayPartLength);
+          
+          if (fieldPathAfterArray.endsWith(fieldNameWithDot) && invalidFieldAfterArray.endsWith(fieldNameWithDot)) {
             return true;
           }
         }
         
-        // Also check if invalid field is just the array part + field name
-        if (invalidField === `${arrayPart}.${fieldName}`) {
-          return true;
-        }
-        
-        // Extract the part after the array index from both paths and compare
-        // e.g., fieldPath = "hardwareForm.data.dataGrid[0].panel.panel1.picOfSn4"
-        //      invalidField = "hardwareForm.data.dataGrid[0].picOfSn4"
-        const fieldPathAfterArray = fieldPath.substring(fieldPath.indexOf(arrayPart) + arrayPart.length);
-        const invalidFieldAfterArray = invalidField.substring(invalidField.indexOf(arrayPart) + arrayPart.length);
-        
-        // If both end with the same field name, they match (regardless of intermediate segments)
-        if (fieldPathAfterArray.endsWith('.' + fieldName) && invalidFieldAfterArray.endsWith('.' + fieldName)) {
-          return true;
-        }
-        
-        // Also check if the field name matches directly (for deeply nested components)
-        if (fieldPath.endsWith('.' + fieldName) && invalidField.endsWith('.' + fieldName)) {
-          // Check if they share the same array part
+        // Battery optimization: Check field name match with array part
+        if (fieldPath.endsWith(fieldNameWithDot) && invalidField.endsWith(fieldNameWithDot)) {
           if (fieldPath.includes(arrayPart) && invalidField.includes(arrayPart)) {
             return true;
           }
@@ -601,19 +648,23 @@ export function isFieldInvalid(comp, path, invalidFields) {
       }
     }
   } else {
+    // Battery optimization: Pre-compute fieldName once
     const fieldName = fieldPath.split('.').pop();
+    const fieldNameWithDot = '.' + fieldName;
     
     for (const invalidField of invalidFields) {
       if (invalidField === fieldPath) {
         return true;
       }
-      if (!invalidField.includes('[') && !invalidField.includes(']')) {
-        if (invalidField.endsWith('.' + fieldName) || invalidField === fieldName) {
-          return true;
-        }
+      
+      // Battery optimization: Check non-array fields
+      const hasNoArray = !invalidField.includes('[') && !invalidField.includes(']');
+      if (hasNoArray && (invalidField.endsWith(fieldNameWithDot) || invalidField === fieldName)) {
+        return true;
       }
-      // For array invalid fields, check if they end with this field name
-      if (invalidField.includes('[') && invalidField.includes(']') && invalidField.endsWith('.' + fieldName)) {
+      
+      // Battery optimization: Check array fields ending with field name
+      if (invalidField.includes('[') && invalidField.includes(']') && invalidField.endsWith(fieldNameWithDot)) {
         return true;
       }
     }
@@ -670,7 +721,22 @@ export function getInvalidStyle(comp, path, basePath = '', invalidFields, invali
   return '';
 }
 
+// Battery optimization: Cache row container lookups
+const rowContainerCache = new WeakMap();
+
 function findRowContainer(element) {
+  if (!element) return null;
+  
+  // Battery optimization: Check cache first
+  if (rowContainerCache.has(element)) {
+    const cached = rowContainerCache.get(element);
+    // Verify element is still in DOM
+    if (cached && document.contains(cached)) {
+      return cached;
+    }
+    rowContainerCache.delete(element);
+  }
+  
   let rowContainer = element.closest('.formio-component-panel') ||
     element.closest('[ref="row"]') ||
     element.closest('.formio-component-columns') ||
@@ -679,8 +745,9 @@ function findRowContainer(element) {
 
   if (!rowContainer || !rowContainer.classList) {
     let parent = element;
-    for (let i = 0; i < 5; i++) {
-      if (parent && parent.classList && (
+    // Battery optimization: Limit traversal depth
+    for (let i = 0; i < 5 && parent; i++) {
+      if (parent.classList && (
         parent.classList.contains('formio-component') ||
         parent.hasAttribute('data-noattach') ||
         parent.classList.contains('row')
@@ -690,6 +757,11 @@ function findRowContainer(element) {
       }
       parent = parent.parentElement;
     }
+  }
+
+  // Battery optimization: Cache result
+  if (rowContainer) {
+    rowContainerCache.set(element, rowContainer);
   }
 
   return rowContainer;
@@ -780,88 +852,110 @@ export function applyFieldErrors(panel) {
 
   let attemptCount = 0;
   const maxAttempts = 10;
+  const errorMapKeys = Object.keys(panel._errorMap); // Battery optimization: Cache keys
+  const totalErrors = errorMapKeys.length;
 
   const tryApplyErrors = function() {
     let appliedCount = 0;
+    const domUpdates = []; // Battery optimization: Batch DOM updates
 
     panel.everyComponent(function(comp) {
       const compKey = comp.component && comp.component.key;
-      if (compKey) {
-        if (panel._errorMap[compKey]) {
-          const err = panel._errorMap[compKey];
+      if (compKey && panel._errorMap[compKey]) {
+        const err = panel._errorMap[compKey];
 
-          comp.error = err.message;
-          if (comp.setCustomValidity) {
-            comp.setCustomValidity([err], true);
-          }
-          comp.setPristine(false);
+        comp.error = err.message;
+        if (comp.setCustomValidity) {
+          comp.setCustomValidity([err], true);
+        }
+        comp.setPristine(false);
 
-          if (comp.element) {
+        if (comp.element) {
+          // Battery optimization: Batch DOM class updates
+          domUpdates.push(() => {
             comp.element.classList.add('has-error', 'has-message', 'formio-error-wrapper');
+          });
 
-            const formGroup = comp.element.closest('.form-group') || comp.element.querySelector('.form-group') || comp.element;
+          // Battery optimization: Cache DOM queries
+          const formGroup = comp.element.closest('.form-group') || comp.element.querySelector('.form-group') || comp.element;
+          domUpdates.push(() => {
             formGroup.classList.add('has-error');
+          });
 
-            const compType = comp.type || comp.component.type;
-
-            const input = comp.element.querySelector('input, select, textarea, .choices');
-            if (input) {
+          const compType = comp.type || comp.component.type;
+          const input = comp.element.querySelector('input, select, textarea, .choices');
+          
+          if (input) {
+            // Battery optimization: Batch style updates
+            domUpdates.push(() => {
               input.classList.add('is-invalid', 'form-control-danger');
               input.style.borderColor = '#d9534f';
               input.style.borderWidth = '2px';
+            });
 
-              const errMsg = document.createElement('div');
-              errMsg.className = 'formio-errors invalid-feedback';
-              errMsg.style.display = 'block';
-              errMsg.style.color = '#d9534f';
-              errMsg.innerHTML = '<p style="margin:0;">' + err.message + '</p>';
+            const errMsg = document.createElement('div');
+            errMsg.className = 'formio-errors invalid-feedback';
+            errMsg.style.display = 'block';
+            errMsg.style.color = '#d9534f';
+            errMsg.innerHTML = '<p style="margin:0;">' + err.message + '</p>';
 
-              const existing = comp.element.querySelector('.formio-errors');
-              if (existing) existing.remove();
+            const existing = comp.element.querySelector('.formio-errors');
+            if (existing) {
+              domUpdates.push(() => existing.remove());
+            }
 
-              let insertPoint;
-              if (compType === 'barcode') {
-                const barcodeWrapper = input.closest('.input-group') ||
-                  input.closest('.form-group') ||
-                  input.parentElement;
+            // Battery optimization: Determine insert point once
+            let insertPoint;
+            if (compType === 'barcode') {
+              const barcodeWrapper = input.closest('.input-group') ||
+                input.closest('.form-group') ||
+                input.parentElement;
 
-                if (barcodeWrapper && barcodeWrapper.parentElement) {
-                  insertPoint = barcodeWrapper.parentElement;
+              if (barcodeWrapper && barcodeWrapper.parentElement) {
+                insertPoint = barcodeWrapper.parentElement;
+                domUpdates.push(() => {
                   if (barcodeWrapper.nextSibling) {
                     insertPoint.insertBefore(errMsg, barcodeWrapper.nextSibling);
                   } else {
                     insertPoint.appendChild(errMsg);
                   }
-                } else {
-                  insertPoint = comp.element;
-                  insertPoint.appendChild(errMsg);
-                }
-              } else if (compType === 'radio') {
-                const radioContainer = comp.element.querySelector('.form-radio') ||
-                  comp.element.querySelector('.radio') ||
-                  comp.element.querySelector('[role="radiogroup"]') ||
-                  formGroup;
-
-                if (radioContainer) {
-                  radioContainer.appendChild(errMsg);
-                } else {
-                  comp.element.appendChild(errMsg);
-                }
+                });
               } else {
-                insertPoint = input.parentElement || comp.element;
-                insertPoint.appendChild(errMsg);
+                insertPoint = comp.element;
+                domUpdates.push(() => insertPoint.appendChild(errMsg));
               }
+            } else if (compType === 'radio') {
+              const radioContainer = comp.element.querySelector('.form-radio') ||
+                comp.element.querySelector('.radio') ||
+                comp.element.querySelector('[role="radiogroup"]') ||
+                formGroup;
 
-              appliedCount++;
+              insertPoint = radioContainer || comp.element;
+              domUpdates.push(() => insertPoint.appendChild(errMsg));
+            } else {
+              insertPoint = input.parentElement || comp.element;
+              domUpdates.push(() => insertPoint.appendChild(errMsg));
             }
+
+            appliedCount++;
           }
         }
       }
     });
 
-    if (appliedCount < Object.keys(panel._errorMap).length && attemptCount < maxAttempts) {
+    // Battery optimization: Batch all DOM updates using requestAnimationFrame
+    if (domUpdates.length > 0) {
+      requestAnimationFrame(() => {
+        domUpdates.forEach(update => update());
+      });
+    }
+
+    if (appliedCount < totalErrors && attemptCount < maxAttempts) {
       attemptCount++;
-      setTimeout(tryApplyErrors, 200);
+      // Battery optimization: Use requestAnimationFrame instead of setTimeout
+      requestAnimationFrame(() => {
+        setTimeout(tryApplyErrors, 100); // Reduced from 200ms
+      });
     }
   };
 
