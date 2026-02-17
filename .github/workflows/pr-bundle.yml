@@ -44,10 +44,11 @@ jobs:
           SOURCE_DIR: "dist"
           DEST_DIR: "components"
 
-  finalize:
-    name: Finalize
+  tag_version:
+    name: Tag Version
     runs-on: ubuntu-latest
-    permissions: write-all
+    permissions:
+      contents: write
     if: success()
     needs:
       - build
@@ -64,6 +65,67 @@ jobs:
           repo-token: "${{ secrets.GITHUB_TOKEN }}"
           tag: "${{ env.BUNDLE_NAME }}"
 
+  trigger-renderer-build:
+    name: Trigger formio-renderer build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: read
+    if: success()
+    needs:
+      - build
+      - tag_version
+    steps:
+      - name: Trigger FormIO Renderer Build
+        env:
+          GH_TOKEN: ${{ secrets.TRIGGER_TOKEN }}
+        run: |
+          gh workflow run build-pr.yml \
+            --repo Orbital-Installation-Technologies/formio-renderer \
+            --ref main \
+            -f tag_number="${{ env.BUNDLE_NAME }}"
+          
+          echo "Workflow triggered successfully"
+
+  finalize:
+    name: Finalize
+    runs-on: ubuntu-latest
+    permissions: write-all
+    if: success()
+    needs:
+      - build
+      - tag_version
+      - trigger-renderer-build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Find formio-renderer PR
+        id: find-pr
+        env:
+          GH_TOKEN: ${{ secrets.TRIGGER_TOKEN }}
+          BUNDLE_NAME: ${{ env.BUNDLE_NAME }}
+          PR_NUMBER: ${{ github.event.number }}
+        run: |
+          # Quick single attempt to find the PR
+          PR_URL=$(gh pr list \
+            --repo Orbital-Installation-Technologies/formio-renderer \
+            --state open \
+            --json number,title,url \
+            --jq ".[] | select(.title | contains(\"PR $PR_NUMBER\") or contains(\"$BUNDLE_NAME\")) | .url" \
+            | head -n 1)
+          
+          if [ -n "$PR_URL" ]; then
+            echo "pr-url=$PR_URL" >> $GITHUB_OUTPUT
+            echo "Found PR: $PR_URL"
+          else
+            echo "pr-url=" >> $GITHUB_OUTPUT
+            echo "PR not found yet (may still be creating)"
+          fi
+
       - name: PR Comment
         if: github.actor != 'dependabot[bot]'
         uses: thollander/actions-comment-pull-request@v3
@@ -71,3 +133,5 @@ jobs:
           message: |
             Latest Bundle name: `components.bundle.${{ env.BUNDLE_NAME }}.js` found at https://form-cdn.orbitalcustoms.com/components/components.bundle.${{ env.BUNDLE_NAME }}.js
             Tag name: #${{ env.BUNDLE_NAME }}
+            
+            ${{ steps.find-pr.outputs.pr-url != '' && format('Formio-renderer PR created: {0}', steps.find-pr.outputs.pr-url) || format('Formio-renderer build workflow triggered with tag_number: `{0}`. [Search for PR](https://github.com/Orbital-Installation-Technologies/formio-renderer/pulls?q=is:pr+is:open+"PR+{1}")', env.BUNDLE_NAME, github.event.number) }}
