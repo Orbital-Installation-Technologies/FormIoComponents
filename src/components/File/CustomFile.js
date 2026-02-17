@@ -293,7 +293,7 @@ export default class CustomFile extends FileComponent {
 
       // Resize with Pica
       await p.resize(srcCanvas, destCanvas, {
-        quality: 2, // Good quality, mobile-friendly
+        quality: 1, // Good quality, mobile-friendly
         unsharpAmount: 80,
         unsharpThreshold: 2
       });
@@ -722,6 +722,16 @@ div.file img:hover {
   }
 
   detach() {
+
+    const files = Array.isArray(this.dataValue)
+     ? this.dataValue
+     : (this.dataValue ? [this.dataValue] : []);
+    files.forEach(f => {
+      if (f.url && f.url.startsWith('blob:')) {
+        URL.revokeObjectURL(f.url);
+      }
+    });
+    
     // Disconnect the MutationObserver if it exists
     if (this._fileInputObserver) {
       this._fileInputObserver.disconnect();

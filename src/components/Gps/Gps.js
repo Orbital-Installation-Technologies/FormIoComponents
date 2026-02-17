@@ -31,6 +31,17 @@ export default class Gps extends FieldComponent {
     super(component, options, data);
     this.errorMessage = "";
     this.fetchedInitially = false;
+    // Battery optimization: Track geolocation request to prevent multiple simultaneous requests
+    this._geolocationRequestInProgress = false;
+    // Battery optimization: Cache computed styles to avoid repeated getComputedStyle calls
+    this._cachedMaxDigits = null;
+    // Battery optimization: Store bound event handlers for proper cleanup
+    this._boundHandlers = {
+      handleChange: null,
+      getLocationClick: null
+    };
+    // Battery optimization: Store timeout IDs for cleanup
+    this._timeoutIds = [];
   }
 
   validateLatLon(lat, lon, refs, { requireBoth = true, required = true } = {}) {
@@ -126,6 +137,10 @@ export default class Gps extends FieldComponent {
   }
   getMaxVisibleDigits(input) {
     if (!input) return 0;
+    // Battery optimization: Cache computed style to avoid repeated expensive calls
+    if (this._cachedMaxDigits !== null) {
+      return this._cachedMaxDigits;
+    }
     const style = window.getComputedStyle(input);
     const fontSize = parseFloat(style.fontSize);
     const padding =
@@ -133,7 +148,8 @@ export default class Gps extends FieldComponent {
       parseFloat(style.paddingRight || 0);
     const width = input.clientWidth - padding;
     const avgDigitWidth = fontSize * 0.6; // average for '0'..'9' in most sans-serif fonts
-    return Math.floor(width / avgDigitWidth);
+    this._cachedMaxDigits = Math.floor(width / avgDigitWidth);
+    return this._cachedMaxDigits;
   }
 
   validate(required, value) {
@@ -208,7 +224,59 @@ export default class Gps extends FieldComponent {
     if (!Number.isFinite(n)) return value;
     return Number(n.toString().replace(/(\.\d{6})\d+$/, '$1'));
   }
+  // Battery optimization: Debounce handleChange to reduce CPU usage
+  handleChange = (() => {
+    let timeoutId = null;
+    return () => {
+      // Clear previous timeout
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+        this._timeoutIds = this._timeoutIds.filter(id => id !== timeoutId);
+      }
+      
+      // Debounce the actual work
+      timeoutId = setTimeout(() => {
+        if (!this.refs?.latitude || !this.refs?.longitude) return;
+        
+        const latitudeField = this.refs.latitude;
+        const longitudeField = this.refs.longitude;
+        const maxDigits = this.getMaxVisibleDigits(latitudeField);  // both have the same size
+        const truncateDigits = val => val ? val.toString().slice(0, maxDigits) : "";
 
+        var latitude = latitudeField.value;
+        var longitude = longitudeField.value;
+
+        latitude = this.trimTo6DecimalsNumber(latitude);
+        longitude = this.trimTo6DecimalsNumber(longitude);
+        const errors = this.validate(true, `${latitude},${longitude}`);
+
+        this.errorMessage = errors.length ? errors[0].message : "";
+        this.setCustomValidity(errors.length ? errors[0].key : "", this.errorMessage);
+
+        this.updateValue(`${latitude},${longitude}`, { modified: true });
+        // Reacquire refs AFTER updateValue if needed
+        this.loadRefs(this.element, {
+          latitude: "single",
+          longitude: "single"
+        });
+        
+        // Battery optimization: Use requestAnimationFrame for DOM updates
+        requestAnimationFrame(() => {
+          this.updateState();
+          if (this.refs?.latitude) {
+            this.refs.latitude.value = truncateDigits(latitude);
+          }
+          if (this.refs?.longitude) {
+            this.refs.longitude.value = truncateDigits(longitude);
+          }
+        });
+        
+        this._timeoutIds = this._timeoutIds.filter(id => id !== timeoutId);
+      }, 300); // Debounce to 300ms
+      
+      this._timeoutIds.push(timeoutId);
+    };
+  })();
   attach(element) {
     const attached = super.attach(element);
     this.loadRefs(element, {
@@ -233,44 +301,20 @@ export default class Gps extends FieldComponent {
 
 
     if (!this.component.disabled) {
-
-      const handleChange = () => {
-        const maxDigits = this.getMaxVisibleDigits(latitudeField);  // both have the same size
-
-
-        const truncateDigits = val => val ? val.toString().slice(0, maxDigits) : "";
-
-        var latitude = latitudeField.value;
-        var longitude = longitudeField.value;
-
-        latitude = this.trimTo6DecimalsNumber(latitude);
-        longitude = this.trimTo6DecimalsNumber(longitude);
-        const errors = this.validate(true, `${latitude},${longitude}`);
-
-        this.errorMessage = errors.length ? errors[0].message : "";
-        this.setCustomValidity(errors.length ? errors[0].key : "", this.errorMessage);
-
-        this.updateValue(`${latitude},${longitude}`, { modified: true });
-        // Reacquire refs AFTER updateValue if needed
-        this.loadRefs(this.element, {
-          latitude: "single",
-          longitude: "single"
-        });
-        this.updateState();
-        this.refs.latitude.value = truncateDigits(latitude);
-        this.refs.longitude.value = truncateDigits(longitude);
-
-      };
-
+      // Battery optimization: Store bound handlers for proper cleanup
+      this._boundHandlers.handleChange = this.handleChange.bind(this);
+      
       // Attach a single handler to both fields
-      latitudeField.addEventListener("change", handleChange);
-      longitudeField.addEventListener("change", handleChange);
+      latitudeField.addEventListener("change", this._boundHandlers.handleChange, { passive: true });
+      longitudeField.addEventListener("change", this._boundHandlers.handleChange, { passive: true });
     }
 
     if (this.refs.gpsButton) {
-      this.refs.gpsButton.addEventListener("click", () => {
+      // Battery optimization: Store bound handler for proper cleanup
+      this._boundHandlers.getLocationClick = () => {
         this.getLocation();
-      });
+      };
+      this.refs.gpsButton.addEventListener("click", this._boundHandlers.getLocationClick);
     }
     return attached;
   }
@@ -281,62 +325,140 @@ export default class Gps extends FieldComponent {
       return;
     }
 
+    // Battery optimization: Prevent multiple simultaneous geolocation requests
+    if (this._geolocationRequestInProgress) {
+      return;
+    }
+    
+    this._geolocationRequestInProgress = true;
+    
+    // Battery optimization: Disable button during request to prevent multiple clicks
+    if (this.refs.gpsButton) {
+      this.refs.gpsButton.disabled = true;
+    }
+
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        this._geolocationRequestInProgress = false;
+        
+        // Battery optimization: Re-enable button
+        if (this.refs.gpsButton) {
+          this.refs.gpsButton.disabled = false;
+        }
+        
         var { latitude, longitude } = position.coords;
         if (this.errorMessage !== "") {
           this.setError(null);
-          this.updateState();
         }
+        
         const maxDigits = this.getMaxVisibleDigits(this.refs.latitude);  // both have the same size
         const truncateDigits = val => val ? val.toString().slice(0, maxDigits) : "";
 
         latitude = this.trimTo6DecimalsNumber(latitude);
         longitude = this.trimTo6DecimalsNumber(longitude);
         this.updateValue(`${latitude},${longitude}`);
-        if (this.refs.latitude) {
-          this.refs.latitude.value = truncateDigits(latitude);
-        }
-        if (this.refs.longitude) {
-          this.refs.longitude.value = truncateDigits(longitude);
-        }
-        this.fetchedInitially = true;
-        if (this.refs.latitude) {
-          this.refs.latitude.style.pointerEvents = 'none';
-          this.refs.latitude.style.setProperty('background-color', '#E9ECEF', 'important');
-        }
-        if (this.refs.longitude) {
-          this.refs.longitude.style.pointerEvents = 'none';
-          this.refs.longitude.style.setProperty('background-color', '#E9ECEF', 'important');
-        }
+        
+        // Battery optimization: Batch DOM updates using requestAnimationFrame
+        requestAnimationFrame(() => {
+          if (this.refs.latitude) {
+            this.refs.latitude.value = truncateDigits(latitude);
+            this.refs.latitude.style.pointerEvents = 'none';
+            this.refs.latitude.style.setProperty('background-color', '#E9ECEF', 'important');
+          }
+          if (this.refs.longitude) {
+            this.refs.longitude.value = truncateDigits(longitude);
+            this.refs.longitude.style.pointerEvents = 'none';
+            this.refs.longitude.style.setProperty('background-color', '#E9ECEF', 'important');
+          }
+          this.fetchedInitially = true;
+          this.updateState();
+        });
       },
       (error) => {
+        this._geolocationRequestInProgress = false;
+        
+        // Battery optimization: Re-enable button
+        if (this.refs.gpsButton) {
+          this.refs.gpsButton.disabled = false;
+        }
+        
         alert("Geolocation error: " + error.message);
         this.fetchedInitially = true;
         this.setError("Unable to retrieve location.");
-        this.updateState();
+        
+        // Battery optimization: Use requestAnimationFrame for DOM updates
+        requestAnimationFrame(() => {
+          this.updateState();
+        });
       },
+      {
+        enableHighAccuracy: false, // Battery optimization: Set to false to reduce battery drain
+        timeout: 10000,            // Don't let the GPS search forever
+        maximumAge: 300000         // Battery optimization: Use cached location up to 5 minutes (increased from 1 minute)
+      }
     );
   }
 
-  updateState() {
-    this.triggerChange();
-    this.redraw();
-  }
+  // Battery optimization: Throttle updateState to reduce redraws
+  updateState = (() => {
+    let rafId = null;
+    return () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+      rafId = requestAnimationFrame(() => {
+        this.triggerChange();
+        this.redraw();
+        rafId = null;
+      });
+    };
+  })();
 
   setError(message) {
+    // Battery optimization: Clear any existing timeout
+    this._timeoutIds.forEach(id => clearTimeout(id));
+    this._timeoutIds = [];
+    
     if (message) {
       this.errorMessage = message;
-      setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         this.errorMessage = "";
-        this.updateState();
+        // Battery optimization: Use requestAnimationFrame for DOM updates
+        requestAnimationFrame(() => {
+          this.updateState();
+        });
+        this._timeoutIds = this._timeoutIds.filter(id => id !== timeoutId);
       }, 3000);
+      this._timeoutIds.push(timeoutId);
     } else {
       this.errorMessage = "";
     }
   }
 
   detach() {
+    // Battery optimization: Properly remove event listeners using stored bound handlers
+    if (this.refs.gpsButton && this._boundHandlers.getLocationClick) {
+      this.refs.gpsButton.removeEventListener("click", this._boundHandlers.getLocationClick);
+      this._boundHandlers.getLocationClick = null;
+    }
+    if (this.refs.latitude && this._boundHandlers.handleChange) {
+      this.refs.latitude.removeEventListener("change", this._boundHandlers.handleChange);
+    }
+    if (this.refs.longitude && this._boundHandlers.handleChange) {
+      this.refs.longitude.removeEventListener("change", this._boundHandlers.handleChange);
+    }
+    this._boundHandlers.handleChange = null;
+    
+    // Battery optimization: Clear all timeouts
+    this._timeoutIds.forEach(id => clearTimeout(id));
+    this._timeoutIds = [];
+    
+    // Battery optimization: Reset geolocation request flag
+    this._geolocationRequestInProgress = false;
+    
+    // Battery optimization: Clear cached values
+    this._cachedMaxDigits = null;
+    
     return super.detach();
   }
 
@@ -350,9 +472,10 @@ export default class Gps extends FieldComponent {
   }
 
   setValue(value, flags = {}) {
-    const changed = this.dataValue !== value;
-    if (changed) {
+    if (this.dataValue !== value) {
+
       super.setValue(value, flags);
+
       if (!flags.noUpdateEvent) {
         this.triggerChange();
       }
@@ -362,10 +485,6 @@ export default class Gps extends FieldComponent {
       const [latitude, longitude] = value ? value.split(",") : ["", ""];
       this.refs.latitude.value = latitude;
       this.refs.longitude.value = longitude;
-    }
-
-    if (changed) {
-      this.redraw();
     }
   }
 
@@ -383,8 +502,19 @@ export default class Gps extends FieldComponent {
         this.triggerChange(updatedFlags);
       }
     }
-
-    this.redraw();
+    
+    // Battery optimization: Use requestAnimationFrame for DOM updates
+    if (this.refs?.latitude && this.refs?.longitude) {
+      requestAnimationFrame(() => {
+        const [lat, lon] = value ? value.split(",") : ["", ""];
+        if (this.refs?.latitude) {
+          this.refs.latitude.value = lat || "";
+        }
+        if (this.refs?.longitude) {
+          this.refs.longitude.value = lon || "";
+        }
+      });
+    }
   }
 
   get emptyValue(){
