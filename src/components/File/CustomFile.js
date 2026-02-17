@@ -437,21 +437,27 @@ export default class CustomFile extends FileComponent {
   }
 
  setValue(value, flags = {}) {
+    // Normalize to array for consistent handling
+    const normalizedValue = value ? (Array.isArray(value) ? value : [value]) : [];
+
     //  Standard Form.io update
-    const changed = super.setValue(value, flags);
-  
-    //  If this is a draft/submission, we need to ensure the files 
+    const changed = super.setValue(normalizedValue, flags);
+
+    // Sync internal files property so validation sees the correct state
+    if (this.files !== undefined) {
+      this.files = normalizedValue;
+    }
+
+    //  If this is a draft/submission, we need to ensure the files
     // are marked as 'scrambled' immediately so validation doesn't trip.
     if (flags.fromSubmission || flags.init) {
-      if (Array.isArray(value)) {
-        value.forEach(f => {
-          if (f && !f.__scrambledName) {
-            f.__scrambledName = f.name; // Use existing name as the stable key
-          }
-        });
-      }
+      normalizedValue.forEach(f => {
+        if (f && !f.__scrambledName) {
+          f.__scrambledName = f.name; // Use existing name as the stable key
+        }
+      });
     }
-  
+
     //  Debounced UI Update
     if (this.element && !flags.noUpdateConfig) {
       clearTimeout(this.uiTimer);
@@ -460,7 +466,7 @@ export default class CustomFile extends FileComponent {
         this.updateImagePreviews();
       }, 200);
     }
-  
+
     return changed;
   }
 
