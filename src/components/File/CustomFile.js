@@ -15,7 +15,7 @@ export default class CustomFile extends FileComponent {
   constructor(...args) {
     super(...args);
     this.picaInstance = null;
-  }
+  } 
 
   /**
    * This is the key: fileToSync is an object containing:
@@ -531,6 +531,7 @@ div.file img:hover {
     closeBtn.onclick = closeModal;
   }
   setValue(value, flags = {}) {
+    //  Standard Form.io update
     const normalizedValue = value ? (Array.isArray(value) ? value : [value]) : [];
     const changed = super.setValue(normalizedValue, flags);
 

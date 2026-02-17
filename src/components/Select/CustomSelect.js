@@ -97,6 +97,7 @@ export default class CustomSelect extends SelectComponent {
   }
 
   detach() {
+
     return super.detach();
   }
 }
