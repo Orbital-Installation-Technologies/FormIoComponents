@@ -268,7 +268,7 @@ export function highlightDataGridRows(dataGrid, results, reviewButtonInstance) {
   for (let rowIndex = 0; rowIndex < dataGrid.rows.length; rowIndex++) {
     const row = dataGrid.rows[rowIndex];
     const panelComponent = row.panel;
-    if (!panelComponent) return;
+    if (!panelComponent) continue;
 
     var rowErrors = [];
     var rowFileTweaks = [];
