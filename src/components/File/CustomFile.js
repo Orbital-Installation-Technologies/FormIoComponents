@@ -518,10 +518,7 @@ div.file img:hover {
     const img = document.createElement('img');
     img.src = src;
     img.className = 'custom-file-modal-content';
-
-    // Prevent clicking the image from closing the modal
-    img.onclick = (e) => e.stopPropagation();
-
+ img.onclick = (e) => e.stopPropagation();
     overlay.appendChild(closeBtn);
     overlay.appendChild(img);
     document.body.appendChild(overlay);
@@ -535,16 +532,19 @@ div.file img:hover {
     const normalizedValue = value ? (Array.isArray(value) ? value : [value]) : [];
     const changed = super.setValue(normalizedValue, flags);
 
+    // Sync internal files property so validation sees the correct state
+    if (this.files !== undefined) {
+      this.files = normalizedValue;
+    }
+
     //  If this is a draft/submission, we need to ensure the files
     // are marked as 'scrambled' immediately so validation doesn't trip.
     if (flags.fromSubmission || flags.init) {
-      if (Array.isArray(value)) {
-        value.forEach(f => {
-          if (f && !f.__scrambledName) {
-            f.__scrambledName = f.name; // Use existing name as the stable key
-          }
-        });
-      }
+      normalizedValue.forEach(f => {
+        if (f && !f.__scrambledName) {
+          f.__scrambledName = f.name; // Use existing name as the stable key
+        }
+      });
     }
 
     //  Debounced UI Update
