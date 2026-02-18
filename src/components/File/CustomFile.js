@@ -518,10 +518,7 @@ div.file img:hover {
     const img = document.createElement('img');
     img.src = src;
     img.className = 'custom-file-modal-content';
-
-    // Prevent clicking the image from closing the modal
-    img.onclick = (e) => e.stopPropagation();
-
+ img.onclick = (e) => e.stopPropagation();
     overlay.appendChild(closeBtn);
     overlay.appendChild(img);
     document.body.appendChild(overlay);

@@ -78,6 +78,10 @@ export default class BarcodeScanner extends FieldComponent {
     this._selectedBarcodeIndices = new Set(); // For tracking radio selections
     this._barcodeImages = {}; // Store barcode images by their data value
     this._allDetectedBarcodes = []; // Store ALL barcodes for backup field
+    this._lastFrameTime = 0; // Throttle frame processing
+    this._lastDrawTime = 0; // Throttle bounding box drawing
+    this._frameThrottleMs = 100; // Process frames max once per 100ms
+    this._drawThrottleMs = 50; // Draw bounding boxes max once per 50ms
 
     // License key can come from (in priority order):
     // 1. Component configuration (scanditLicenseKey set in Formio builder)
@@ -201,7 +205,7 @@ export default class BarcodeScanner extends FieldComponent {
             </div>
 
             <!-- Flashlight Button (Bottom-Left) -->
-            <button
+           <!-- <button
               ref="flashlightButton"
               type="button"
               style="
@@ -228,7 +232,7 @@ export default class BarcodeScanner extends FieldComponent {
               onmouseover="this.style.background='rgba(255, 255, 255, 0.3)'; this.style.boxShadow='0 4px 16px rgba(255, 255, 200, 0.4)'"
               onmouseout="this.style.background='rgba(255, 255, 255, 0.2)'; this.style.boxShadow='0 4px 12px rgba(0, 0, 0, 0.3)'">
               ⚡
-            </button>
+            </button>-->
 
             <!-- Freeze Button (Bottom-Right) - Always visible during scan -->
             <button
@@ -480,7 +484,7 @@ export default class BarcodeScanner extends FieldComponent {
       // Common refs
       scannerInstructions: "single",
       // Flashlight and Freeze refs
-      flashlightButton: "single",
+      // flashlightButton: "single",
       freezeButton: "single",
     });
 
@@ -562,11 +566,11 @@ export default class BarcodeScanner extends FieldComponent {
       }
 
       // Flashlight button listeners
-      if (this.refs.flashlightButton) {
+    /*  if (this.refs.flashlightButton) {
         this.refs.flashlightButton.addEventListener("click", () => {
           this._toggleFlashlight();
         });
-      }
+      }*/
 
       // Freeze button listener
       if (this.refs.freezeButton) {
@@ -765,18 +769,21 @@ export default class BarcodeScanner extends FieldComponent {
         const availableSymbologies = allSymbologies.filter(sym => sym !== undefined);
         settings.enableSymbologies(availableSymbologies);
 
-        settings.codeDuplicateFilter = 0;
+        // Performance optimization: Filter duplicate barcodes within 300ms
+        settings.codeDuplicateFilter = 300;
 
         if (settings.locationSelection) {
             settings.locationSelection = null;
         }
 
+        // Performance optimization: Limit codes per frame to reduce processing
         if (typeof settings.maxNumberOfCodesPerFrame !== 'undefined') {
-            settings.maxNumberOfCodesPerFrame = 10;
+            settings.maxNumberOfCodesPerFrame = 5;
         }
 
+        // Performance optimization: Enable battery saving mode
         if (typeof settings.batterySaving !== 'undefined') {
-            settings.batterySaving = false;
+            settings.batterySaving = true;
         }
 
         this._configureAdvancedSymbologySettings(settings);
@@ -793,10 +800,23 @@ export default class BarcodeScanner extends FieldComponent {
         this._trackedBarcodes = {};
         this._barcodeBatch.addListener({
              didUpdateSession: (barcodeBatchMode, session) => {
+                // Performance optimization: Throttle frame processing
+                const now = Date.now();
+                if (now - this._lastFrameTime < this._frameThrottleMs) {
+                  return; // Skip this frame if too soon
+                }
+                this._lastFrameTime = now;
+                
                 this._trackedBarcodes = session.trackedBarcodes || {};
                 const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
                 this._currentBarcodes = barcodes;
-                this._drawBoundingBoxes(this._currentBarcodes);
+                
+                // Performance optimization: Throttle bounding box drawing
+                const drawNow = Date.now();
+                if (drawNow - this._lastDrawTime >= this._drawThrottleMs) {
+                  this._lastDrawTime = drawNow;
+                  this._drawBoundingBoxes(this._currentBarcodes);
+                }
 
                 // Trigger auto-freeze and confirmation when barcode is detected
                 if (barcodes.length > 0 && !this._isVideoFrozen && !this._showingConfirmation) {
@@ -873,6 +893,15 @@ export default class BarcodeScanner extends FieldComponent {
 
     try {
         const cameraSettings = BarcodeBatch.recommendedCameraSettings;
+        
+        // Performance optimization: Use lower resolution on mobile devices
+        if (typeof window !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+          // Prefer lower resolution to reduce processing load
+          if (cameraSettings.preferredResolution) {
+            cameraSettings.preferredResolution = 'p480';
+          }
+        }
+        
         this._camera = Camera.default;
 
         if (this._camera) {
@@ -1505,9 +1534,14 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   _startCameraMonitoring() {
+    // Performance optimization: Reduce monitoring frequency to save CPU
+    if (this._cameraMonitoringInterval) {
+      clearInterval(this._cameraMonitoringInterval);
+    }
+    
     this._cameraMonitoringInterval = setInterval(() => {
       this._checkAndResizeCamera();
-    }, 200);
+    }, 500); // Reduced from 200ms to 500ms
 
     this._checkAndResizeCamera();
   }
@@ -1641,6 +1675,8 @@ export default class BarcodeScanner extends FieldComponent {
           this._boundingBoxContext.clearRect(0, 0, width, height);
 
           if (!barcodeEntries.length) {
+            // Performance optimization: Stop animation loop if no barcodes
+            this._animationFrameId = null;
             return;
           }
 
@@ -1826,9 +1862,9 @@ export default class BarcodeScanner extends FieldComponent {
       this.refs.quaggaModal.style.opacity = "0";
 
       // Hide flashlight button
-      if (this.refs.flashlightButton) {
+     /* if (this.refs.flashlightButton) {
         this.refs.flashlightButton.style.display = "none";
-      }
+      }*/
 
       // Hide freeze button
       if (this.refs.freezeButton) {
@@ -1861,9 +1897,9 @@ export default class BarcodeScanner extends FieldComponent {
       this.refs.quaggaModal.style.opacity = "1";
 
       // Show flashlight button
-      if (this.refs.flashlightButton) {
+     /* if (this.refs.flashlightButton) {
         this.refs.flashlightButton.style.display = "flex";
-      }
+      }*/
     } catch (error) {
       console.warn("Error opening modal:", error);
       if (this.refs.quaggaModal) {
@@ -1892,12 +1928,13 @@ export default class BarcodeScanner extends FieldComponent {
       clearInterval(this._liveScanInterval);
     }
 
+    // Performance optimization: Increase interval to reduce CPU usage
     this._liveScanInterval = setInterval(() => {
       if (!this._isVideoFrozen && this._boundingBoxContext) {
         if (!this._lastBarcodeTime || Date.now() - this._lastBarcodeTime > 100) {
         }
       }
-    }, 50);
+    }, 150); // Increased from 50ms to 150ms
   }
 
   _stopLiveScanningMode() {
@@ -2070,7 +2107,6 @@ export default class BarcodeScanner extends FieldComponent {
   _captureBarcodeImage(barcodes, canvas) {
     try {
       const MARGIN = 20;
-      console.log("barcodes", barcodes);
       barcodes.forEach(barcode => {
         const { x, y, width, height } = this.getBoundingBox(barcode._location);
     
@@ -2104,8 +2140,6 @@ export default class BarcodeScanner extends FieldComponent {
         );
     
         const croppedDataURL = croppedCanvas.toDataURL('image/jpeg');
-        console.log('Cropped barcode image:', croppedDataURL);
-        console.log('barcode data', barcode.data);
         this._barcodeImages[barcode.data] = croppedDataURL;
       })
     } catch (error) {
@@ -2158,7 +2192,6 @@ export default class BarcodeScanner extends FieldComponent {
       }
 
       const fileUploadComponent = this.root.getComponent(this.component.imageUploadField);
-      console.log("fileUploadComponent", fileUploadComponent);
       if (!fileUploadComponent) {
         console.warn(`File upload component "${this.component.imageUploadField}" not found`);
         return;
@@ -2212,9 +2245,6 @@ export default class BarcodeScanner extends FieldComponent {
       fileUploadComponent.triggerChange();
       fileUploadComponent.dirty = true;
       fileUploadComponent.pristine = false;
-      console.log('Uploaded barcode to S3:', uploadedFiles);
-      console.log('Submission value:', fileUploadComponent.root.submission.data[fileUploadComponent.key]);
-     
     } catch (error) {
       console.warn('Error in _sendBarcodeImageToFileUpload:', error);
     }
@@ -2259,6 +2289,7 @@ export default class BarcodeScanner extends FieldComponent {
     this._updateBarcodePreview();
   }
 
+/*
   _toggleFlashlight() {
     if (!this._camera) {
       console.warn('Camera not available');
@@ -2305,8 +2336,9 @@ export default class BarcodeScanner extends FieldComponent {
       this._showFlashlightNotSupported();
     }
   }
+*/
 
-  _updateFlashlightButtonState(isOn) {
+  /*_updateFlashlightButtonState(isOn) {
     if (!this.refs.flashlightButton) {
       return;
     }
@@ -2320,9 +2352,9 @@ export default class BarcodeScanner extends FieldComponent {
       this.refs.flashlightButton.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
       this.refs.flashlightButton.title = 'Toggle camera flash (for dark environments)';
     }
-  }
+  }*/
 
-  _showFlashlightNotSupported() {
+/*  _showFlashlightNotSupported() {
     // Show a temporary notification that camera flash is not supported
     const notification = document.createElement('div');
     notification.style.cssText = `
@@ -2358,7 +2390,7 @@ export default class BarcodeScanner extends FieldComponent {
     setTimeout(() => {
       notification.remove();
     }, 3000);
-  }
+  }*/
 
   _manualFreeze() {
     // Toggle between frozen and running states
