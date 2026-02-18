@@ -3,9 +3,7 @@ import editForm from "./ReviewButton.form";
 import {
   hasActualFileData,
   initializeValidationResults,
-  initializeExternalValidationResults,
   createErrorResults,
-  createExternalErrorResults,
   validateSelectedComponents,
   validateComponentsAndCollectResults,
   isFormValid,
@@ -32,7 +30,11 @@ import {
   renderLeaves,
   scrollToEndOfPage
 } from "./helpers/index.js";
-
+// Import these functions directly to avoid bundling issues with re-exports
+import {
+  initializeExternalValidationResults,
+  createExternalErrorResults
+} from "./helpers/validationUtils.js";
 const FieldComponent = Components.components.field;
 const CONTAINER_TYPES = new Set(['panel', 'columns', 'well', 'fieldset', 'datagrid', 'datamap', 'form', 'editgrid', 'table', 'tabs', 'row', 'column', 'content', 'htmlelement']);
 
