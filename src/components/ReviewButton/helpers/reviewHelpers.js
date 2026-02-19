@@ -73,70 +73,91 @@ export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, suppor
  */
 export function validateModalForm(modal, screenshotComp, formData = null, requireSupportFields = true) {
   let hasErrors = false;
+  
+  // Battery optimization: Cache all DOM queries once
+  const verifiedElement = requireSupportFields ? modal.querySelector("#verified") : null;
+  const supportNumberElement = requireSupportFields ? modal.querySelector("#supportNumber") : null;
+  const screenshotWrapper = requireSupportFields ? modal.querySelector("#screenshotWrapper") : null;
+  const screenshotContainer = requireSupportFields ? modal.querySelector("#screenshotContainer") : null;
+  const notesRequiredElement = requireSupportFields ? modal.querySelector("#notesRequired") : null;
+  const submitButton = modal.querySelector("#submitModal");
+  
+  // Battery optimization: Batch DOM updates
+  const domUpdates = [];
 
   if (requireSupportFields) {
-    const verifiedElement = modal.querySelector("#verified");
     const selectedVerificationType = verifiedElement ? verifiedElement.getAttribute('data-value') : "Empty";
 
     if (verifiedElement && selectedVerificationType === "Empty") {
-      verifiedElement.style.border = "2px solid red";
-      verifiedElement.classList.add("invalid-field");
+      domUpdates.push(() => {
+        verifiedElement.style.border = "2px solid red";
+        verifiedElement.classList.add("invalid-field");
+      });
       hasErrors = true;
     } else if (verifiedElement) {
-      verifiedElement.style.border = "";
-      verifiedElement.classList.remove("invalid-field");
+      domUpdates.push(() => {
+        verifiedElement.style.border = "";
+        verifiedElement.classList.remove("invalid-field");
+      });
     }
-    const supportNumberElement = modal.querySelector("#supportNumber");
+    
     if (supportNumberElement && !supportNumberElement.value.trim()) {
-      supportNumberElement.style.border = "2px solid red";
-      supportNumberElement.classList.add("invalid-field");
+      domUpdates.push(() => {
+        supportNumberElement.style.border = "2px solid red";
+        supportNumberElement.classList.add("invalid-field");
+      });
       hasErrors = true;
     } else if (supportNumberElement) {
-      supportNumberElement.style.border = "";
-      supportNumberElement.classList.remove("invalid-field");
+      domUpdates.push(() => {
+        supportNumberElement.style.border = "";
+        supportNumberElement.classList.remove("invalid-field");
+      });
     }
-  }
 
-  if (requireSupportFields) {
-    const verifiedElement = modal.querySelector("#verified");
-    const selectedVerificationType = verifiedElement ? verifiedElement.getAttribute('data-value') : "Empty";
-    const screenshotWrapper = modal.querySelector("#screenshotWrapper");
     const isScreenshotVisible = screenshotWrapper && screenshotWrapper.style.display !== "none";
 
     if ((selectedVerificationType === "App" || selectedVerificationType === "Support") && isScreenshotVisible) {
       const uploadedFiles = screenshotComp ? (screenshotComp.getValue() || []) : [];
 
       if (uploadedFiles.length === 0) {
-        const screenshotContainer = modal.querySelector("#screenshotContainer");
         if (screenshotContainer) {
-          screenshotContainer.style.border = "2px solid red";
+          domUpdates.push(() => {
+            screenshotContainer.style.border = "2px solid red";
+          });
           hasErrors = true;
         }
-      } else if (modal.querySelector("#screenshotContainer")) {
-        modal.querySelector("#screenshotContainer").style.border = "";
-      }
-    } else {
-      const screenshotContainer = modal.querySelector("#screenshotContainer");
-      if (screenshotContainer) {
-        screenshotContainer.style.border = "";
-        screenshotContainer.classList.remove("invalid-field");
-        const childElements = screenshotContainer.querySelectorAll("*");
-        childElements.forEach(el => {
-          el.style.border = "";
-          el.classList.remove("invalid-field");
+      } else if (screenshotContainer) {
+        domUpdates.push(() => {
+          screenshotContainer.style.border = "";
         });
       }
+    } else if (screenshotContainer) {
+      // Battery optimization: Batch child element updates
+      const childElements = screenshotContainer.querySelectorAll("*");
+      domUpdates.push(() => {
+        screenshotContainer.style.border = "";
+        screenshotContainer.classList.remove("invalid-field");
+        // Battery optimization: Use for loop instead of forEach
+        for (let i = 0; i < childElements.length; i++) {
+          const el = childElements[i];
+          el.style.border = "";
+          el.classList.remove("invalid-field");
+        }
+      });
     }
 
     if (selectedVerificationType === "Not Verified") {
-      const notesRequiredElement = modal.querySelector("#notesRequired");
       if (notesRequiredElement && !notesRequiredElement.value.trim()) {
-        notesRequiredElement.style.border = "2px solid red";
-        notesRequiredElement.classList.add("invalid-field");
+        domUpdates.push(() => {
+          notesRequiredElement.style.border = "2px solid red";
+          notesRequiredElement.classList.add("invalid-field");
+        });
         hasErrors = true;
       } else if (notesRequiredElement) {
-        notesRequiredElement.style.border = "";
-        notesRequiredElement.classList.remove("invalid-field");
+        domUpdates.push(() => {
+          notesRequiredElement.style.border = "";
+          notesRequiredElement.classList.remove("invalid-field");
+        });
       }
     }
   }
@@ -146,17 +167,26 @@ export function validateModalForm(modal, screenshotComp, formData = null, requir
     hasFormData = checkFormHasData(formData);
   }
 
-  const submitButton = modal.querySelector("#submitModal");
   if (submitButton && submitButton.style != null) {
-    if (hasErrors || !hasFormData) {
-      submitButton.style.backgroundColor = "gray";
-      submitButton.style.cursor = "not-allowed";
-      submitButton.disabled = true;
-    } else {
-      submitButton.style.backgroundColor = "";
-      submitButton.style.cursor = "pointer";
-      submitButton.disabled = false;
-    }
+    const shouldDisable = hasErrors || !hasFormData;
+    domUpdates.push(() => {
+      if (shouldDisable) {
+        submitButton.style.backgroundColor = "gray";
+        submitButton.style.cursor = "not-allowed";
+        submitButton.disabled = true;
+      } else {
+        submitButton.style.backgroundColor = "";
+        submitButton.style.cursor = "pointer";
+        submitButton.disabled = false;
+      }
+    });
+  }
+
+  // Battery optimization: Batch all DOM updates using requestAnimationFrame
+  if (domUpdates.length > 0) {
+    requestAnimationFrame(() => {
+      domUpdates.forEach(update => update());
+    });
   }
 
   return hasErrors;
@@ -170,24 +200,56 @@ function checkFormHasData(formData) {
     return false;
   }
 
-  const hasData = Object.values(formData).some(value => {
+  // Battery optimization: Avoid Object.values which creates arrays, use for...in instead
+  for (const key in formData) {
+    if (!formData.hasOwnProperty(key)) continue;
+    
+    const value = formData[key];
     if (value === null || value === undefined || value === '') {
-      return false;
+      continue;
     }
+    
     if (Array.isArray(value)) {
-      return value.length > 0 && value.some(item =>
-        item !== null && item !== undefined && item !== ''
-      );
+      if (value.length > 0) {
+        // Battery optimization: Early exit on first valid item
+        for (let i = 0; i < value.length; i++) {
+          const item = value[i];
+          if (item !== null && item !== undefined && item !== '') {
+            return true;
+          }
+        }
+      }
+      continue;
     }
+    
     if (typeof value === 'object') {
-      return Object.keys(value).length > 0 && Object.values(value).some(v =>
-        v !== null && v !== undefined && v !== ''
-      );
+      // Battery optimization: Check keys first before iterating values
+      let hasKeys = false;
+      for (const k in value) {
+        if (value.hasOwnProperty(k)) {
+          hasKeys = true;
+          break;
+        }
+      }
+      
+      if (hasKeys) {
+        // Battery optimization: Early exit on first valid nested value
+        for (const k in value) {
+          if (value.hasOwnProperty(k)) {
+            const v = value[k];
+            if (v !== null && v !== undefined && v !== '') {
+              return true;
+            }
+          }
+        }
+      }
+      continue;
     }
-    return true;
-  });
+    
+    return true; // Found a non-empty primitive value
+  }
 
-  return hasData;
+  return false;
 }
 
 /**
@@ -241,44 +303,52 @@ export function setupScreenshotComponent(modal, screenshotComp, validateModalFor
  */
 export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, validateModalForm, onSubmit, formData = null, requireSupportFields = true) {
 
+  // Battery optimization: Cache all DOM queries once
   const verifiedSelect = modal.querySelector("#verified");
   const screenshotWrapper = modal.querySelector("#screenshotWrapper");
   const notesOptionalWrapper = modal.querySelector("#notesOptionalWrapper");
   const notesRequiredWrapper = modal.querySelector("#notesRequiredWrapper");
+  const screenshotContainer = modal.querySelector("#screenshotContainer");
 
   if (verifiedSelect) {
     verifiedSelect.onchange = () => {
-      // const value = verifiedSelect.value;
       const value = verifiedSelect.getAttribute('data-value');
       const needShot = value === "App" || value === "Support";
 
-      if (screenshotWrapper) {
-        screenshotWrapper.style.display = needShot ? "block" : "none";
-      }
-      if (notesOptionalWrapper) {
-        notesOptionalWrapper.style.display = needShot ? "block" : "none";
-      }
-      if (notesRequiredWrapper) {
-        notesRequiredWrapper.style.display = value === "Not Verified" ? "block" : "none";
-      }
-
-      if (needShot && hideScreenshot && typeof hideScreenshot.show === 'function') {
-        hideScreenshot.show();
-      } else if (!needShot && hideScreenshot && typeof hideScreenshot.hide === 'function') {
-        hideScreenshot.hide();
-        const screenshotContainer = modal.querySelector("#screenshotContainer");
-        if (screenshotContainer) {
-          screenshotContainer.style.border = "";
-          screenshotContainer.classList.remove("invalid-field");
-          const childElements = screenshotContainer.querySelectorAll("*");
-          childElements.forEach(el => {
-            el.style.border = "";
-            el.classList.remove("invalid-field");
-          });
+      // Battery optimization: Batch DOM updates
+      requestAnimationFrame(() => {
+        if (screenshotWrapper) {
+          screenshotWrapper.style.display = needShot ? "block" : "none";
         }
-      }
+        if (notesOptionalWrapper) {
+          notesOptionalWrapper.style.display = needShot ? "block" : "none";
+        }
+        if (notesRequiredWrapper) {
+          notesRequiredWrapper.style.display = value === "Not Verified" ? "block" : "none";
+        }
 
-      validateModalForm(modal, screenshotComp, formData, requireSupportFields);
+        if (needShot && hideScreenshot && typeof hideScreenshot.show === 'function') {
+          hideScreenshot.show();
+        } else if (!needShot && hideScreenshot && typeof hideScreenshot.hide === 'function') {
+          hideScreenshot.hide();
+          if (screenshotContainer) {
+            screenshotContainer.style.border = "";
+            screenshotContainer.classList.remove("invalid-field");
+            const childElements = screenshotContainer.querySelectorAll("*");
+            // Battery optimization: Use for loop instead of forEach
+            for (let i = 0; i < childElements.length; i++) {
+              const el = childElements[i];
+              el.style.border = "";
+              el.classList.remove("invalid-field");
+            }
+          }
+        }
+      });
+
+      // Battery optimization: Use requestAnimationFrame for validation
+      requestAnimationFrame(() => {
+        validateModalForm(modal, screenshotComp, formData, requireSupportFields);
+      });
     };
   }
 
@@ -296,11 +366,16 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
       const hasErrors = validateModalForm(modal, screenshotComp, formData, requireSupportFields);
       if (hasErrors) return;
 
+      // Battery optimization: Cache DOM queries
       const verifiedElement = modal.querySelector("#verified");
+      const notesRequiredElement = modal.querySelector("#notesRequired");
+      const notesOptionalElement = modal.querySelector("#notesOptional");
+      const supportNumberElement = modal.querySelector("#supportNumber");
+      
       const selectedVerificationType = verifiedElement ? verifiedElement.getAttribute('data-value') : "Empty";
-      const notesRequired = modal.querySelector("#notesRequired")?.value || "";
-      const notesOptional = modal.querySelector("#notesOptional")?.value || "";
-      const supportNumber = modal.querySelector("#supportNumber")?.value || "Unavailable";
+      const notesRequired = notesRequiredElement?.value || "";
+      const notesOptional = notesOptionalElement?.value || "";
+      const supportNumber = supportNumberElement?.value || "Unavailable";
 
       let uploadedFiles = [];
       if (screenshotComp) {
@@ -326,22 +401,41 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
         uploadedFiles
       });
 
-      if (hideScreenshot && typeof hideScreenshot === 'function') {
-        hideScreenshot();
-      }
-      document.body.classList.remove("no-scroll"); 
-      document.body.removeChild(modal);
+      // Battery optimization: Batch DOM updates
+      requestAnimationFrame(() => {
+        if (hideScreenshot && typeof hideScreenshot === 'function') {
+          hideScreenshot();
+        }
+        document.body.classList.remove("no-scroll"); 
+        document.body.removeChild(modal);
+      });
     };
   }
+
+  // Battery optimization: Debounce validation to reduce CPU usage
+  let validationTimeout = null;
+  const debouncedValidate = () => {
+    if (validationTimeout) {
+      clearTimeout(validationTimeout);
+    }
+    validationTimeout = setTimeout(() => {
+      requestAnimationFrame(() => {
+        validateModalForm(modal, screenshotComp, formData, requireSupportFields);
+      });
+    }, 150); // Debounce to 150ms
+  };
 
   const addInputListeners = (element) => {
     if (!element) return;
 
     const inputs = element.querySelectorAll('input, textarea, select');
-    inputs.forEach(input => {
-      input.addEventListener('input', () => validateModalForm(modal, screenshotComp, formData, requireSupportFields));
-      input.addEventListener('change', () => validateModalForm(modal, screenshotComp, formData, requireSupportFields));
-    });
+    // Battery optimization: Use for loop instead of forEach
+    for (let i = 0; i < inputs.length; i++) {
+      const input = inputs[i];
+      // Battery optimization: Use passive listeners where possible
+      input.addEventListener('input', debouncedValidate, { passive: true });
+      input.addEventListener('change', debouncedValidate, { passive: true });
+    }
   };
 
   addInputListeners(modal);
@@ -387,56 +481,78 @@ export function scrollToEndOfPage() {
 export function updateFormValuesBeforeReview(root) {
   const allDatagrids = [];
 
-
+  // Battery optimization: Collect datagrids more efficiently
   root.everyComponent(comp => {
     const componentType = comp.component?.type || comp.type;
-
     if (componentType === 'well' || componentType === 'table') {
       allDatagrids.push(comp);
     }
   });
 
-  for (const datagrid of allDatagrids) {
+  // Battery optimization: Batch updateValue calls using requestAnimationFrame
+  const updateTasks = [];
+
+  for (let i = 0; i < allDatagrids.length; i++) {
+    const datagrid = allDatagrids[i];
     try {
       if (datagrid.updateValue) {
-        datagrid.updateValue();
+        updateTasks.push(() => datagrid.updateValue());
       }
+      
       if (datagrid.component?.type === 'datatable' && datagrid.savedRows) {
         const savedRows = datagrid.savedRows;
-        savedRows.forEach(row => {
+        // Battery optimization: Use for loop instead of forEach
+        for (let rowIdx = 0; rowIdx < savedRows.length; rowIdx++) {
+          const row = savedRows[rowIdx];
           if (row.components) {
             const rowComponents = row.components;
-            rowComponents.forEach(component => {
+            for (let compIdx = 0; compIdx < rowComponents.length; compIdx++) {
+              const component = rowComponents[compIdx];
               if (component && component.updateValue) {
-                component.updateValue();
+                updateTasks.push(() => component.updateValue());
               }
-            });
-          }
-        });
-      } else if (datagrid.rows) {
-        const datagridRows = datagrid.rows;
-        datagridRows.forEach(row => {
-          const values = Object.values(row);
-          values.forEach(component => {
-            if (component && component.updateValue) {
-              component.updateValue();
             }
-          });
-        });
-      }
+          }
+        }
+      } else if (datagrid.rows) {
+          const datagridRows = datagrid.rows;
+          // Battery optimization: Avoid Object.values, iterate directly
+          for (let rowIdx = 0; rowIdx < datagridRows.length; rowIdx++) {
+            const row = datagridRows[rowIdx];
+            for (const key in row) {
+              if (row.hasOwnProperty(key)) {
+                const component = row[key];
+                if (component && component.updateValue) {
+                  updateTasks.push(() => component.updateValue());
+                }
+              }
+            }
+          }
+        }
     } catch (e) {
+      // Silently handle errors
     }
   }
 
   const rootComponents = root.components;
-  rootComponents.forEach(comp => {
+  // Battery optimization: Use for loop instead of forEach
+  for (let i = 0; i < rootComponents.length; i++) {
+    const comp = rootComponents[i];
     if (comp.updateValue && typeof comp.updateValue === 'function') {
-      try {
-        comp.updateValue();
-      } catch (e) { }
+      updateTasks.push(() => {
+        try {
+          comp.updateValue();
+        } catch (e) { }
+      });
     }
-  });
+  }
 
+  // Battery optimization: Batch all updateValue calls
+  if (updateTasks.length > 0) {
+    requestAnimationFrame(() => {
+      updateTasks.forEach(task => task());
+    });
+  }
 }
 
 
