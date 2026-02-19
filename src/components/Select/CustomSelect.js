@@ -14,7 +14,9 @@ export default class CustomSelect extends SelectComponent {
 
   constructor(...args) {
     super(...args);
-  }
+    // Bind the method once to ensure the reference is stable for removeEventListener
+    this.onShowDropdown = this.onShowDropdown.bind(this);
+  } 
 
   attach(element) {
     const result = super.attach(element);
@@ -49,18 +51,28 @@ export default class CustomSelect extends SelectComponent {
     // Choices.js (the engine Form.io uses) emits events when the dropdown opens.
     const choicesInstance = this.choices || this._choices;
 
-    if (choicesInstance && choicesInstance.passedElement) {
+    if (choicesInstance && choicesInstance.passedElement && choicesInstance?.passedElement?.element) {
       // We listen specifically for the 'showDropdown' event
-      choicesInstance.passedElement.element.addEventListener('showDropdown', () => {
-        this.adjustDropdownLogic(element, choicesInstance);
-      });
+      this.choicesElement = choicesInstance.passedElement.element;
+      this.choicesElement.addEventListener('showDropdown', this.onShowDropdown);
     }
 
     return result;
   }
-
+  // Wrapper to handle the event reference
+  onShowDropdown() {
+    const choicesInstance = this.choices || this._choices;
+    if (choicesInstance) {
+      // 3. RequestAnimationFrame: Move DOM reads/writes to the next browser paint
+      // This prevents "Jank" and reduces CPU overhead
+      window.requestAnimationFrame(() => {
+        this.adjustDropdownLogic(this.element, choicesInstance);
+      });
+    }
+  }
 
   adjustDropdownLogic(element, choicesInstance) {
+    if (!element || !choicesInstance.containerOuter?.element) return;
     const dropdown = choicesInstance.containerOuter.element.querySelector(
       '.choices__list--dropdown'
     );
@@ -77,27 +89,32 @@ export default class CustomSelect extends SelectComponent {
 
     let maxHeight = 400;
 
+    // Use CSS classes to toggle direction instead of manual 'top/bottom' strings
+    // This allows the browser to optimize the render tree
+    const isUpward = spaceBelow < 200 && spaceAbove > spaceBelow;
     // Small screen adjustment
     if (window.innerHeight < 400) {
       maxHeight = Math.min(spaceBelow, 200);
     }
 
-    // Directional logic (Upward vs Downward)
-    if (spaceBelow < 200 && spaceAbove > spaceBelow) {
-      maxHeight = Math.min(spaceAbove, maxHeight);
-      dropdown.style.bottom = `${rect.height}px`; // Open upward
-      dropdown.style.top = 'auto';
+
+    if (isUpward) {
+      choicesInstance.containerOuter.element.classList.add('is-flipped');
+      dropdown.style.maxHeight = `${Math.min(spaceAbove, 400)}px`;
     } else {
-      dropdown.style.bottom = 'auto'; // Open downward
-      dropdown.style.top = '100%';
+      choicesInstance.containerOuter.element.classList.remove('is-flipped');
+      dropdown.style.maxHeight = `${Math.min(spaceBelow, 400)}px`;
     }
 
-    dropdown.style.maxHeight = `${maxHeight}px`;
+   
     dropdown.style.overflowY = 'auto';
   }
 
   detach() {
-
+    // 5. CRITICAL: Remove the listener to stop battery drain from memory leaks
+    if (this.choicesElement) {
+      this.choicesElement.removeEventListener('showDropdown', this.onShowDropdown);
+    }
     return super.detach();
   }
 }

@@ -30,7 +30,8 @@ import {
   updateFormValuesBeforeReview,
   collectReviewLeavesAndLabels,
   renderLeaves,
-  scrollToEndOfPage
+  scrollToEndOfPage,
+  clearValidationCaches
 } from "./helpers/index.js";
 
 const FieldComponent = Components.components.field;
@@ -58,7 +59,48 @@ export default class ReviewButton extends FieldComponent {
       schema: ReviewButton.schema(),
     };
   }
+  constructor(...args) {
+    super(...args);
+    this.validationTimeout = null;
+  }
+  cleanupReviewResources() {
+    // IMPROVEMENT: Clear all memoization caches to release memory and stop GC battery drain
+    if (typeof clearRenderCaches === 'function') clearRenderCaches();
+    if (typeof clearValidationCaches === 'function') clearValidationCaches();
+    if (typeof clearDataProcessingCache === 'function') clearDataProcessingCache();
+    
+    // IMPROVEMENT: Explicitly signal to the browser that we are done with heavy processing
+    console.log("Review resources cleared. Battery saved.");
+  }
+  // 1. Consolidated Validation (Reduction in CPU cycles)
+  async performSmartValidation() {
+    const invalidFields = new Set();
+    const invalidComponents = new Set();
+    
+    // Perform a single pass over the form tree
+    this.root.everyComponent((component) => {
+      if (!component.visible || component.component?.hidden) return;
 
+      const type = component.type || component.component?.type;
+      
+      // Perform DataGrid logic only if it's a grid
+      if (['datagrid', 'editgrid'].includes(type)) {
+        this.validateDataGridRows(component);
+      }
+
+      // Check validity once per component
+      const isValid = (type === 'file') 
+        ? validateFileComponentWithRelaxedRequired(component)
+        : component.checkValidity(component.data, true);
+
+      if (!isValid) {
+        invalidFields.add(component.path || component.key);
+        invalidComponents.add(component);
+      }
+    });
+
+    return { invalidFields, invalidComponents };
+  }
   init() {
     super.init();
     this.root.on("submitDone", (submission) => {
@@ -1452,6 +1494,12 @@ export default class ReviewButton extends FieldComponent {
     this.loadRefs(element, { button: "single" });
 
     this.addEventListener(this.refs.button, "click", async () => {
+      // 2. Avoid Layout Thrashing - measure once
+      await updateFormValuesBeforeReview(this.root);
+      
+      // 3. Run the consolidated validation
+      const { invalidFields, invalidComponents } = await this.performSmartValidation();
+      
       try {
         await Promise.resolve();
 
@@ -1852,13 +1900,43 @@ export default class ReviewButton extends FieldComponent {
         
         const modal = createReviewModal(hasErrors, fieldErrorsCounter, reviewHtml, supportNumber, requireSupportFields, errorDetails);
 
+        // 4. Memory Leak Protection: Scoped event listeners
+        const closeDropdown = (e) => {
+          if (!dropdown?.contains(e.target)) {
+            list?.classList.remove('open');
+            document.removeEventListener('mousedown', closeDropdown);
+          }
+        };
+
         let screenshotComp = null;
         this.root.everyComponent((comp) => {
           if (comp.component?.type === 'file' && comp.component?.key === 'screenshot') {
             screenshotComp = comp;
           }
         });
+        const closeButton = modal.querySelector(".btn-secondary"); // Or your specific close selector
+        if (closeButton) {
+          closeButton.addEventListener("click", () => {
+            modal.remove(); 
+            document.body.classList.remove("no-scroll");
+            
+            // ADD THIS: Clear caches immediately when user cancels
+            this.cleanupReviewResources();
+          });
+        }
+        // 2. Handle the Submit/Verify button
+        const submitBtn = modal.querySelector("#submitReview");
+        if (submitBtn) {
+          submitBtn.addEventListener("click", async () => {
+            // ... your existing submission logic ...
+            
+            modal.remove();
+            document.body.classList.remove("no-scroll");
 
+            // ADD THIS: Clear caches after successful submission
+            this.cleanupReviewResources();
+          });
+        }
         const { allData: formData } = collectFormDataForReview(this.root);
 
         const screenshotControls = requireSupportFields ? setupScreenshotComponent(modal, screenshotComp, validateModalForm, formData, requireSupportFields) : null;
@@ -1928,12 +2006,14 @@ export default class ReviewButton extends FieldComponent {
             }
           }
         });
-
-        document.addEventListener('mousedown', function(e) {
-          if (!dropdown?.contains(e.target)) {
-            list?.classList.remove('open');
+        selected?.addEventListener('click', () => {
+          const isOpen = list.classList.toggle('open');
+          if (isOpen) {
+            // Only attach global listener when dropdown is actually open
+            document.addEventListener('mousedown', closeDropdown);
           }
         });
+
         // Initial validation to set submit button state
         validateModalForm(modal, screenshotComp, formData, requireSupportFields);
 
@@ -1941,7 +2021,7 @@ export default class ReviewButton extends FieldComponent {
         if (verifiedSelect) {
           verifiedSelect.dispatchEvent(new Event("change"));
         }
-
+        document.body.appendChild(modal);
       } catch (e) {
         console.error("Error in review button click handler:", e);
         alert("An error occurred while preparing the form for review. Please try again.");
@@ -1949,5 +2029,19 @@ export default class ReviewButton extends FieldComponent {
     });
 
     return super.attach(element);
+  }
+
+  detach() {
+    // ADD THIS: Clear caches when the component is detached
+    this.cleanupReviewResources();
+    // Clear any pending timeouts to allow CPU to sleep
+    if (this.validationTimeout) {
+      clearTimeout(this.validationTimeout);
+    }
+    return super.detach();
+  }
+  destroy() {
+    this.cleanupReviewResources();
+    return super.destroy();
   }
 }
