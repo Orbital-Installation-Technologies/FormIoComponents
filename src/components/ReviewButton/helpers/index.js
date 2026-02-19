@@ -42,7 +42,8 @@ export {
 export {
   findComponentByKey,
   createCustomComponentForReview,
-  collectReviewLeavesAndLabels
+  collectReviewLeavesAndLabels,
+  clearDataProcessingCache
 } from './dataProcessingHelpers.js';
 
 // UI rendering helpers
@@ -59,7 +60,8 @@ export {
 
 // Main rendering helpers
 export {
-  renderLeaves
+  renderLeaves,
+  clearRenderCaches
 } from './renderHelpers.js';
 
 // DataGrid validation helpers
