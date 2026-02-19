@@ -6,19 +6,6 @@
 import { hasActualFileData, clearFieldErrors, isFieldNowValid } from './validationUtils.js';
 import { addErrorHighlight, removeErrorHighlight, applyFieldErrors } from './uiRenderingHelpers.js';
 
-// Battery optimization: Debounce utility function
-function debounce(func, wait) {
-  let timeout;
-  return function executedFunction(...args) {
-    const later = () => {
-      clearTimeout(timeout);
-      func(...args);
-    };
-    clearTimeout(timeout);
-    timeout = setTimeout(later, wait);
-  };
-}
-
 /**
  * Sets up change listeners on all components in a panel for real-time error clearing
  * @param {Object} panel - Panel component to setup listeners on
@@ -39,38 +26,30 @@ export function setupChangeListeners(panel, reviewButtonInstance) {
 
     /**
      * Function to check and clear errors when field value changes
-     * Battery optimization: Use requestAnimationFrame and debouncing
      * @param {*} value - New value of the field
      */
-    var checkAndClearErrorCore = function(value) {
-      if (!comp || !panel._errorMap) return;
+    var checkAndClearError = function(value) {
+      setTimeout(function() {
+        if (!comp || !panel._errorMap) return;
 
-      var checkValue = value;
-      if (!checkValue || checkValue === '') {
-        checkValue = comp.dataValue || comp.getValue?.() || (comp.data ? comp.data[compKey] : null);
-      }
-
-      var isValid = isFieldNowValid(comp, checkValue);
-
-      if (isValid && panel._errorMap[compKey]) {
-        delete panel._errorMap[compKey];
-        clearFieldErrors(comp);
-
-        // Battery optimization: Count errors more efficiently
-        let remainingErrors = 0;
-        for (const key in panel._errorMap) {
-          if (panel._errorMap.hasOwnProperty(key)) {
-            remainingErrors++;
-          }
+        var checkValue = value;
+        if (!checkValue || checkValue === '') {
+          checkValue = comp.dataValue || comp.getValue?.() || (comp.data ? comp.data[compKey] : null);
         }
 
-        if (remainingErrors === 0) {
-          panel._hasErrors = false;
-          panel._customErrors = [];
-          panel._errorMap = {};
+        var isValid = isFieldNowValid(comp, checkValue);
 
-          // Battery optimization: Use requestAnimationFrame for DOM updates
-          requestAnimationFrame(function() {
+        if (isValid && panel._errorMap[compKey]) {
+          delete panel._errorMap[compKey];
+          clearFieldErrors(comp);
+
+          var remainingErrors = Object.keys(panel._errorMap || {}).length;
+
+          if (remainingErrors === 0) {
+            panel._hasErrors = false;
+            panel._customErrors = [];
+            panel._errorMap = {};
+
             panel.everyComponent?.(function(c) {
               if (c) {
                 c.error = '';
@@ -83,44 +62,38 @@ export function setupChangeListeners(panel, reviewButtonInstance) {
             if (panel.element) {
               removeErrorHighlight(panel.element);
             }
-          });
+          }
         }
-      }
+      }, 50);
     };
-    
-    // Battery optimization: Debounce error checking to reduce CPU usage
-    var checkAndClearError = debounce(checkAndClearErrorCore, 150);
 
     comp.on('change', checkAndClearError);
 
     if (compType === 'file') {
       comp.on('fileUploadingEnd', function() {
-        // Battery optimization: Use requestAnimationFrame instead of setTimeout
-        requestAnimationFrame(function() {
+        setTimeout(function() {
           checkAndClearError(comp.getValue?.() || comp.dataValue);
-        });
+        }, 200);
       });
     }
 
     if (compType === 'textfield' || compType === 'textarea' || compType === 'number' || compType === 'email' || compType === 'phoneNumber' || compType === 'barcode') {
       comp.on('input', checkAndClearError);
 
-      // Battery optimization: Use requestAnimationFrame instead of setTimeout
-      requestAnimationFrame(function() {
+      setTimeout(function() {
         if (!comp.element) return;
 
         var inputElement = comp.element.querySelector('input, textarea');
         if (inputElement && !inputElement._hasCustomListener) {
           inputElement._hasCustomListener = true;
-          // Battery optimization: Use passive listeners where possible
           inputElement.addEventListener('input', function() {
             checkAndClearError(this.value);
-          }, { passive: true });
+          });
           inputElement.addEventListener('blur', function() {
             checkAndClearError(this.value);
           });
         }
-      });
+      }, 300);
     }
 
     if (compType === 'radio' || compType === 'selectboxes') {
@@ -128,31 +101,26 @@ export function setupChangeListeners(panel, reviewButtonInstance) {
         checkAndClearError(comp.dataValue || comp.getValue?.());
       });
 
-      // Battery optimization: Use requestAnimationFrame instead of setTimeout
-      requestAnimationFrame(function() {
+      setTimeout(function() {
         if (!comp.element) return;
 
         var radioInputs = comp.element.querySelectorAll('input[type="radio"], input[type="checkbox"]');
-        // Battery optimization: Use for loop instead of forEach
-        for (let i = 0; i < radioInputs.length; i++) {
-          const radioInput = radioInputs[i];
+        radioInputs.forEach(function(radioInput) {
           if (!radioInput._hasCustomListener) {
             radioInput._hasCustomListener = true;
             radioInput.addEventListener('change', function() {
-              // Battery optimization: Use requestAnimationFrame instead of setTimeout
-              requestAnimationFrame(function() {
+              setTimeout(function() {
                 checkAndClearError(comp.getValue?.() || comp.dataValue);
-              });
-            }, { passive: true });
+              }, 50);
+            });
             radioInput.addEventListener('click', function() {
-              // Battery optimization: Use requestAnimationFrame instead of setTimeout
-              requestAnimationFrame(function() {
+              setTimeout(function() {
                 checkAndClearError(comp.getValue?.() || comp.dataValue);
-              });
-            }, { passive: true });
+              }, 100);
+            });
           }
-        }
-      });
+        });
+      }, 300);
     }
 
     if (compType === 'select') {
@@ -161,14 +129,12 @@ export function setupChangeListeners(panel, reviewButtonInstance) {
       });
 
       comp.on('componentChange', function() {
-        // Battery optimization: Use requestAnimationFrame instead of setTimeout
-        requestAnimationFrame(function() {
+        setTimeout(function() {
           checkAndClearError(comp.dataValue || comp.getValue?.() || (comp.data ? comp.data[compKey] : null));
-        });
+        }, 100);
       });
 
-      // Battery optimization: Use requestAnimationFrame instead of setTimeout
-      requestAnimationFrame(function() {
+      setTimeout(function() {
         if (!comp.element) return;
 
         var selectElement = comp.element.querySelector('select');
@@ -176,10 +142,10 @@ export function setupChangeListeners(panel, reviewButtonInstance) {
           selectElement._hasCustomListener = true;
           selectElement.addEventListener('change', function() {
             checkAndClearError(this.value);
-          }, { passive: true });
+          });
           selectElement.addEventListener('input', function() {
             checkAndClearError(this.value);
-          }, { passive: true });
+          });
         }
 
         var choicesElement = comp.element.querySelector('.choices__inner');
@@ -187,23 +153,21 @@ export function setupChangeListeners(panel, reviewButtonInstance) {
           choicesElement._hasCustomListener = true;
 
           choicesElement.addEventListener('click', function() {
-            // Battery optimization: Use requestAnimationFrame instead of setTimeout
-            requestAnimationFrame(function() {
+            setTimeout(function() {
               checkAndClearError(comp.dataValue || comp.getValue?.());
-            });
-          }, { passive: true });
+            }, 200);
+          });
 
           var choicesWrapper = comp.element.querySelector('.choices');
           if (choicesWrapper) {
             choicesWrapper.addEventListener('change', function() {
-              // Battery optimization: Use requestAnimationFrame instead of setTimeout
-              requestAnimationFrame(function() {
+              setTimeout(function() {
                 checkAndClearError(comp.dataValue || comp.getValue?.());
-              });
-            }, { passive: true });
+              }, 100);
+            });
           }
         }
-      });
+      }, 300);
     }
   });
 }
@@ -225,13 +189,12 @@ export function setupPanelHooks(panel, rowIndex, reviewButtonInstance) {
     var result = originalPanelAttach.call(this, element);
 
     if (this._hasErrors) {
-      // Battery optimization: Use requestAnimationFrame instead of setTimeout
-      requestAnimationFrame(function() {
+      setTimeout(function() {
         applyFieldErrors(panel);
         if (panel.element) {
           addErrorHighlight(panel.element);
         }
-      });
+      }, 150);
     }
 
     return result;
@@ -242,13 +205,12 @@ export function setupPanelHooks(panel, rowIndex, reviewButtonInstance) {
     var res = originalPanelRedraw ? originalPanelRedraw.apply(this, arguments) : null;
 
     if (this._hasErrors) {
-      // Battery optimization: Use requestAnimationFrame instead of setTimeout
-      requestAnimationFrame(function() {
+      setTimeout(function() {
         applyFieldErrors(panel);
         if (panel.element) {
           addErrorHighlight(panel.element);
         }
-      });
+      }, 100);
     }
 
     return res;
@@ -264,11 +226,9 @@ export function setupPanelHooks(panel, rowIndex, reviewButtonInstance) {
 export function highlightDataGridRows(dataGrid, results, reviewButtonInstance) {
   if (!dataGrid.rows || !Array.isArray(dataGrid.rows)) return;
 
-  // Battery optimization: Use for loop instead of forEach
-  for (let rowIndex = 0; rowIndex < dataGrid.rows.length; rowIndex++) {
-    const row = dataGrid.rows[rowIndex];
+  dataGrid.rows.forEach((row, rowIndex) => {
     const panelComponent = row.panel;
-    if (!panelComponent) continue;
+    if (!panelComponent) return;
 
     var rowErrors = [];
     var rowFileTweaks = [];
@@ -296,14 +256,9 @@ export function highlightDataGridRows(dataGrid, results, reviewButtonInstance) {
 
       if (!hasValue && component.element) {
         var fileInputs = component.element.querySelectorAll('input[type="file"]');
-        // Battery optimization: Use for loop instead of forEach
-        for (let i = 0; i < fileInputs.length; i++) {
-          const inp = fileInputs[i];
-          if (inp?.files && inp.files.length > 0) {
-            hasValue = true;
-            break; // Early exit
-          }
-        }
+        fileInputs.forEach?.(function(inp) {
+          if (inp?.files && inp.files.length > 0) hasValue = true;
+        });
       }
 
       if (hasValue) {
@@ -329,41 +284,31 @@ export function highlightDataGridRows(dataGrid, results, reviewButtonInstance) {
       if (!c.visible) return;
       c.checkValidity?.(c.data, false, c.data);
       if (c.errors && c.errors.length > 0) {
-        // Battery optimization: Use for loop instead of forEach
-        for (let errIdx = 0; errIdx < c.errors.length; errIdx++) {
-          const err = c.errors[errIdx];
+        c.errors.forEach(function(err) {
           rowErrors.push({
             rowIndex: rowIndex,
             field: err.component?.label || err.component?.key || 'Field',
             message: err.message,
             error: err
           });
-        }
+        });
       }
     });
 
-    // Battery optimization: Use for loop instead of forEach
-    for (let i = 0; i < rowFileTweaks.length; i++) {
-      const t = rowFileTweaks[i];
+    rowFileTweaks.forEach(function(t) {
       if (t.ptr) t.ptr.required = true;
-    }
+    });
 
     if (rowErrors.length > 0) {
-      // Battery optimization: Use for loop instead of map
-      panelComponent._customErrors = [];
-      for (let i = 0; i < rowErrors.length; i++) {
-        panelComponent._customErrors.push(rowErrors[i].error);
-      }
+      panelComponent._customErrors = rowErrors.map(function(e) { return e.error; });
       panelComponent._hasErrors = true;
 
       panelComponent._errorMap = {};
-      // Battery optimization: Use for loop instead of forEach
-      for (let i = 0; i < rowErrors.length; i++) {
-        const err = rowErrors[i];
+      rowErrors.forEach(function(err) {
         if (err.error && err.error.component && err.error.component.key) {
           panelComponent._errorMap[err.error.component.key] = err.error;
         }
-      }
+      });
 
     } else {
       panelComponent._customErrors = [];
@@ -385,32 +330,18 @@ export function highlightDataGridRows(dataGrid, results, reviewButtonInstance) {
     }
 
     setupPanelHooks(panelComponent, rowIndex, reviewButtonInstance);
-  }
+  });
 
-  // Battery optimization: Use for loop instead of forEach
-  for (let rowIndex = 0; rowIndex < dataGrid.rows.length; rowIndex++) {
-    const row = dataGrid.rows[rowIndex];
+  dataGrid.rows.forEach((row, rowIndex) => {
     const panelComponent = row.panel;
-    if (!panelComponent) continue;
+    if (!panelComponent) return;
 
-    // Battery optimization: Check error map more efficiently
-    let hasErrorMapEntries = false;
-    if (panelComponent._errorMap) {
-      for (const key in panelComponent._errorMap) {
-        if (panelComponent._errorMap.hasOwnProperty(key)) {
-          hasErrorMapEntries = true;
-          break;
-        }
-      }
-    }
-
-    if (panelComponent._hasErrors && hasErrorMapEntries) {
-      // Battery optimization: Use requestAnimationFrame instead of setTimeout
-      requestAnimationFrame(function() {
+    if (panelComponent._hasErrors && panelComponent._errorMap && Object.keys(panelComponent._errorMap).length > 0) {
+      setTimeout(() => {
         if (panelComponent.element) {
           addErrorHighlight(panelComponent.element);
         }
-      });
+      }, 50);
     } else {
       panelComponent._hasErrors = false;
       panelComponent._errorMap = {};
@@ -418,5 +349,5 @@ export function highlightDataGridRows(dataGrid, results, reviewButtonInstance) {
         removeErrorHighlight(panelComponent.element);
       }
     }
-  }
+  });
 }
