@@ -10,30 +10,10 @@ import { formatValue, firstLeafVal, getInvalidStyle, isFieldInvalid } from "./ui
 /**
  * Main renderNode function - renders a node and its children
  */
-// Battery optimization: Cache regex patterns and utility functions
-const regexPatterns = {
-  numericEnd: /^\d+\]$/,
-  textareaMarker: /__TEXTAREA__/g,
-  arrayIndex: /\[(\d+)\]/,
-  dotPattern: /\./g,
-  panelPattern: /\.panel[^.]*\./g,
-  panelEnd: /\.panel[^.]*$/
-};
-
-const trimKey = (k) => typeof k === 'string' ? k.trimEnd() : k;
-
 function renderNode(node, depth = 0, rootInstance = null, invalidFields = new Set(), basePath = '', invalidComponents = new Set()) {
   let pad = `padding-left:10px; border-left:1px dotted #ccc;`;
 
-  // Battery optimization: Collect entries and sort more efficiently
-  const entries = [];
-  for (const k in node) {
-    if (node.hasOwnProperty(k)) {
-      entries.push([k, node[k]]);
-    }
-  }
-  
-  entries.sort((a, b) => {
+  const sortedEntries = Object.entries(node).sort((a, b) => {
     const aIsTagpad = a[1]?.__label === 'Tagpad' || a[1]?.__comp?.component?.type === 'tagpad';
     const bIsTagpad = b[1]?.__label === 'Tagpad' || b[1]?.__comp?.component?.type === 'tagpad';
 
@@ -47,10 +27,7 @@ function renderNode(node, depth = 0, rootInstance = null, invalidFields = new Se
     return (a[1]?.__formIndex ?? -1) - (b[1]?.__formIndex ?? -1);
   });
 
-  // Battery optimization: Use array for string building instead of map
-  const parts = [];
-  for (let i = 0; i < entries.length; i++) {
-    const [k, v] = entries[i];
+  return sortedEntries.map(([k, v], index) => {
     const isAddressComponentRender = v.__comp?.component?.type === 'address' || v.__comp?.type === 'address';
     
     // Check if component is invalid FIRST - if invalid, always show it regardless of visibility
@@ -85,48 +62,34 @@ function renderNode(node, depth = 0, rootInstance = null, invalidFields = new Se
     }
 
     if (v.__comp?.parent?.type === 'datamap') {
-      if (i === 0) {
+      if (index === 0) {
         delete v.__comp;
       } else if (v?.__rows) {
         v.__children = {};
-        // Battery optimization: Use for...in instead of Object.values/Object.entries
-        for (const rowKey in v.__rows) {
-          if (v.__rows.hasOwnProperty(rowKey)) {
-            const row = v.__rows[rowKey];
-            if (row?.__children) {
-              for (const childKey in row.__children) {
-                if (row.__children.hasOwnProperty(childKey)) {
-                  const childVal = row.__children[childKey];
-                  v.__children[childVal.__label] = childKey;
-                }
-              }
-            }
+        Object.values(v.__rows).forEach(row => {
+          if (row?.__children) {
+            Object.entries(row.__children).forEach(([childKey, childVal]) => {
+              v.__children[childVal.__label] = childKey;
+            });
           }
-        }
+        });
         v.__rows = {};
       }
     }
 
-    if (regexPatterns.numericEnd.test(k) || v?.__comp == undefined) {
-        const result = v && typeof v === 'object' ? renderNode(v.__children || {}, depth, rootInstance, invalidFields, basePath, invalidComponents) : '';
-        if (result) parts.push(result);
-        continue;
+    if (/^\d+\]$/.test(k) || v?.__comp == undefined) {
+        return v && typeof v === 'object' ? renderNode(v.__children || {}, depth, rootInstance, invalidFields, basePath, invalidComponents) : '';
     }
 
     if (v && v.__leaf) {
-      const result = renderLeafNode(v, k, depth, basePath, invalidFields, invalidComponents);
-      if (result) parts.push(result);
-      continue;
+      return renderLeafNode(v, k, depth, basePath, invalidFields, invalidComponents);
     }
 
     if (v && typeof v === 'object') {
-        const result = renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath, pad, invalidComponents);
-        if (result) parts.push(result);
-        continue;
+        return renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath, pad, invalidComponents);
     }
-  }
-  
-  return parts.join('');
+    return '';
+  }).join('');
 }
 
 /**
@@ -261,32 +224,19 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
     }
   }
 
-  // Battery optimization: Cache path normalization function
-  const normalizePath = (p) => {
-    return p.replace(/\.data\./g, '.')
+  for (const { path, label, value, comp, formIndex } of sortedLeaves) {
+    // Normalize path: remove duplicate form names, data segments, etc.
+    let normalizedPath = path.replace(/\.data\./g, '.')
       .replace(/^data\./, '')
       .replace(/^form\./, '')
       .replace(/^submission\./, '');
-  };
-  
-  const normalizePathForMatching = (p) => {
-    return p.replace(regexPatterns.panelPattern, '.').replace(regexPatterns.panelEnd, '');
-  };
-  
-  const removeDuplicateFormNames = (p) => {
-    return p.replace(/^([^.]+)\.\1(\.|$)/, '$1$2');
-  };
-
-  for (const { path, label, value, comp, formIndex } of sortedLeaves) {
-    // Battery optimization: Use cached normalization functions
-    let normalizedPath = normalizePath(path);
     
     // Remove duplicate form names (e.g., hardwareForm.hardwareForm -> hardwareForm)
-    normalizedPath = removeDuplicateFormNames(normalizedPath);
+    normalizedPath = normalizedPath.replace(/^([^.]+)\.\1(\.|$)/, '$1$2');
     
     // Remove intermediate panel segments for matching purposes
     // e.g., hardwareForm.data.dataGrid[0].panel.panel1.picOfSn4 -> hardwareForm.data.dataGrid[0].picOfSn4
-    const pathForMatching = normalizePathForMatching(normalizedPath);
+    const pathForMatching = normalizedPath.replace(/\.panel[^.]*\./g, '.').replace(/\.panel[^.]*$/, '');
     
     // Check both the full normalized path and the simplified path for matching
     if (processedTreePaths.has(normalizedPath) || processedTreePaths.has(pathForMatching)) {
@@ -334,8 +284,7 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
         continue;
       }
 
-      // Battery optimization: Use cached regex
-      const idxMatch = seg.match(regexPatterns.arrayIndex);
+      const idxMatch = seg.match(/\[(\d+)\]/);
       const key = seg.replace(/\[\d+\]/g, '');
 
       if (!key) {
@@ -491,14 +440,11 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
             ptr = node.__children[key].__children;
           } else {
             if (!node.__children) node.__children = {};
-            // Battery optimization: Use for...in instead of Object.keys().forEach()
-            for (const childKey in node.__children) {
-              if (node.__children.hasOwnProperty(childKey)) {
-                if (node.__children[childKey] && !node.__children[childKey].__comp) {
-                  node.__children[childKey].__comp = comp;
-                }
+            Object.keys(node.__children).forEach(childKey => {
+              if (node.__children[childKey] && !node.__children[childKey].__comp) {
+                node.__children[childKey].__comp = comp;
               }
-            }
+            });
             ptr = node.__children;
           }
         }
@@ -506,14 +452,11 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
           if(ptr && ptr[key] && ptr[key].__comp) {
             ptr[key].__comp = comp;
             if (ptr[key].__children && typeof ptr[key].__children === 'object') {
-              // Battery optimization: Use for...in instead of Object.keys().forEach()
-              for (const childKey in ptr[key].__children) {
-                if (ptr[key].__children.hasOwnProperty(childKey)) {
-                  if (ptr[key].__children[childKey] && !ptr[key].__children[childKey].__comp) {
-                    ptr[key].__children[childKey].__comp = comp;
-                  }
+              Object.keys(ptr[key].__children).forEach(childKey => {
+                if (ptr[key].__children[childKey] && !ptr[key].__children[childKey].__comp) {
+                  ptr[key].__children[childKey].__comp = comp;
                 }
-              }
+              });
             }
           }
         }
@@ -541,44 +484,62 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
       return (a[1]?.__formIndex ?? -1) - (b[1]?.__formIndex ?? -1);
     });
 
-    // Battery optimization: Use array for string building instead of map
-    const parts = [];
-    for (let i = 0; i < sortedEntries.length; i++) {
-      const [k, v] = sortedEntries[i];
+    return sortedEntries.map(([k, v], index) => {
       const isAddressComponentRender = v.__comp?.component?.type === 'address' || v.__comp?.type === 'address';
       
-      // Battery optimization: Cache path calculations (trimKey is defined at module level)
+      // Check if component is invalid FIRST - if invalid, always show it regardless of visibility
+      // Use the component's actual path, not just the key, for better matching
+      // Trim trailing spaces from keys
+      const trimKey = (k) => typeof k === 'string' ? k.trimEnd() : k;
       const compPath = trimKey(v.__comp?.path || v.__comp?.key || v.__comp?.component?.key || '');
       const compKey = trimKey(v.__comp?.key || v.__comp?.component?.key || '');
       const fullPath = basePath ? `${basePath}.${trimKey(k)}` : trimKey(k);
       
-      // Battery optimization: Early exit for invalid checks - check Set.has first (fastest)
+      // Check multiple path variations and component reference
+      const isInvalidByPath = isFieldInvalid(v.__comp, compPath, invalidFields);
+      const isInvalidByFullPath = isFieldInvalid(v.__comp, fullPath, invalidFields);
+      const isInvalidByKey = isFieldInvalid(v.__comp, k, invalidFields);
       const isInvalidByComponent = invalidComponents.has(v.__comp);
       const isInvalidByCompKey = compKey && invalidFields.has(compKey);
       const isInvalidByCompPath = compPath && invalidFields.has(compPath);
       
-      // Battery optimization: Only call isFieldInvalid if Set checks didn't find it
-      let isInvalid = isInvalidByComponent || isInvalidByCompKey || isInvalidByCompPath;
-      if (!isInvalid) {
-        const isInvalidByPath = isFieldInvalid(v.__comp, compPath, invalidFields);
-        const isInvalidByFullPath = isFieldInvalid(v.__comp, fullPath, invalidFields);
-        const isInvalidByKey = isFieldInvalid(v.__comp, k, invalidFields);
-        isInvalid = isInvalidByPath || isInvalidByFullPath || isInvalidByKey;
+      const isInvalid = isInvalidByPath || isInvalidByFullPath || isInvalidByKey || 
+                        isInvalidByComponent || isInvalidByCompKey || isInvalidByCompPath;
+      
+      // Debug logging for picOfSn components
+      if (compKey && (compKey.includes('picOfSn') || compPath?.includes('picOfSn'))) {
+        console.log(`[renderNode] Checking ${compKey}:`, {
+          k,
+          compPath,
+          compKey,
+          fullPath,
+          basePath,
+          isInvalidByPath,
+          isInvalidByFullPath,
+          isInvalidByKey,
+          isInvalidByComponent,
+          isInvalidByCompKey,
+          isInvalidByCompPath,
+          isInvalid,
+          invalidFields: Array.from(invalidFields),
+          inInvalidComponents: invalidComponents.has(v.__comp),
+          compRef: v.__comp
+        });
       }
       
       // If component is invalid, skip all visibility checks and show it
       if (!isInvalid) {
         if (v.__comp?._visible == false || v.__comp?.type === 'datasource') {
-          continue;
+          return '';
         }
         
         if (v.__comp?.component?.hidden === true || v.__comp?.hidden === true) {
-          continue;
+          return '';
         }
         
         if (v.__comp?.disabled === true || v.__comp?.component?.disabled === true) {
           if (v.__comp?.component?.reviewVisible !== true) {
-            continue;
+            return '';
           }
         }
         
@@ -586,117 +547,76 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
         const isReviewVisible = v.__comp?.component?.reviewVisible === true;
         
         if (isRequired && !isReviewVisible) {
-          continue;
+          return '';
         }
         
         if (!isRequired && !isReviewVisible && !isAddressComponentRender) {
-          continue;
+          return '';
         }
       }
 
       if (v.__comp?.parent?.type === 'datamap') {
-        if (i === 0) {
+        if (index === 0) {
           delete v.__comp;
         } else if (v?.__rows) {
           v.__children = {};
-          // Battery optimization: Use for...in instead of Object.values/Object.entries
-          for (const rowKey in v.__rows) {
-            if (v.__rows.hasOwnProperty(rowKey)) {
-              const row = v.__rows[rowKey];
-              if (row?.__children) {
-                for (const childKey in row.__children) {
-                  if (row.__children.hasOwnProperty(childKey)) {
-                    const childVal = row.__children[childKey];
-                    v.__children[childVal.__label] = childKey;
-                  }
-                }
-              }
+          Object.values(v.__rows).forEach(row => {
+            if (row?.__children) {
+              Object.entries(row.__children).forEach(([childKey, childVal]) => {
+                v.__children[childVal.__label] = childKey;
+              });
             }
-          }
+          });
           v.__rows = {};
         }
       }
 
-      if (regexPatterns.numericEnd.test(k) || v?.__comp == undefined) {
-        const result = v && typeof v === 'object' ? renderNode(v.__children || {}, depth, rootInstance, invalidFields, basePath, invalidComponents, isInsideDatagridRow) : '';
-        if (result) parts.push(result);
-        continue;
+      if (/^\d+\]$/.test(k) || v?.__comp == undefined) {
+        return v && typeof v === 'object' ? renderNode(v.__children || {}, depth, rootInstance, invalidFields, basePath, invalidComponents, isInsideDatagridRow) : '';
       }
 
       if (v && v.__leaf) {
-        // Battery optimization: Always render leaf nodes - visibility is handled in renderLeafNode
-        const result = renderLeafNode(v, k, depth, basePath, invalidFields, invalidComponents);
-        if (result) parts.push(result);
-        continue;
+        // For leaf nodes, check if the component's actual path matches an invalid field
+        // The leaf path might have extra segments (like .panel.panel1.) that aren't in the invalid field path
+        // Check the component's actual path, the rendered key, and also check by component key
+        // Trim trailing spaces from keys
+        const trimKey = (k) => typeof k === 'string' ? k.trimEnd() : k;
+        const compPath = trimKey(v.__comp?.path || v.__comp?.key || v.__comp?.component?.key || '');
+        const compKey = trimKey(v.__comp?.key || v.__comp?.component?.key || '');
+        
+        // Check multiple path variations
+        const isInvalidByPath = isFieldInvalid(v.__comp, compPath, invalidFields) ||
+                                isFieldInvalid(v.__comp, k, invalidFields) ||
+                                isFieldInvalid(v.__comp, basePath ? `${basePath}.${k}` : k, invalidFields) ||
+                                invalidComponents.has(v.__comp) ||
+                                (compKey && invalidFields.has(compKey)) ||
+                                (compPath && invalidFields.has(compPath));
+        
+        // Always render leaf nodes - visibility is handled in renderLeafNode
+        return renderLeafNode(v, k, depth, basePath, invalidFields, invalidComponents);
       }
 
       if (v && typeof v === 'object') {
-        // Battery optimization: Check hasRows/hasChildren more efficiently
-        let hasRows = false;
-        let rowsCount = 0;
-        if (v.__rows) {
-          for (const key in v.__rows) {
-            if (v.__rows.hasOwnProperty(key)) {
-              rowsCount++;
-              if (rowsCount > 0) {
-                hasRows = true;
-                break;
-              }
-            }
-          }
-        }
-        
-        let hasChildren = false;
-        if (v.__children) {
-          for (const key in v.__children) {
-            if (v.__children.hasOwnProperty(key)) {
-              hasChildren = true;
-              break;
-            }
-          }
-        }
-        
         // If we're inside a datagrid row and this container has rows, flatten it
-        if (isInsideDatagridRow && hasRows) {
-          // Battery optimization: Build flattened content more efficiently
-          const flattenedParts = [];
-          for (const i in v.__rows) {
-            if (v.__rows.hasOwnProperty(i)) {
-              const r = v.__rows[i];
-              let rHasChildren = false;
-              if (r.__children) {
-                for (const key in r.__children) {
-                  if (r.__children.hasOwnProperty(key)) {
-                    rHasChildren = true;
-                    break;
-                  }
-                }
-              }
-              if (rHasChildren) {
-                const result = renderNode(r.__children, depth, rootInstance, invalidFields, `${basePath ? basePath + '.' : ''}${k}[${i}]`, invalidComponents, true);
-                if (result) flattenedParts.push(result);
-              }
-            }
-          }
-          if (flattenedParts.length > 0) {
-            parts.push(flattenedParts.join(''));
-          }
-          continue;
+        // Also check if this is a panel/container that shouldn't create row labels
+        if (isInsideDatagridRow && v.__rows && Object.keys(v.__rows).length > 0) {
+          // Flatten the rows - render children directly without row labels
+          const flattenedContent = Object.entries(v.__rows).map(([i, r]) => {
+            const hasChildren = r.__children && Object.keys(r.__children).length;
+            return hasChildren
+              ? renderNode(r.__children, depth, rootInstance, invalidFields, `${basePath ? basePath + '.' : ''}${k}[${i}]`, invalidComponents, true)
+              : '';
+          }).join('');
+          return flattenedContent;
         }
-        
         // If inside datagrid row and container has children but no rows, render children directly
-        if (isInsideDatagridRow && hasChildren && !hasRows) {
-          const result = renderNode(v.__children, depth, rootInstance, invalidFields, basePath ? `${basePath}.${k}` : k, invalidComponents, true);
-          if (result) parts.push(result);
-          continue;
+        if (isInsideDatagridRow && v.__children && Object.keys(v.__children).length > 0 && (!v.__rows || Object.keys(v.__rows).length === 0)) {
+          return renderNode(v.__children, depth, rootInstance, invalidFields, basePath ? `${basePath}.${k}` : k, invalidComponents, true);
         }
-        
-        const result = renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath, pad, invalidComponents);
-        if (result) parts.push(result);
+        return renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath, pad, invalidComponents);
       }
-    }
-    
-    return parts.join('');
+      return '';
+    }).join('');
   }
 
   return renderNode(root, 0, rootInstance, invalidFields, '', invalidComponents);
@@ -732,8 +652,7 @@ function renderLeafNode(v, k, depth, basePath, invalidFields, invalidComponents 
   } else if (isTagpadDot) {
     return `<div idx="5" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${invalidStyle}">${v.__label || k}:</strong> ${val}</div>`;
   } else if (val && typeof val === 'string' && val.includes('__TEXTAREA__')) {
-    // Battery optimization: Use cached regex
-    const textareaContent = val.replace(regexPatterns.textareaMarker, '');
+    const textareaContent = val.replace(/__TEXTAREA__/g, '');
     return `<div idx="6" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc; display: flex; align-items: flex-start;">
               <strong style="${invalidStyle}">${v.__label || k}:</strong>
               ${textareaContent}
@@ -751,20 +670,17 @@ function renderFormComponent(v, k, depth, basePath, invalidFields, invalidCompon
   let formContentHtml = '<div idx="10" depth="${depth}" style="padding-left: 10px;">';
 
   if (typeof formValue === 'object' && !Array.isArray(formValue)) {
-    // Battery optimization: Use for...in instead of Object.entries
-    for (const fieldKey in formValue) {
-      if (formValue.hasOwnProperty(fieldKey)) {
-        const fieldVal = formValue[fieldKey];
-        if (fieldVal !== null && fieldVal !== undefined) {
-          const displayVal = typeof fieldVal === 'object'
-            ? JSON.stringify(fieldVal)
-            : String(fieldVal);
-          const fieldPath = `${k}.${fieldKey}`;
-          const invalidStyle = getInvalidStyle(v.__comp, fieldPath, basePath, invalidFields, invalidComponents);
-          formContentHtml += `<div idx="2" depth="${depth}" style="margin-left:10px; padding-left:10px; border-left:1px dotted #ccc;"><strong style="${invalidStyle}">${fieldKey}:</strong> ${displayVal}</div>`;
-        }
-      }
-    }
+    const contentItems = Object.entries(formValue)
+      .filter(([fieldKey, fieldVal]) => fieldVal !== null && fieldVal !== undefined)
+      .map(([fieldKey, fieldVal]) => {
+        const displayVal = typeof fieldVal === 'object'
+          ? JSON.stringify(fieldVal)
+          : String(fieldVal);
+        const fieldPath = `${k}.${fieldKey}`;
+        return `<div idx="2" depth="${depth}" style="margin-left:10px; padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(v.__comp, fieldPath, basePath, invalidFields, invalidComponents)}">${fieldKey}:</strong> ${displayVal}</div>`;
+      })
+      .join('');
+    formContentHtml += contentItems;
   }
 
   formContentHtml += '</div>';
@@ -788,26 +704,8 @@ function renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath,
     }
   }
 
-  // Battery optimization: Check hasChildren/hasRows more efficiently
-  let hasChildren = false;
-  if (v.__children) {
-    for (const key in v.__children) {
-      if (v.__children.hasOwnProperty(key)) {
-        hasChildren = true;
-        break;
-      }
-    }
-  }
-  
-  let hasRows = false;
-  if (v.__rows) {
-    for (const key in v.__rows) {
-      if (v.__rows.hasOwnProperty(key)) {
-        hasRows = true;
-        break;
-      }
-    }
-  }
+  const hasChildren = v.__children && Object.keys(v.__children).length;
+  const hasRows = v.__rows && Object.keys(v.__rows).length;
   const isDataGridComponent = v.__kind === 'datagrid' || v.__kind === 'datatable' || v.__kind === 'editgrid';
   const isDataTableComponent = v.__comp?.component?.type === 'datatable' || v.__comp?.type === 'datatable';
   const isTableComponent = v.__comp?.component?.type === 'table' || v.__comp?.type === 'table';
@@ -870,19 +768,11 @@ function renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath,
     // Flatten immediately - don't create row labels
     // Merge all row children into a single flat structure
     const allFlattenedChildren = {};
-    // Battery optimization: Use for...in instead of Object.entries
-    for (const i in v.__rows) {
-      if (v.__rows.hasOwnProperty(i)) {
-        const r = v.__rows[i];
-        if (r.__children) {
-          for (const childKey in r.__children) {
-            if (r.__children.hasOwnProperty(childKey)) {
-              allFlattenedChildren[childKey] = r.__children[childKey];
-            }
-          }
-        }
+    Object.entries(v.__rows).forEach(([i, r]) => {
+      if (r.__children) {
+        Object.assign(allFlattenedChildren, r.__children);
       }
-    }
+    });
     // Also include direct children if any
     if (v.__children) {
       Object.assign(allFlattenedChildren, v.__children);
@@ -902,63 +792,37 @@ function renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath,
   const childrenHtml = [
     hasRows && !shouldFlattenRows
       ? `<ul style="list-style-type:circle; padding-left:30px; margin:0; border-left:1px dotted #ccc;">${(() => {
-        // Battery optimization: Build rows HTML more efficiently
-        const rowParts = [];
-        const isTagpad = k === 'tagpad' ||
-          v.__label === 'Tagpad' ||
-          v.__comp?.component?.type === 'tagpad' ||
-          v.__comp?.type === 'tagpad';
-        
-        for (const i in v.__rows) {
-          if (v.__rows.hasOwnProperty(i)) {
-            const r = v.__rows[i];
-            const rowLabel = isTagpad ? `Tag ${Number(i) + 1}` : `Row ${Number(i) + 1}`;
-            const rowHasErrors = isRowInvalid(r, k, parseInt(i), invalidFields, invalidComponents);
-            const rowLabelStyle = rowHasErrors ? 'background-color:rgb(255 123 123); border-radius: 3px;' : '';
+        return Object.entries(v.__rows).map(([i, r]) => {
+          const isTagpad = k === 'tagpad' ||
+            v.__label === 'Tagpad' ||
+            v.__comp?.component?.type === 'tagpad' ||
+            v.__comp?.type === 'tagpad';
+          const rowLabel = isTagpad ? `Tag ${Number(i) + 1}` : `Row ${Number(i) + 1}`;
 
-            let rHasChildren = false;
-            if (r.__children) {
-              for (const key in r.__children) {
-                if (r.__children.hasOwnProperty(key)) {
-                  rHasChildren = true;
-                  break;
-                }
-              }
-            }
-            
-            const content = rHasChildren
-              ? renderNode(r.__children, depth + 1, rootInstance, invalidFields, `${basePath ? basePath + '.' : ''}${k}[${i}]`, invalidComponents, true)
-              : ``;
+          const rowHasErrors = isRowInvalid(r, k, parseInt(i), invalidFields, invalidComponents);
+          const rowLabelStyle = rowHasErrors ? 'background-color:rgb(255 123 123); border-radius: 3px;' : '';
 
-            const rowClass = isTagpad ? 'tagpad-row' : 'data-row';
-            rowParts.push(`<li class="${rowClass}" style="margin-left:0 !important; padding-left: 0 !important;"><strong style="${rowLabelStyle}">${rowLabel}:</strong>${content}</li>`);
-          }
-        }
-        return rowParts.join('');
+          const hasChildren = r.__children && Object.keys(r.__children).length;
+          const content = hasChildren
+            ? renderNode(r.__children, depth + 1, rootInstance, invalidFields, `${basePath ? basePath + '.' : ''}${k}[${i}]`, invalidComponents, true)
+            : ``;
+
+          const rowClass = isTagpad ? 'tagpad-row' : 'data-row';
+
+          return `<li class="${rowClass}" style="margin-left:0 !important; padding-left: 0 !important;"><strong style="${rowLabelStyle}">${rowLabel}:</strong>${content}</li>`;
+        }).join('');
       })()}</ul>` : 
     hasRows && shouldFlattenRows
       ? (() => {
-          // Battery optimization: Flatten nested rows more efficiently
-          const flattenedParts = [];
-          for (const i in v.__rows) {
-            if (v.__rows.hasOwnProperty(i)) {
-              const r = v.__rows[i];
-              let rHasChildren = false;
-              if (r.__children) {
-                for (const key in r.__children) {
-                  if (r.__children.hasOwnProperty(key)) {
-                    rHasChildren = true;
-                    break;
-                  }
-                }
-              }
-              if (rHasChildren) {
-                const result = renderNode(r.__children, depth, rootInstance, invalidFields, `${basePath ? basePath + '.' : ''}${k}[${i}]`, invalidComponents, true);
-                if (result) flattenedParts.push(result);
-              }
-            }
-          }
-          return flattenedParts.join('');
+          // Flatten nested rows - don't create row labels, just render children directly
+          // This prevents duplicate "Row 1:" labels when panels are nested in datagrid rows
+          const flattenedContent = Object.entries(v.__rows).map(([i, r]) => {
+            const hasChildren = r.__children && Object.keys(r.__children).length;
+            return hasChildren
+              ? renderNode(r.__children, depth, rootInstance, invalidFields, `${basePath ? basePath + '.' : ''}${k}[${i}]`, invalidComponents, true)
+              : '';
+          }).join('');
+          return flattenedContent;
         })() : '',
     hasChildren ? renderNode(v.__children, depth + 1, rootInstance, invalidFields, basePath ? `${basePath}.${k}` : k, invalidComponents, shouldFlattenRows || isNestedInDatagrid) : ''
   ].join('');
@@ -1002,11 +866,9 @@ function renderContainerComponent(v, k, depth, rootInstance, invalidFields, base
     const containerPath = basePath ? `${basePath}.${k}` : k;
      
     if (v?.__comp?.editRows && Array.isArray(v.__comp.editRows)) {
-      // Battery optimization: Build transformedEditRows more efficiently
       const transformedEditRows = {};
       
-      for (let rowIdx = 0; rowIdx < v.__comp.editRows.length; rowIdx++) {
-        const row = v.__comp.editRows[rowIdx];
+      v.__comp.editRows.forEach((row, rowIdx) => {
         const rowKey = `Row ${rowIdx + 1}`;
         transformedEditRows[rowKey] = {
           __children: {},
@@ -1014,8 +876,7 @@ function renderContainerComponent(v, k, depth, rootInstance, invalidFields, base
         };
         
         if (row.components && Array.isArray(row.components)) {
-          for (let compIdx = 0; compIdx < row.components.length; compIdx++) {
-            const comp = row.components[compIdx];
+          row.components.forEach(comp => {
             const compKey = comp.key || comp.component?.key || 'unknown';
             const compValue = row.data && row.data[compKey] ? row.data[compKey] : (comp.getValue ? comp.getValue() : comp.dataValue);
             const compLabel = comp.component?.label || comp.label || compKey;
@@ -1028,9 +889,9 @@ function renderContainerComponent(v, k, depth, rootInstance, invalidFields, base
               __children: {},
               __rows: {}
             };
-          }
+          });
         }
-      }
+      });
       
       panelChildrenHtml = renderNode(transformedEditRows, depth + 1, rootInstance, invalidFields, containerPath, invalidComponents);
     } else {
@@ -1045,30 +906,25 @@ function renderContainerComponent(v, k, depth, rootInstance, invalidFields, base
     let customChildrenHtml = '';
 
     if (Array.isArray(v.__value._row)) {
-      // Battery optimization: Build customChildrenHtml more efficiently
-      const customParts = [];
-      for (let itemIdx = 0; itemIdx < v.__value._row.length; itemIdx++) {
-        const item = v.__value._row[itemIdx];
+      customChildrenHtml = v.__value._row.map(item => {
         if (item._children) {
           const childLabel = item._children._label || '';
           const childValue = item._children._value || '';
           const childPath = item._children._key || childLabel;
-          const invalidStyle = getInvalidStyle(item._children, childPath, basePath, invalidFields, invalidComponents);
-          customParts.push(`<div idx="13" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${invalidStyle}">${childLabel}:</strong> ${childValue}</div>`);
+          return `<div idx="13" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(item._children, childPath, basePath, invalidFields, invalidComponents)}">${childLabel}:</strong> ${childValue}</div>`;
         } else if (item._row && Array.isArray(item._row)) {
-          for (let cellIdx = 0; cellIdx < item._row.length; cellIdx++) {
-            const cell = item._row[cellIdx];
+          return item._row.map(cell => {
             if (cell._children) {
               const cellLabel = cell._children._label || '';
               const cellValue = cell._children._value || '';
               const cellPath = cell._children._key || cellLabel;
-              const invalidStyle = getInvalidStyle(cell._children, cellPath, basePath, invalidFields, invalidComponents);
-              customParts.push(`<div idx="14" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${invalidStyle}">${cellLabel}:</strong> ${cellValue}</div>`);
+              return `<div idx="14" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(cell._children, cellPath, basePath, invalidFields, invalidComponents)}">${cellLabel}:</strong> ${cellValue}</div>`;
             }
-          }
+            return '';
+          }).join('');
         }
-      }
-      customChildrenHtml = customParts.join('');
+        return '';
+      }).join('');
     }
 
     return `
@@ -1095,55 +951,22 @@ function renderContainerComponent(v, k, depth, rootInstance, invalidFields, base
  * Renders data grid rows
  */
 function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, header, invalidComponents = new Set()) {
-  // Battery optimization: Build presentKeys more efficiently
   const presentKeys = new Set();
-  for (const rowKey in v.__rows) {
-    if (v.__rows.hasOwnProperty(rowKey)) {
-      const r = v.__rows[rowKey];
-      if (r.__children) {
-        for (const cKey in r.__children) {
-          if (r.__children.hasOwnProperty(cKey)) {
-            presentKeys.add(cKey);
-          }
-        }
-      }
-    }
-  }
+  Object.values(v.__rows).forEach(r => {
+    Object.keys(r.__children || {}).forEach(cKey => presentKeys.add(cKey));
+  });
 
-  // Battery optimization: Build orderedKeys more efficiently
-  let orderedKeys = [];
-  if (Array.isArray(v.__colKeys) && v.__colKeys.length) {
-    for (let i = 0; i < v.__colKeys.length; i++) {
-      const cKey = v.__colKeys[i];
-      if (presentKeys.has(cKey)) {
-        orderedKeys.push(cKey);
-      }
-    }
-  } else {
-    orderedKeys = Array.from(presentKeys);
-  }
+  const orderedKeys = Array.isArray(v.__colKeys) && v.__colKeys.length
+    ? v.__colKeys.filter(cKey => presentKeys.has(cKey))
+    : Array.from(presentKeys);
 
-  // Battery optimization: Build labelByKey more efficiently
-  const labelByKey = new Map();
-  if (Array.isArray(v.__colKeys)) {
-    for (let i = 0; i < v.__colKeys.length; i++) {
-      const cKey = v.__colKeys[i];
-      labelByKey.set(cKey, (v.__colLabels && v.__colLabels[i]) || cKey);
-    }
-  }
+  const labelByKey = new Map(
+    (v.__colKeys || []).map((cKey, i) => [cKey, (v.__colLabels || [])[i] || cKey])
+  );
   
-  // Battery optimization: Build rowIdxs more efficiently
-  const rowIdxs = [];
-  for (const n in v.__rows) {
-    if (v.__rows.hasOwnProperty(n)) {
-      rowIdxs.push(Number(n));
-    }
-  }
-  rowIdxs.sort((a, b) => a - b);
-  
-  const rowsParts = [];
-  for (let idx = 0; idx < rowIdxs.length; idx++) {
-    const rowIdx = rowIdxs[idx];
+  const rowIdxs = Object.keys(v.__rows).map(n => Number(n)).sort((a, b) => a - b);
+  let rowsHtml = '';
+  const rowsItems = rowIdxs.map((rowIdx) => {
     const row = v.__rows[rowIdx];
     const haveMultiCols = orderedKeys.length > 1;
     const rowHasErrors = isRowInvalid(row, k, rowIdx, invalidFields, invalidComponents);
@@ -1154,29 +977,28 @@ function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, 
 
     if (haveMultiCols) {
       const processedInThisRow = new Set();
-      const colsParts = ['<div idx="19" style="padding-left: 10px;">'];
-      
-      // Battery optimization: Use for loop instead of map
-      for (let colIdx = 0; colIdx < orderedKeys.length; colIdx++) {
-        const colKey = orderedKeys[colIdx];
+
+      let colsHtml = '<div idx="19" style="padding-left: 10px;">';
+      const colsItems = orderedKeys.map((colKey, colIdx) => {
         if (processedInThisRow.has(colKey)) {
-          continue;
+          return '';
         }
 
         processedInThisRow.add(colKey);
         const cell = row.__children[colKey];
-        if (!cell) continue;
-        
         let cellContent = '';
 
         if (cell.__leaf || (v?.__rows && v?.__rows?.length > 0)) {
           const val = firstLeafVal(cell);
           const cellPath = `${k}[${rowIdx}].${colKey}`;
+          // Check if this cell is invalid using the full path
+          const cellIsInvalid = isFieldInvalid(cell.__comp, cellPath, invalidFields) || 
+                               (cell.__comp && invalidComponents.has(cell.__comp)) ||
+                               invalidFields.has(cellPath);
           const invalidStyle = getInvalidStyle(cell.__comp, cellPath, `${k}[${rowIdx}]`, invalidFields, invalidComponents);
           
           if (val && typeof val === 'string' && val.includes('__TEXTAREA__')) {
-            // Battery optimization: Use cached regex
-            const textareaContent = val.replace(regexPatterns.textareaMarker, '');
+            const textareaContent = val.replace(/__TEXTAREA__/g, '');
             cellContent = `<div idx="20" style="${padCol}">
                             <strong style="${invalidStyle}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong><br/>
                             ${textareaContent}
@@ -1185,24 +1007,21 @@ function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, 
             cellContent = `<div idx="21" style="${padCol}"><strong style="${invalidStyle}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${val}</div>`;
           }
         } else {
-          let cellHasChildren = false;
-          if (cell?.__children) {
-            for (const key in cell.__children) {
-              if (cell.__children.hasOwnProperty(key)) {
-                cellHasChildren = true;
-                break;
-              }
-            }
-          }
-          
+          const hasChildren = cell?.__children && Object.keys(cell.__children).length > 0;
           let nestedHtml = '';
-          if (cellHasChildren) {
+          
+          if (hasChildren) {
             nestedHtml = renderNode(cell.__children, depth + 1, rootInstance, invalidFields, `${k}[${rowIdx}].${colKey}`, invalidComponents, true);
           }
           
           const hasNestedContent = nestedHtml && nestedHtml.trim().length > 0;
+          
           const directVal = cell?.__value !== undefined ? formatValue(cell.__value, cell.__comp) : firstLeafVal(cell);
           const cellPath = `${k}[${rowIdx}].${colKey}`;
+          // Check if this cell is invalid using the full path
+          const cellIsInvalid = isFieldInvalid(cell.__comp, cellPath, invalidFields) || 
+                               (cell.__comp && invalidComponents.has(cell.__comp)) ||
+                               invalidFields.has(cellPath);
           const invalidStyle = getInvalidStyle(cell.__comp, cellPath, `${k}[${rowIdx}]`, invalidFields, invalidComponents);
           
           if (hasNestedContent) {
@@ -1213,11 +1032,12 @@ function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, 
             cellContent = `<div idx="24" style="${padCol}"><strong style="${invalidStyle}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong></div>`;
           }
         }
-        if (cellContent) colsParts.push(cellContent);
-      }
-      colsParts.push('</div>');
+        return `${cellContent}`;
+      }).filter(html => html.length > 0).join('');
+      colsHtml += colsItems;
+      colsHtml += '</div>';
 
-      rowsParts.push(`<li style="margin-left:15 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;', '')}"><strong style="${rowLabelStyle}">Row ${rowIdx + 1}:</strong>${colsParts.join('')}</li>`);
+      return `<li style="margin-left:15 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;', '')}"><strong style="${rowLabelStyle}">Row ${rowIdx + 1}:</strong>${colsHtml}</li>`;
     } else {
       const onlyKey = orderedKeys[0];
       const cell = row.__children[onlyKey];
@@ -1228,26 +1048,21 @@ function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, 
                            invalidFields.has(cellPath);
       const invalidStyle = getInvalidStyle(cell.__comp, cellPath, `${k}[${rowIdx}]`, invalidFields, invalidComponents);
       const val = cell?.__leaf ? firstLeafVal(cell) : null;
-      let inner = '';
-      if (cell?.__leaf) {
-        if (val && typeof val === 'string' && val.includes('__TEXTAREA__')) {
-          // Battery optimization: Use cached regex
-          const textareaContent = val.replace(regexPatterns.textareaMarker, '');
-          inner = `<div idx="21" style="${padRow}">
-                     <strong style="${invalidStyle}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong><br/>
-                     ${textareaContent}
-                   </div>`;
-        } else {
-          inner = `<div idx="21" style="${padRow}"><strong style="${invalidStyle}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong> ${val}</div>`;
-        }
-      } else {
-        inner = renderNode(cell?.__children || {}, depth + 1, rootInstance, invalidFields, cellPath, invalidComponents, true);
-      }
-      rowsParts.push(`<li style="margin-left:0 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;', '')}"><strong style="${rowLabelStyle}">Row ${rowIdx + 1}:</strong>${inner}</li>`);
+      const inner = cell?.__leaf
+        ? (val && typeof val === 'string' && val.includes('__TEXTAREA__'))
+          ? (() => {
+              const textareaContent = val.replace(/__TEXTAREA__/g, '');
+              return `<div idx="21" style="${padRow}">
+                       <strong style="${invalidStyle}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong><br/>
+                       ${textareaContent}
+                     </div>`;
+            })()
+          : `<div idx="21" style="${padRow}"><strong style="${invalidStyle}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong> ${val}</div>`
+        : renderNode(cell?.__children || {}, depth + 1, rootInstance, invalidFields, cellPath, invalidComponents, true);
+      return `<li style="margin-left:0 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;', '')}"><strong style="${rowLabelStyle}">Row ${rowIdx + 1}:</strong>${inner}</li>`;
     }
-  }
-  
-  const rowsHtml = rowsParts.join('');
+  }).join('');
+  rowsHtml += rowsItems;
 
   return `${header}<ul style="list-style-type:circle; padding-left:30px; margin:0; border-left:1px dotted #ccc;">${rowsHtml}</ul></div>`;
 }
@@ -1287,25 +1102,20 @@ function isRowInvalid(row, datagridKey, rowIdx, invalidFields, invalidComponents
  * Recursively checks if a row is invalid
  */
 function isRowInvalidRecursive(node, currentPath, invalidFields, invalidComponents = new Set()) {
-  // Battery optimization: Check Set.has first (fastest)
-  if (node.__comp && (invalidComponents.has(node.__comp) || invalidFields.has(currentPath))) {
-    return true;
-  }
-  if (node.__comp && isFieldInvalid(node.__comp, currentPath, invalidFields)) {
+  if (node.__comp && (isFieldInvalid(node.__comp, currentPath, invalidFields) || invalidComponents.has(node.__comp))) {
     return true;
   }
 
   if (node.__children) {
-    // Battery optimization: Use for...in instead of Object.keys().some()
-    for (const childKey in node.__children) {
-      if (node.__children.hasOwnProperty(childKey)) {
-        const childNode = node.__children[childKey];
-        const childPath = `${currentPath}.${childKey}`;
-        const isChildInvalid = isRowInvalidRecursive(childNode, childPath, invalidFields, invalidComponents);
-        if (isChildInvalid) {
-          return true;
-        }
-      }
+    const hasInvalidChild = Object.keys(node.__children).some(childKey => {
+      const childNode = node.__children[childKey];
+      const childPath = `${currentPath}.${childKey}`;
+      const isChildInvalid = isRowInvalidRecursive(childNode, childPath, invalidFields, invalidComponents);
+      return isChildInvalid;
+    });
+    
+    if (hasInvalidChild) {
+      return true;
     }
   }
 
