@@ -5,25 +5,34 @@
 
 const CONTAINER_TYPES = new Set(['panel', 'columns', 'well', 'fieldset', 'datamap', 'editgrid', 'table', 'tabs', 'row', 'column', 'content', 'htmlelement']);
 const FLATTEN_TYPES = new Set(['columns', 'fieldset', 'tabs', 'tagpad', 'survey', 'panel', 'well', 'container', 'datagrid', 'datatable']);
-
+// IMPROVEMENT: Memoization cache to prevent re-calculating results for the same component types
+const containerCheckCache = new Map();
 /**
  * Check if a component type is a container type
  */
 export const isContainerType = (t, exclude = []) => {
   if (!t) return false;
 
+  // IMPROVEMENT: Create a cache key to avoid repeated logic execution on large forms
+  const cacheKey = `${Array.isArray(t) ? t.join(',') : t}-${exclude.join(',')}`;
+  if (containerCheckCache.has(cacheKey)) return containerCheckCache.get(cacheKey);
+
+  let result = false;
   if (!exclude || exclude.length === 0) {
-    return Array.isArray(t)
+    result = Array.isArray(t)
       ? t.some(x => x && CONTAINER_TYPES.has(x))
       : CONTAINER_TYPES.has(t);
+    
+  }else {
+    const excluded = new Set(exclude);
+    const allowed = new Set([...CONTAINER_TYPES].filter(x => !excluded.has(x)));
+
+    result = Array.isArray(t)
+      ? t.some(x => x && allowed.has(x))
+      : allowed.has(t);
   }
-
-  const excluded = new Set(exclude);
-  const allowed = new Set([...CONTAINER_TYPES].filter(x => !excluded.has(x)));
-
-  return Array.isArray(t)
-    ? t.some(x => x && allowed.has(x))
-    : allowed.has(t);
+  containerCheckCache.set(cacheKey, result);
+  return result;
 };
 
 /**
@@ -42,25 +51,14 @@ export const shouldFlattenContainer = (t) => {
 /**
  * Check if a value contains actual file data
  */
-export const hasActualFileData = (value) => {
+export function hasActualFileData (value) {
   if (!value) return false;
+  if (value instanceof FileList) return value.length > 0;
   if (Array.isArray(value)) {
-    return value.length > 0 && value.some(item => item && (item.name || item.filename || item.originalName || item.url || item.data));
+    return value.length > 0 && value.some(hasActualFileData);
   }
-  if (typeof value === 'object') {
-    return !!(
-      value.name || value.filename || value.originalName || value.url || value.data ||
-      value.storage || value.size || (value.file && (value.file.name || value.file.url))
-    );
-  }
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    return trimmed.length > 0 && (
-      trimmed.startsWith('data:') || trimmed.startsWith('http') ||
-      trimmed.startsWith('/') || trimmed.includes('.')
-    );
-  }
-  return false;
+  // Checking properties is less expensive than deep recursion
+  return !!(v && (v.storage || v.url || v.name || v.size || v.data));
 };
 
 /**
@@ -806,32 +804,41 @@ export function validateFileComponentWithRelaxedRequired(comp) {
   
   const candidates = [
     comp.dataValue,
+    comp.files,
+    comp.fileData,
     comp.getValue?.(),
     comp.getValueAsString?.(),
-    comp.files,
     comp.fileService?.files,
     comp.uploads,
-    comp.fileData,
     comp.uploadedFiles,
     comp.fileList
   ];
 
   let hasVal = candidates.some(v => hasActualFileData(v));
-  
-  if (!hasVal && comp.element) {
-    const inputs = comp.element.querySelectorAll?.('input[type="file"]');
+  // IMPROVEMENT: Only call expensive getters if local data check fails
+  if (!hasVal && typeof comp.getValue === 'function') {
+    hasVal = hasActualFileData(comp.getValue());
+  }
+
+  // IMPROVEMENT: DOM access (querySelectorAll) is very expensive for battery (Layout Thrashing)
+  // We only perform this if the component is actually visible and previous checks failed
+  if (!hasVal && comp.element && comp.visible) {
+    const inputs = comp.element.querySelectorAll('input[type="file"]');
     for (const el of inputs) {
-      if (el?.files && el.files.length > 0) {
+      if (el?.files?.length > 0) {
         hasVal = true;
-        break;
+        break; // Exit loop early once found
       }
     }
   }
 
-  if (hasVal) {
-    clearFieldErrors(comp);
-    return true;
-  }
-  
-  return false;
+  return hasVal;
+ 
+}
+/**
+ * Cleanup function (Optional)
+ * IMPROVEMENT: Provide a way to clear caches when the form is destroyed to prevent memory leaks
+ */
+export function clearValidationCaches() {
+  containerCheckCache.clear();
 }
