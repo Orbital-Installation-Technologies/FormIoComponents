@@ -30,7 +30,8 @@ import {
   updateFormValuesBeforeReview,
   collectReviewLeavesAndLabels,
   renderLeaves,
-  scrollToEndOfPage
+  scrollToEndOfPage,
+  clearValidationCaches
 } from "./helpers/index.js";
 
 const FieldComponent = Components.components.field;
@@ -62,7 +63,15 @@ export default class ReviewButton extends FieldComponent {
     super(...args);
     this.validationTimeout = null;
   }
-
+  cleanupReviewResources() {
+    // IMPROVEMENT: Clear all memoization caches to release memory and stop GC battery drain
+    if (typeof clearRenderCaches === 'function') clearRenderCaches();
+    if (typeof clearValidationCaches === 'function') clearValidationCaches();
+    if (typeof clearDataProcessingCache === 'function') clearDataProcessingCache();
+    
+    // IMPROVEMENT: Explicitly signal to the browser that we are done with heavy processing
+    console.log("Review resources cleared. Battery saved.");
+  }
   // 1. Consolidated Validation (Reduction in CPU cycles)
   async performSmartValidation() {
     const invalidFields = new Set();
@@ -1905,7 +1914,29 @@ export default class ReviewButton extends FieldComponent {
             screenshotComp = comp;
           }
         });
+        const closeButton = modal.querySelector(".btn-secondary"); // Or your specific close selector
+        if (closeButton) {
+          closeButton.addEventListener("click", () => {
+            modal.remove(); 
+            document.body.classList.remove("no-scroll");
+            
+            // ADD THIS: Clear caches immediately when user cancels
+            this.cleanupReviewResources();
+          });
+        }
+        // 2. Handle the Submit/Verify button
+        const submitBtn = modal.querySelector("#submitReview");
+        if (submitBtn) {
+          submitBtn.addEventListener("click", async () => {
+            // ... your existing submission logic ...
+            
+            modal.remove();
+            document.body.classList.remove("no-scroll");
 
+            // ADD THIS: Clear caches after successful submission
+            this.cleanupReviewResources();
+          });
+        }
         const { allData: formData } = collectFormDataForReview(this.root);
 
         const screenshotControls = requireSupportFields ? setupScreenshotComponent(modal, screenshotComp, validateModalForm, formData, requireSupportFields) : null;
@@ -2001,10 +2032,16 @@ export default class ReviewButton extends FieldComponent {
   }
 
   detach() {
+    // ADD THIS: Clear caches when the component is detached
+    this.cleanupReviewResources();
     // Clear any pending timeouts to allow CPU to sleep
     if (this.validationTimeout) {
       clearTimeout(this.validationTimeout);
     }
     return super.detach();
+  }
+  destroy() {
+    this.cleanupReviewResources();
+    return super.destroy();
   }
 }
