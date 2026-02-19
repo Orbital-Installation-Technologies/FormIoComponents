@@ -4,7 +4,7 @@
  */
 
 import { isContainerType, shouldFlattenContainer } from "./validationUtils.js";
-
+const pathCache = new Map();
 /**
  * Trims trailing spaces from a key
  */
@@ -27,10 +27,12 @@ function isComponentInvalid(comp, invalidFields) {
   
   const componentPath = trimKey(comp.path || comp.key || comp.component?.key || '');
   if (!componentPath) return false;
-  
+  if (pathCache.has(componentPath)) {
+    return invalidFields.has(pathCache.get(componentPath));
+  }
   // Check exact path match
   if (invalidFields.has(componentPath)) return true;
-  
+
   // Check various path formats
   const pathsToCheck = [
     componentPath,
@@ -43,7 +45,10 @@ function isComponentInvalid(comp, invalidFields) {
   ];
   
   for (const path of pathsToCheck) {
-    if (invalidFields.has(path)) return true;
+    if (invalidFields.has(path)){
+      pathCache.set(componentPath, path);
+      return true;
+    } 
   }
   
   // Normalize path by removing duplicate segments (e.g., "hardwareForm.hardwareForm" -> "hardwareForm")
@@ -137,7 +142,13 @@ function isComponentInvalid(comp, invalidFields) {
   
   return false;
 }
-
+/**
+ * IMPROVEMENT: Add a function to clear the processing cache to prevent memory leaks 
+ * and background battery drain when the form is destroyed.
+ */
+export function clearDataProcessingCache() {
+  pathCache.clear();
+}
 /**
  * Finds a component by its key in the form hierarchy
  */
@@ -412,7 +423,14 @@ export async function collectReviewLeavesAndLabels(root, invalidFields = new Set
     
     return simplified;
   };
-
+  const canonCache = new Map();
+  const originalCanon = canon;
+  canon = (p) => {
+    if (canonCache.has(p)) return canonCache.get(p);
+    const result = originalCanon(p);
+    canonCache.set(p, result);
+    return result;
+  };
   const pushLeaf = (leaf) => {
     const norm = canon(leaf.path);
     if (!norm || pushedPaths.has(norm)) return;
@@ -428,6 +446,9 @@ export async function collectReviewLeavesAndLabels(root, invalidFields = new Set
     });
   }
   const topIndexFor = (comp) => {
+    // IMPROVEMENT: Use a local WeakMap to cache parent lookups during this execution
+    if (!this._topIndexCache) this._topIndexCache = new WeakMap();
+    if (this._topIndexCache.has(comp)) return this._topIndexCache.get(comp);  
     let p = comp;
     while (p?.parent && p.parent !== root) p = p.parent;
     const topKey = p?.component?.key || p?.key;
@@ -463,13 +484,20 @@ export async function collectReviewLeavesAndLabels(root, invalidFields = new Set
 
   enqueueAll(root);
 
-  while (queue.length) {
-    const comp = queue.shift();
+  let head = 0;
+  while (head < queue.length) {
+    const comp = queue[head++];
     if (!comp) continue;
 
     const isAddressComponentEarly = comp.component?.type === 'address' || comp.type === 'address';
     const isEditGridComponentEarly = comp.component?.type === 'editgrid' || comp.type === 'editgrid';
     
+    // IMPROVEMENT: Check if the component is even a "validatable" type before running the full invalid check
+    const isButton = comp.type === 'button' || comp.component?.type === 'button';
+    if (isButton) {
+      head++; // skip
+      continue;
+    }
     // Check if component is invalid FIRST - if invalid, always include it regardless of visibility
     const isInvalid = isComponentInvalid(comp, invalidFields);
     
@@ -560,7 +588,10 @@ export async function collectReviewLeavesAndLabels(root, invalidFields = new Set
 
   stats.leafComponents = leaves.length;
   stats.containers = labelByPathMap.size;
-
+  pushedPaths.clear();
+  processedPaths.clear();
+  canonCache.clear();
+  topIndexMap.clear();
   return { leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath };
 }
 
