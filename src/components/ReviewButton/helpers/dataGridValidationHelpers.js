@@ -37,6 +37,9 @@ export function setupChangeListeners(panel, reviewButtonInstance) {
           checkValue = comp.dataValue || comp.getValue?.() || (comp.data ? comp.data[compKey] : null);
         }
 
+        if (!panel._errorMap[compKey] && isFieldNowValid(comp, value)) {
+          return; 
+        }
         var isValid = isFieldNowValid(comp, checkValue);
 
         if (isValid && panel._errorMap[compKey]) {
@@ -64,7 +67,7 @@ export function setupChangeListeners(panel, reviewButtonInstance) {
             }
           }
         }
-      }, 50);
+      }, 250);
     };
 
     comp.on('change', checkAndClearError);

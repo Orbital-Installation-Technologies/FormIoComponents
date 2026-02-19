@@ -22,7 +22,8 @@ export {
   findComponentsToValidate,
   clearFieldErrors,
   isFieldNowValid,
-  validateFileComponentWithRelaxedRequired
+  validateFileComponentWithRelaxedRequired,
+  clearValidationCaches
 } from './validationUtils.js';
 
 // Review modal helpers
