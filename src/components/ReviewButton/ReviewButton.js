@@ -3,7 +3,9 @@ import editForm from "./ReviewButton.form";
 import {
   hasActualFileData,
   initializeValidationResults,
+  initializeExternalValidationResults,
   createErrorResults,
+  createExternalErrorResults,
   validateSelectedComponents,
   validateComponentsAndCollectResults,
   isFormValid,
@@ -30,11 +32,7 @@ import {
   renderLeaves,
   scrollToEndOfPage
 } from "./helpers/index.js";
-// Import these functions directly to avoid bundling issues with re-exports
-import {
-  initializeExternalValidationResults,
-  createExternalErrorResults
-} from "./helpers/validationUtils.js";
+
 const FieldComponent = Components.components.field;
 const CONTAINER_TYPES = new Set(['panel', 'columns', 'well', 'fieldset', 'datagrid', 'datamap', 'form', 'editgrid', 'table', 'tabs', 'row', 'column', 'content', 'htmlelement']);
 
@@ -63,13 +61,6 @@ export default class ReviewButton extends FieldComponent {
 
   init() {
     super.init();
-    // Battery optimization: Store timeout IDs for cleanup
-    this._timeoutIds = [];
-    // Battery optimization: Cache for DOM queries
-    this._domCache = {};
-    // Battery optimization: Track redraw operations to throttle
-    this._pendingRedraw = false;
-    
     this.root.on("submitDone", (submission) => {
       this.handleAfterSubmit(submission);
     });
@@ -89,17 +80,13 @@ export default class ReviewButton extends FieldComponent {
         this.handleRedirect();
         break;
       case "customHtml":
-        // Battery optimization: Use requestAnimationFrame instead of setTimeout
+        // Ensure the DOM and Form.io root are ready before injecting HTML
         const tryHandleCustomHtml = () => {
           if (this.root?.element) {
             this.handleCustomHtml(submission);
           } else {
             console.warn("Root element not ready, retrying...");
-            // Battery optimization: Use requestAnimationFrame for DOM readiness checks
-            requestAnimationFrame(() => {
-              const timeoutId = setTimeout(tryHandleCustomHtml, 200);
-              this._timeoutIds.push(timeoutId);
-            });
+            setTimeout(tryHandleCustomHtml, 200);
           }
         };
         tryHandleCustomHtml();
@@ -199,16 +186,12 @@ export default class ReviewButton extends FieldComponent {
             component.setCustomValidity([errorMessage], true);
           }
 
-          // Battery optimization: Use requestAnimationFrame for DOM updates
-          const timeoutId = setTimeout(() => {
+          setTimeout(() => {
             if (component.setCustomValidity) {
               component.setCustomValidity([errorMessage], true);
             }
-            requestAnimationFrame(() => {
-              if (component.redraw) component.redraw();
-            });
+            component.redraw();
           }, 5000);
-          this._timeoutIds.push(timeoutId);
 
           return false;
         }
@@ -263,8 +246,7 @@ export default class ReviewButton extends FieldComponent {
         return true;
       });
 
-      // Battery optimization: Throttle redraw operations
-      this.throttledRedraw();
+      this.root.redraw();
 
       if (!isValid) {
         this.scrollToFirstError();
@@ -277,19 +259,8 @@ export default class ReviewButton extends FieldComponent {
   }
 
   scrollToFirstError() {
-    // Battery optimization: Cache DOM query
-    const cacheKey = 'firstError';
-    let firstError = this._domCache[cacheKey];
-    if (!firstError || !document.contains(firstError)) {
-      firstError = this.root.element.querySelector('.formio-error-wrapper, .has-error, .is-invalid');
-      this._domCache[cacheKey] = firstError;
-    }
-    if (firstError) {
-      // Battery optimization: Use requestAnimationFrame for smooth scrolling
-      requestAnimationFrame(() => {
-        firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      });
-    }
+    const firstError = this.root.element.querySelector('.formio-error-wrapper, .has-error, .is-invalid');
+    if (firstError) firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
   markAllComponentsAsDirty() {
@@ -321,20 +292,11 @@ export default class ReviewButton extends FieldComponent {
   }
 
   scrollToFirstErrorAdvanced() {
-    // Battery optimization: Cache DOM query
-    const cacheKey = 'firstErrorAdvanced';
-    let firstError = this._domCache[cacheKey];
-    if (!firstError || !document.contains(firstError)) {
-      firstError = this.root?.element?.querySelector?.(
-        '.formio-error-wrapper, .has-error, .is-invalid, [data-component-error="true"]'
-      );
-      this._domCache[cacheKey] = firstError;
-    }
+    const firstError = this.root?.element?.querySelector?.(
+      '.formio-error-wrapper, .has-error, .is-invalid, [data-component-error="true"]'
+    );
     if (firstError?.scrollIntoView) {
-      // Battery optimization: Use requestAnimationFrame for smooth scrolling
-      requestAnimationFrame(() => {
-        firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      });
+      firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }
 
@@ -362,16 +324,14 @@ export default class ReviewButton extends FieldComponent {
   }
 
   async updateUIWithErrors(results, scrollToError) {
-    // Battery optimization: Throttle redraw operations
-    this.throttledRedraw();
+    if (typeof this.root?.redraw === 'function') {
+      await this.root.redraw();
+    }
 
     if (scrollToError && !results.isValid && results.invalidComponents.length > 0) {
       const firstComponent = results.invalidComponents[0].component;
       if (firstComponent.element?.scrollIntoView) {
-        // Battery optimization: Use requestAnimationFrame for smooth scrolling
-        requestAnimationFrame(() => {
-          firstComponent.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        });
+        firstComponent.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     }
   }
@@ -417,23 +377,18 @@ export default class ReviewButton extends FieldComponent {
   }
 
   async handleExternalValidationUIUpdates(results, opts) {
-    // Battery optimization: Throttle redraw operations
-    this.throttledRedraw();
+    if (typeof this.root?.redraw === 'function') {
+      await this.root.redraw();
 
-    if (!results.isValid && typeof this.root?.showErrors === 'function') {
-      // Battery optimization: Use requestAnimationFrame for DOM updates
-      requestAnimationFrame(() => {
+      if (!results.isValid && typeof this.root?.showErrors === 'function') {
         this.root.showErrors();
-      });
-    }
+      }
 
-    if (opts.scrollToError && !results.isValid) {
-      this.scrollToFirstErrorAdvanced();
-    } else if (!opts.scrollToError && !results.isValid) {
-      // Battery optimization: Use requestAnimationFrame for scrolling
-      requestAnimationFrame(() => {
+      if (opts.scrollToError && !results.isValid) {
+        this.scrollToFirstErrorAdvanced();
+      }else if (!opts.scrollToError && !results.isValid){
         scrollToEndOfPage();
-      });
+      }
     }
 
     if (!results.isValid) {
@@ -783,10 +738,9 @@ export default class ReviewButton extends FieldComponent {
     
     if (comp.setCustomValidity) {
       comp.setCustomValidity([], false);
-      // Battery optimization: Use requestAnimationFrame instead of setTimeout
-      requestAnimationFrame(() => {
+      setTimeout(() => {
         comp.setCustomValidity([], false);
-      });
+      }, 10);
     }
     
     if (comp._customErrors) {
@@ -941,13 +895,11 @@ export default class ReviewButton extends FieldComponent {
   }
 
   setupErrorSummaryAutoDismiss(summaryElement) {
-    // Battery optimization: Store timeout ID for cleanup
-    const timeoutId = setTimeout(() => {
+    setTimeout(() => {
       if (document.body.contains(summaryElement)) {
         document.body.removeChild(summaryElement);
       }
     }, 10000);
-    this._timeoutIds.push(timeoutId);
   }
 
   render() {
@@ -1081,34 +1033,29 @@ export default class ReviewButton extends FieldComponent {
 
     p._customErrors = currentRowErrors;
 
-    // Battery optimization: Use requestAnimationFrame for DOM operations
-    requestAnimationFrame(() => {
-      setTimeout(function () {
-        function findNativeSave() {
-          const eh = p.eventHandlers || [];
-          for (let i = 0; i < eh.length; i++) {
-            const obj = eh[i] && eh[i].obj;
-            if (obj && obj.matches && obj.matches('button.btn.btn-success.formio-dialog-button')) {
-              return obj;
-            }
+    setTimeout(function () {
+      function findNativeSave() {
+        const eh = p.eventHandlers || [];
+        for (let i = 0; i < eh.length; i++) {
+          const obj = eh[i] && eh[i].obj;
+          if (obj && obj.matches && obj.matches('button.btn.btn-success.formio-dialog-button')) {
+            return obj;
           }
-          let modal = (p.refs && p.refs.modal) ? p.refs.modal : null;
-          if (!modal) {
-            const modals = document.querySelectorAll('.component-modal');
-            modal = modals.length ? modals[modals.length - 1] : null;
-          }
-          return modal ? modal.querySelector('.modal-footer .btn.btn-success.formio-dialog-button') : null;
         }
+        let modal = (p.refs && p.refs.modal) ? p.refs.modal : null;
+        if (!modal) {
+          const modals = document.querySelectorAll('.component-modal');
+          modal = modals.length ? modals[modals.length - 1] : null;
+        }
+        return modal ? modal.querySelector('.modal-footer .btn.btn-success.formio-dialog-button') : null;
+      }
 
-        const nativeSave = findNativeSave();
-        if (nativeSave) {
-          // Battery optimization: Use requestAnimationFrame instead of setTimeout(0)
-          requestAnimationFrame(() => {
-            nativeSave.click();
-          });
-        } else if (instance.emit) {
-          instance.emit('customEvent', { type: 'rowSaveProxy' });
-        }
+      const nativeSave = findNativeSave();
+      if (nativeSave) {
+        setTimeout(function () { nativeSave.click(); }, 0);
+      } else if (instance.emit) {
+        instance.emit('customEvent', { type: 'rowSaveProxy' });
+      }
 
       if (currentRowErrors.length > 0) {
         const errorsPerField = {};
@@ -1135,10 +1082,8 @@ export default class ReviewButton extends FieldComponent {
           });
         });
         if (p.setDirty) p.setDirty(false);
-        // Battery optimization: Use requestAnimationFrame for alert
-        requestAnimationFrame(() => {
-          try { window.alert(msg); } catch (_) {}
-        });
+        setTimeout(function () { try { window.alert(msg); } catch (_) {} }, 200);
+        
 
         p._hasErrors = true;
         p._errorMap = {};
@@ -1148,13 +1093,11 @@ export default class ReviewButton extends FieldComponent {
           }
         });
 
-        // Battery optimization: Use requestAnimationFrame for DOM updates
-        requestAnimationFrame(() => {
+        setTimeout(() => {
           addErrorHighlight(p.element);
-        });
+        }, 100);
       } else {
-        // Battery optimization: Use requestAnimationFrame for DOM updates
-        requestAnimationFrame(() => {
+        setTimeout(() => {
           p._customErrors = [];
           p._hasErrors = false;
           p._errorMap = {};
@@ -1167,17 +1110,11 @@ export default class ReviewButton extends FieldComponent {
           });
 
           removeErrorHighlight(p.element);
-          if (p.redraw) {
-            requestAnimationFrame(() => {
-              p.redraw();
-            });
-          }
-        });
+          p.redraw?.();
+        }, 100);
       }
-      }, 300);
-    });
 
-    setTimeout(function() {
+      setTimeout(function() {
         const root = p.root || p;
         let dataGrid = null;
 
@@ -1309,12 +1246,11 @@ export default class ReviewButton extends FieldComponent {
             if (!panelComponent) return;
 
             if (panelComponent._hasErrors && panelComponent._errorMap && Object.keys(panelComponent._errorMap).length > 0) {
-              // Battery optimization: Use requestAnimationFrame for DOM updates
-              requestAnimationFrame(() => {
+              setTimeout(() => {
                 if (panelComponent.element) {
                   addErrorHighlight(panelComponent.element);
                 }
-              });
+              }, 50);
             } else {
               panelComponent._hasErrors = false;
               panelComponent._errorMap = {};
@@ -1334,33 +1270,7 @@ export default class ReviewButton extends FieldComponent {
           dataGrid.attach = function(element) {
             const result = originalDataGridAttach.call(this, element);
 
-            // Battery optimization: Use requestAnimationFrame for DOM operations
-            requestAnimationFrame(() => {
-              setTimeout(() => {
-                dataGrid.rows.forEach((row, idx) => {
-                  if (row.panel) {
-                    setupPanelHooks(row.panel, idx);
-
-                    if (row.panel._hasErrors) {
-                      applyFieldErrors(row.panel);
-                      if (row.panel.element) {
-                        addErrorHighlight(row.panel.element);
-                      }
-                    }
-                  }
-                });
-              }, 100); // Reduced from 200ms
-            });
-
-            return result;
-          };
-
-          const originalDataGridRedraw = dataGrid.redraw;
-          dataGrid.redraw = function() {
-            const result = originalDataGridRedraw ? originalDataGridRedraw.apply(this, arguments) : null;
-
-            // Battery optimization: Use requestAnimationFrame for DOM operations
-            requestAnimationFrame(() => {
+            setTimeout(() => {
               dataGrid.rows.forEach((row, idx) => {
                 if (row.panel) {
                   setupPanelHooks(row.panel, idx);
@@ -1373,7 +1283,29 @@ export default class ReviewButton extends FieldComponent {
                   }
                 }
               });
-            });
+            }, 200);
+
+            return result;
+          };
+
+          const originalDataGridRedraw = dataGrid.redraw;
+          dataGrid.redraw = function() {
+            const result = originalDataGridRedraw ? originalDataGridRedraw.apply(this, arguments) : null;
+
+            setTimeout(() => {
+              dataGrid.rows.forEach((row, idx) => {
+                if (row.panel) {
+                  setupPanelHooks(row.panel, idx);
+
+                  if (row.panel._hasErrors) {
+                    applyFieldErrors(row.panel);
+                    if (row.panel.element) {
+                      addErrorHighlight(row.panel.element);
+                    }
+                  }
+                }
+              });
+            }, 100);
 
             return result;
           };
@@ -1382,24 +1314,21 @@ export default class ReviewButton extends FieldComponent {
           dataGrid.addRow = function() {
             const result = originalAddRow.apply(this, arguments);
 
-            // Battery optimization: Use requestAnimationFrame for DOM operations
-            requestAnimationFrame(() => {
-              setTimeout(() => {
-                validateAllRows();
+            setTimeout(() => {
+              validateAllRows();
 
-                dataGrid.rows.forEach((row, idx) => {
-                  if (row.panel) {
-                    setupPanelHooks(row.panel, idx);
-                    if (row.panel._hasErrors) {
-                      applyFieldErrors(row.panel);
-                      if (row.panel.element) {
-                        addErrorHighlight(row.panel.element);
-                      }
+              dataGrid.rows.forEach((row, idx) => {
+                if (row.panel) {
+                  setupPanelHooks(row.panel, idx);
+                  if (row.panel._hasErrors) {
+                    applyFieldErrors(row.panel);
+                    if (row.panel.element) {
+                      addErrorHighlight(row.panel.element);
                     }
                   }
-                });
-              }, 150); // Reduced from 300ms
-            });
+                }
+              });
+            }, 300);
 
             return result;
           };
@@ -1408,39 +1337,35 @@ export default class ReviewButton extends FieldComponent {
           dataGrid.removeRow = function(rowIndex) {
             const result = originalRemoveRow.apply(this, arguments);
 
-            // Battery optimization: Use requestAnimationFrame for DOM operations
-            requestAnimationFrame(() => {
-              setTimeout(() => {
-                dataGrid.rows.forEach((row) => {
-                  if (row.panel) {
-                    row.panel._errorHooksAdded = false;
-                    row.panel.everyComponent((comp) => {
-                      if (comp) {
-                        comp._hasValidationListener = false;
-                      }
-                    });
-                  }
-                });
-
-                validateAllRows();
-
-                dataGrid.rows.forEach((row, idx) => {
-                  if (row && row.panel) {
-                    setupPanelHooks(row.panel, idx);
-
-                    if (row.panel._hasErrors) {
-                      // Battery optimization: Use requestAnimationFrame for DOM updates
-                      requestAnimationFrame(() => {
-                        if (row.panel && row.panel.element) {
-                          applyFieldErrors(row.panel);
-                          addErrorHighlight(row.panel.element);
-                        }
-                      });
+            setTimeout(() => {
+              dataGrid.rows.forEach((row) => {
+                if (row.panel) {
+                  row.panel._errorHooksAdded = false;
+                  row.panel.everyComponent((comp) => {
+                    if (comp) {
+                      comp._hasValidationListener = false;
                     }
+                  });
+                }
+              });
+
+              validateAllRows();
+
+              dataGrid.rows.forEach((row, idx) => {
+                if (row && row.panel) {
+                  setupPanelHooks(row.panel, idx);
+
+                  if (row.panel._hasErrors) {
+                    setTimeout(() => {
+                      if (row.panel && row.panel.element) {
+                        applyFieldErrors(row.panel);
+                        addErrorHighlight(row.panel.element);
+                      }
+                    }, 150);
                   }
-                });
-              }, 200); // Reduced from 400ms
-            });
+                }
+              });
+            }, 400);
 
             return result;
           };
@@ -1465,8 +1390,9 @@ export default class ReviewButton extends FieldComponent {
         });
 
       }, 500);
-    }
 
+    }, 300);
+  }
   countVisibleErrors (invalidFields, invalidComponents){
     // Count unique invalid field paths
     // Only count actual field paths, not extracted field names
@@ -1540,10 +1466,9 @@ export default class ReviewButton extends FieldComponent {
         
         this.clearErrorsFromFileComponentsWithFiles();
         
-        // Battery optimization: Use requestAnimationFrame for DOM operations
-        requestAnimationFrame(() => {
+        setTimeout(() => {
           this.clearErrorsFromFileComponentsWithFiles();
-        });
+        }, 100);
         
         const invalidFields = new Set();
         const invalidComponents = new Set();
@@ -2024,32 +1949,5 @@ export default class ReviewButton extends FieldComponent {
     });
 
     return super.attach(element);
-  }
-
-  // Battery optimization: Throttle redraw operations to reduce CPU usage
-  throttledRedraw() {
-    if (this._pendingRedraw) return;
-    
-    this._pendingRedraw = true;
-    requestAnimationFrame(() => {
-      if (typeof this.root?.redraw === 'function') {
-        this.root.redraw();
-      }
-      this._pendingRedraw = false;
-    });
-  }
-
-  // Battery optimization: Cleanup method to clear timeouts and cache
-  destroy() {
-    // Clear all timeouts
-    if (this._timeoutIds) {
-      this._timeoutIds.forEach(id => clearTimeout(id));
-      this._timeoutIds = [];
-    }
-    
-    // Clear DOM cache
-    this._domCache = {};
-    
-    return super.destroy();
   }
 }
