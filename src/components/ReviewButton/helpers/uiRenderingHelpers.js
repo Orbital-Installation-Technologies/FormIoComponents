@@ -783,8 +783,8 @@ export function applyFieldErrors(panel) {
 
   const tryApplyErrors = function() {
     let appliedCount = 0;
-
-    panel.everyComponent(function(comp) {
+    window.requestAnimationFrame(() => {
+      panel.everyComponent(function(comp) {
       const compKey = comp.component && comp.component.key;
       if (compKey) {
         if (panel._errorMap[compKey]) {
@@ -798,6 +798,7 @@ export function applyFieldErrors(panel) {
 
           if (comp.element) {
             comp.element.classList.add('has-error', 'has-message', 'formio-error-wrapper');
+
 
             const formGroup = comp.element.closest('.form-group') || comp.element.querySelector('.form-group') || comp.element;
             formGroup.classList.add('has-error');
@@ -861,8 +862,9 @@ export function applyFieldErrors(panel) {
 
     if (appliedCount < Object.keys(panel._errorMap).length && attemptCount < maxAttempts) {
       attemptCount++;
-      setTimeout(tryApplyErrors, 200);
+      setTimeout(tryApplyErrors, 300);
     }
+  });
   };
 
   tryApplyErrors();
