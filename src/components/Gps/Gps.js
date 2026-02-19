@@ -31,6 +31,11 @@ export default class Gps extends FieldComponent {
     super(component, options, data);
     this.errorMessage = "";
     this.fetchedInitially = false;
+    // IMPROVEMENT: Initialize a variable to store the watch ID to ensure we can stop tracking
+    this._watchId = null;
+    
+    // IMPROVEMENT: Initialize a timer for location timeouts to prevent the GPS from hanging indefinitely
+    this._locationTimeout = null;
   }
 
   validateLatLon(lat, lon, refs, { requireBoth = true, required = true } = {}) {
@@ -280,10 +285,23 @@ export default class Gps extends FieldComponent {
       alert("Geolocation is not supported in this browser.");
       return;
     }
+    // IMPROVEMENT: Clear any existing location timeout before starting a new request
+    if (this._locationTimeout) {
+      clearTimeout(this._locationTimeout);
+    }
+    const options = {
+      enableHighAccuracy: true,
+      // IMPROVEMENT: Set a strict timeout (10s) to prevent the GPS hardware from staying active too long if a fix isn't found
+      timeout: 10000, 
+      // IMPROVEMENT: Allow the use of a cached location if it's recent (within 1 minute) to avoid waking the GPS chip
+      maximumAge: 60000 
+    };
 
-    navigator.geolocation.getCurrentPosition(
+    
+    this._watchId = navigator.geolocation.watchPosition(
       (position) => {
         var { latitude, longitude } = position.coords;
+        this.fetchedInitially = true;
         if (this.errorMessage !== "") {
           this.setError(null);
           this.updateState();
@@ -309,14 +327,39 @@ export default class Gps extends FieldComponent {
           this.refs.longitude.style.pointerEvents = 'none';
           this.refs.longitude.style.setProperty('background-color', '#E9ECEF', 'important');
         }
+        // IMPROVEMENT: Once a valid position is found, stop watching immediately to save power
+        this.stopTracking();
       },
       (error) => {
         alert("Geolocation error: " + error.message);
         this.fetchedInitially = true;
         this.setError("Unable to retrieve location.");
         this.updateState();
+        this.stopTracking(); // IMPROVEMENT: Ensure hardware is released even on error
       },
+      options
     );
+    // IMPROVEMENT: Safety fallback to force-kill the request after 15 seconds if the browser doesn't trigger its own timeout
+    this._locationTimeout = setTimeout(() => {
+      if (this._watchId !== null) {
+        this.stopTracking();
+        if (!this.dataValue) {
+          this.setError("Location request timed out.");
+        }
+      }
+    }, 15000);
+  }
+
+  // IMPROVEMENT: Dedicated method to shut down GPS hardware processes
+  stopTracking() {
+    if (this._watchId !== null) {
+      navigator.geolocation.clearWatch(this._watchId);
+      this._watchId = null;
+    }
+    if (this._locationTimeout) {
+      clearTimeout(this._locationTimeout);
+      this._locationTimeout = null;
+    }
   }
 
   updateState() {
@@ -337,10 +380,12 @@ export default class Gps extends FieldComponent {
   }
 
   detach() {
+    this.stopTracking(); // IMPROVEMENT: Ensure hardware is released even on component detach
     return super.detach();
   }
 
   destroy() {
+    this.stopTracking(); // IMPROVEMENT: Ensure hardware is released even on component destroy
     return super.destroy();
   }
 
