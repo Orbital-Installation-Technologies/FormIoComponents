@@ -80,9 +80,10 @@ export default class BarcodeScanner extends FieldComponent {
     this._allDetectedBarcodes = []; // Store ALL barcodes for backup field
     this._lastFrameTime = 0; // Throttle frame processing
     this._lastDrawTime = 0; // Throttle bounding box drawing
-    this._frameThrottleMs = 100; // Process frames max once per 100ms
-    this._drawThrottleMs = 50; // Draw bounding boxes max once per 50ms
 
+
+    this._frameThrottleMs = 150; // Increased from 100ms: Reduces frequency of session processing
+    this._drawThrottleMs = 100;  // Increased from 50ms: Less frequent canvas redraws saves GPU/Battery
     // License key can come from (in priority order):
     // 1. Component configuration (scanditLicenseKey set in Formio builder)
     // 2. Component data (scanditLicenseKey property)
@@ -769,22 +770,18 @@ export default class BarcodeScanner extends FieldComponent {
         const availableSymbologies = allSymbologies.filter(sym => sym !== undefined);
         settings.enableSymbologies(availableSymbologies);
 
-        // Performance optimization: Filter duplicate barcodes within 300ms
-        settings.codeDuplicateFilter = 300;
-
+        // IMPROVEMENT: Aggressive duplicate filtering to avoid redundant logic execution
+        settings.codeDuplicateFilter = 1000; // Increased from 300ms to ignore same codes longer
+        
         if (settings.locationSelection) {
             settings.locationSelection = null;
         }
 
-        // Performance optimization: Limit codes per frame to reduce processing
+        // IMPROVEMENT: Hard limit on codes per frame to minimize processing overhead
         if (typeof settings.maxNumberOfCodesPerFrame !== 'undefined') {
-            settings.maxNumberOfCodesPerFrame = 5;
+          settings.maxNumberOfCodesPerFrame = 3; // Reduced from 5: Prevents CPU spikes in dense environments
         }
-
-        // Performance optimization: Enable battery saving mode
-        if (typeof settings.batterySaving !== 'undefined') {
-            settings.batterySaving = true;
-        }
+        settings.batterySaving = true; // explicitly enabled
 
         this._configureAdvancedSymbologySettings(settings);
 
@@ -806,7 +803,8 @@ export default class BarcodeScanner extends FieldComponent {
                   return; // Skip this frame if too soon
                 }
                 this._lastFrameTime = now;
-                
+                // IMPROVEMENT: Only process and draw if the modal is actually visible to the user
+                if (this.refs.quaggaModal.style.display === 'none') return;
                 this._trackedBarcodes = session.trackedBarcodes || {};
                 const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
                 this._currentBarcodes = barcodes;
@@ -1410,9 +1408,11 @@ export default class BarcodeScanner extends FieldComponent {
           console.warn("Error stopping camera:", cameraError);
         }
       }
-
+      // IMPROVEMENT: Disable the capture mode to stop background processing cycles
+      if (this._barcodeBatch) {
+        await this._barcodeBatch.setEnabled(false);
+      }
       this._stopLiveScanningMode();
-
       if (this._cameraMonitoringInterval) {
         clearInterval(this._cameraMonitoringInterval);
         this._cameraMonitoringInterval = null;
@@ -2489,7 +2489,10 @@ export default class BarcodeScanner extends FieldComponent {
       window.removeEventListener('unhandledrejection', this._unhandledRejectionHandler);
       this._unhandledRejectionHandler = null;
     }
-
+    // IMPROVEMENT: Clean up all hardware references to prevent memory leaks and background drain
+    if (this._camera) {
+      this._camera.switchToDesiredState(FrameSourceState.Off);
+    }
     this._barcodeBatch = null;
     this._barcodeCapture = null;
     this._camera = null;
