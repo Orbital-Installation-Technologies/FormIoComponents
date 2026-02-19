@@ -15,13 +15,6 @@ export default class CustomFile extends FileComponent {
   constructor(...args) {
     super(...args);
     this.picaInstance = null;
-    this._observerActive = false; // Improvement: Flag to prevent redundant observer attachments
-    // IMPROVEMENT: Initialize persistent canvas references to avoid repeated allocations and Garbage Collection (GC) churn
-    this._workerCanvas = null; 
-
-    // IMPROVEMENT: Initialize timer references to ensure they can be cleared properly during component lifecycle
-    this._uiUpdateTimeout = null;
-    this._previewTimer = null;
   } 
 
   /**
@@ -38,14 +31,11 @@ export default class CustomFile extends FileComponent {
 
     const file = fileToSync.file;
     let processedBlob = file;
- 
+
     if (file.type.startsWith("image/")) {
       try {
         const img = await this.fileToImage(file);
         processedBlob = await this.compressImage(img);
-
-        // IMPROVEMENT: Immediate cleanup of the temporary Image object to free RAM/CPU
-        img.src = "";
       } catch (err) {
         console.error("Compression failed, using original", err);
       }
@@ -90,7 +80,6 @@ export default class CustomFile extends FileComponent {
     }
 
     const uploadedData = await super.uploadFile(fileToSync);
-    
     this.updateImagePreviews();
 
     return uploadedData;
@@ -138,9 +127,8 @@ export default class CustomFile extends FileComponent {
     if (this._previewTimer) {
       clearTimeout(this._previewTimer);
     }
-    
-    // IMPROVEMENT: Use RequestAnimationFrame to ensure UI updates happen in sync with the screen refresh rate
-    window.requestAnimationFrame(() => {
+
+    this._previewTimer = setTimeout(() => {
       const rootEl = this.element;
       // Unified selector to find all possible image containers
       const imageElements = rootEl.querySelectorAll('img[ref="fileImage"], .file img, img.wrapped');
@@ -165,14 +153,12 @@ export default class CustomFile extends FileComponent {
           f.originalName === fileName ||
           (f.name && fileName && f.name.includes(fileName))
         ) || fileValue[index];
-        // IMPROVEMENT: Only update SRC if it has changed to prevent redundant GPU paint tasks
-        if (img.getAttribute('data-loaded-url') === fileData.url) return;
 
         if (fileData && fileData.url) {
           // Prevent infinite loops: Only update if the SRC is actually different
           if (img.src !== fileData.url) {
             img.src = fileData.url;
-            img.setAttribute('data-loaded-url', fileData.url);
+
             // Set consistent styling
             Object.assign(img.style, {
               display: 'inline-block',
@@ -194,7 +180,7 @@ export default class CustomFile extends FileComponent {
           }
         }
       });
-    })
+    }, 300);
   }
 
   fileToImage(file) {
@@ -224,9 +210,8 @@ export default class CustomFile extends FileComponent {
 
       // Initialize Pica with mobile-friendly options
       this.picaInstance = Pica({
-        tile: 512, // Smaller tiles for mobile memory constraints
+        tile: 1024, // Smaller tiles for mobile memory constraints
         features: ['js', 'wasm'], // Use both JS and WASM if available
-        idle: true, // IMPROVEMENT: Pica will only run when the browser is idle to save CPU/Battery   
         createCanvas: (width, height) => {
           // Check canvas size limits (iOS Safari has ~5MP limit)
           const maxDimension = 4096;
@@ -261,7 +246,7 @@ export default class CustomFile extends FileComponent {
       const smallest = Math.min(srcW, srcH);
 
       // Mobile-friendly: use smaller max size (1200px instead of 1500px)
-      const maxDimension = 1000;
+      const maxDimension = 1200;
 
       // If the image is already small enough, return original size as Blob
       if (smallest <= maxDimension) {
@@ -301,11 +286,8 @@ export default class CustomFile extends FileComponent {
       srcCanvas.height = Math.min(srcH, maxCanvasDimension);
       const srcCtx = srcCanvas.getContext("2d");
       srcCtx.drawImage(image, 0, 0, srcCanvas.width, srcCanvas.height);
-      // IMPROVEMENT: Use a single persistent offscreen canvas if possible to avoid GC pressure
-      if (!this._workerCanvas) {
-        this._workerCanvas = document.createElement("canvas");
-      }
-      const destCanvas = this._workerCanvas;
+
+      const destCanvas = document.createElement("canvas");
       destCanvas.width = newW;
       destCanvas.height = newH;
 
@@ -313,8 +295,7 @@ export default class CustomFile extends FileComponent {
       await p.resize(srcCanvas, destCanvas, {
         quality: 2, // Good quality, mobile-friendly
         unsharpAmount: 80,
-        unsharpThreshold: 2,
-        alpha: false // IMPROVEMENT: Disable alpha channel to save memory
+        unsharpThreshold: 2
       });
 
       const compressedBlob = await p.toBlob(destCanvas, "image/jpeg", 0.82);
@@ -621,7 +602,6 @@ div.file img:hover {
   }
   // Set up listeners to reset file inputs after file selection (for mobile camera)
   setupFileInputResetListeners() {
-    if (this._observerActive) return; // IMPROVEMENT: Prevent attaching multiple observers which drains battery in background
     if (typeof document === 'undefined') return; // SSR: skip in server environment
     const rootEl = this.element;
     if (!rootEl) return;
@@ -655,7 +635,6 @@ div.file img:hover {
 
     // Store observer for cleanup if needed
     this._fileInputObserver = observer;
-    this._observerActive = true;
   }
 
   // Attach reset listener to a specific file input
@@ -751,21 +730,10 @@ div.file img:hover {
   }
 
   detach() {
-    // IMPROVEMENT: Rigorous cleanup of all timers and references to prevent background battery drain
-    if (this._uiUpdateTimeout) clearTimeout(this._uiUpdateTimeout);
-    if (this._previewTimer) clearTimeout(this._previewTimer);
     // Disconnect the MutationObserver if it exists
     if (this._fileInputObserver) {
       this._fileInputObserver.disconnect();
       this._fileInputObserver = null;
-      this._observerActive = false;
-    }
-    // IMPROVEMENT: Clear the Pica instance and canvas to free heavy WebAssembly/GPU memory
-    this.picaInstance = null;
-    if (this._workerCanvas) {
-        this._workerCanvas.width = 0;
-        this._workerCanvas.height = 0;
-        this._workerCanvas = null;
     }
     return super.detach();
   }
