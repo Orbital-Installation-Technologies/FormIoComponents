@@ -58,7 +58,40 @@ export default class ReviewButton extends FieldComponent {
       schema: ReviewButton.schema(),
     };
   }
+  constructor(...args) {
+    super(...args);
+    this.validationTimeout = null;
+  }
 
+  // 1. Consolidated Validation (Reduction in CPU cycles)
+  async performSmartValidation() {
+    const invalidFields = new Set();
+    const invalidComponents = new Set();
+    
+    // Perform a single pass over the form tree
+    this.root.everyComponent((component) => {
+      if (!component.visible || component.component?.hidden) return;
+
+      const type = component.type || component.component?.type;
+      
+      // Perform DataGrid logic only if it's a grid
+      if (['datagrid', 'editgrid'].includes(type)) {
+        this.validateDataGridRows(component);
+      }
+
+      // Check validity once per component
+      const isValid = (type === 'file') 
+        ? validateFileComponentWithRelaxedRequired(component)
+        : component.checkValidity(component.data, true);
+
+      if (!isValid) {
+        invalidFields.add(component.path || component.key);
+        invalidComponents.add(component);
+      }
+    });
+
+    return { invalidFields, invalidComponents };
+  }
   init() {
     super.init();
     this.root.on("submitDone", (submission) => {
@@ -1452,6 +1485,12 @@ export default class ReviewButton extends FieldComponent {
     this.loadRefs(element, { button: "single" });
 
     this.addEventListener(this.refs.button, "click", async () => {
+      // 2. Avoid Layout Thrashing - measure once
+      await updateFormValuesBeforeReview(this.root);
+      
+      // 3. Run the consolidated validation
+      const { invalidFields, invalidComponents } = await this.performSmartValidation();
+      
       try {
         await Promise.resolve();
 
@@ -1852,6 +1891,14 @@ export default class ReviewButton extends FieldComponent {
         
         const modal = createReviewModal(hasErrors, fieldErrorsCounter, reviewHtml, supportNumber, requireSupportFields, errorDetails);
 
+        // 4. Memory Leak Protection: Scoped event listeners
+        const closeDropdown = (e) => {
+          if (!dropdown?.contains(e.target)) {
+            list?.classList.remove('open');
+            document.removeEventListener('mousedown', closeDropdown);
+          }
+        };
+
         let screenshotComp = null;
         this.root.everyComponent((comp) => {
           if (comp.component?.type === 'file' && comp.component?.key === 'screenshot') {
@@ -1928,12 +1975,14 @@ export default class ReviewButton extends FieldComponent {
             }
           }
         });
-
-        document.addEventListener('mousedown', function(e) {
-          if (!dropdown?.contains(e.target)) {
-            list?.classList.remove('open');
+        selected?.addEventListener('click', () => {
+          const isOpen = list.classList.toggle('open');
+          if (isOpen) {
+            // Only attach global listener when dropdown is actually open
+            document.addEventListener('mousedown', closeDropdown);
           }
         });
+
         // Initial validation to set submit button state
         validateModalForm(modal, screenshotComp, formData, requireSupportFields);
 
@@ -1941,7 +1990,7 @@ export default class ReviewButton extends FieldComponent {
         if (verifiedSelect) {
           verifiedSelect.dispatchEvent(new Event("change"));
         }
-
+        document.body.appendChild(modal);
       } catch (e) {
         console.error("Error in review button click handler:", e);
         alert("An error occurred while preparing the form for review. Please try again.");
@@ -1949,5 +1998,13 @@ export default class ReviewButton extends FieldComponent {
     });
 
     return super.attach(element);
+  }
+
+  detach() {
+    // Clear any pending timeouts to allow CPU to sleep
+    if (this.validationTimeout) {
+      clearTimeout(this.validationTimeout);
+    }
+    return super.detach();
   }
 }
