@@ -5,25 +5,6 @@
 
 import { isContainerType, shouldFlattenContainer } from "./validationUtils.js";
 
-// Battery optimization: Cache regex patterns
-const regexPatterns = {
-  arrayIndex: /(\w+\[\d+\])/,
-  duplicateFormName: /^([^.]+)\.\1(\.|$)/,
-  hardwareFormDuplicate: /^hardwareForm\.hardwareForm\./,
-  formDataPrefix: /^form\.data\./,
-  dataPrefix: /^data\./,
-  formPrefix: /^form\./,
-  leadingArrayIndex: /^\d+\./,
-  intermediateArrayIndex: /\.\d+\./g,
-  arrayNotation: /^(.+?)(\[\d+\].*)$/,
-  panelSegment: /\.panel[^.]*\./g,
-  panelEnd: /\.panel[^.]*$/
-};
-
-// Battery optimization: Cache path normalization results
-const pathNormalizationCache = new Map();
-const MAX_CACHE_SIZE = 1000;
-
 /**
  * Trims trailing spaces from a key
  */
@@ -65,15 +46,9 @@ function isComponentInvalid(comp, invalidFields) {
     if (invalidFields.has(path)) return true;
   }
   
-  // Battery optimization: Cached normalizePath function
+  // Normalize path by removing duplicate segments (e.g., "hardwareForm.hardwareForm" -> "hardwareForm")
   const normalizePath = (p) => {
     if (!p) return p;
-    
-    // Check cache first
-    if (pathNormalizationCache.has(p)) {
-      return pathNormalizationCache.get(p);
-    }
-    
     let normalized = p;
     const segments = normalized.split('.');
     const deduped = [];
@@ -83,32 +58,21 @@ function isComponentInvalid(comp, invalidFields) {
       }
     }
     normalized = deduped.join('.');
-    // Battery optimization: Use cached regex patterns
-    normalized = normalized.replace(regexPatterns.hardwareFormDuplicate, 'hardwareForm.');
-    normalized = normalized.replace(regexPatterns.formDataPrefix, '');
-    normalized = normalized.replace(regexPatterns.dataPrefix, '');
-    
-    // Cache result (with size limit to prevent memory issues)
-    if (pathNormalizationCache.size < MAX_CACHE_SIZE) {
-      pathNormalizationCache.set(p, normalized);
-    }
-    
+    normalized = normalized.replace(/^hardwareForm\.hardwareForm\./, 'hardwareForm.');
+    normalized = normalized.replace(/^form\.data\./, '');
+    normalized = normalized.replace(/^data\./, '');
     return normalized;
   };
   
   // For array fields (datagrid rows), check if any invalid field matches the same array index and field name
   if (componentPath.includes('[') && componentPath.includes(']')) {
     const fieldName = componentPath.split('.').pop();
-    // Battery optimization: Use cached regex
-    const arrayMatch = componentPath.match(regexPatterns.arrayIndex);
+    const arrayMatch = componentPath.match(/(\w+\[\d+\])/);
     
     if (arrayMatch) {
       const arrayPart = arrayMatch[1]; // e.g., "dataGrid[0]"
       
-      // Battery optimization: Convert Set to array once for iteration
-      const invalidFieldsArray = Array.from(invalidFields);
-      for (let i = 0; i < invalidFieldsArray.length; i++) {
-        const invalidField = invalidFieldsArray[i];
+      for (const invalidField of invalidFields) {
         // Normalize both paths
         const normalizedComponentPath = normalizePath(componentPath);
         const normalizedInvalidField = normalizePath(invalidField);
@@ -146,10 +110,7 @@ function isComponentInvalid(comp, invalidFields) {
     // For non-array fields, check if any invalid field ends with this field name
     const fieldName = componentPath.split('.').pop();
     
-    // Battery optimization: Convert Set to array once for iteration
-    const invalidFieldsArray = Array.from(invalidFields);
-    for (let i = 0; i < invalidFieldsArray.length; i++) {
-      const invalidField = invalidFieldsArray[i];
+    for (const invalidField of invalidFields) {
       // Normalize both paths
       const normalizedComponentPath = normalizePath(componentPath);
       const normalizedInvalidField = normalizePath(invalidField);
@@ -256,16 +217,13 @@ export function createCustomComponentForReview(component, invalidFields = new Se
 
     let dataRows = [];
     if (Array.isArray(component.table) && component.table.length > 0 && Array.isArray(component.table[0])) {
-      // Battery optimization: Use for loop instead of map/forEach
-      dataRows = [];
-      for (let rowIdx = 0; rowIdx < component.table.length; rowIdx++) {
-        const rowArr = component.table[rowIdx];
+      dataRows = component.table.map(rowArr => {
         const rowObj = {};
-        for (let idx = 0; idx < columnKeys.length; idx++) {
-          rowObj[columnKeys[idx]] = rowArr[idx];
-        }
-        dataRows.push(rowObj);
-      }
+        columnKeys.forEach((colKey, idx) => {
+          rowObj[colKey] = rowArr[idx];
+        });
+        return rowObj;
+      });
     } else {
       dataRows = Array.isArray(component.dataValue) ? component.dataValue :
         Array.isArray(component.rows) ? component.rows :
@@ -277,19 +235,16 @@ export function createCustomComponentForReview(component, invalidFields = new Se
     // Transpose: Each field becomes a row, each data row becomes a column
     const tableRows = [];
     
-    // Battery optimization: Use for loop instead of forEach
-    for (let colIdx = 0; colIdx < colDefs.length; colIdx++) {
-      const col = colDefs[colIdx];
+    colDefs.forEach((col, colIdx) => {
       const colKey = col.key || col.component?.key;
       const colLabel = columnLabels[colIdx] || colKey;
 
-      if (!colKey) continue;
+      if (!colKey) return;
 
       const rowData = [];
       
       // For each data row, create a column entry containing the field value
-      for (let dataRowIdx = 0; dataRowIdx < dataRows.length; dataRowIdx++) {
-        const rowObj = dataRows[dataRowIdx];
+      dataRows.forEach((rowObj, dataRowIdx) => {
         const val = typeof rowObj === 'object' ? rowObj[colKey] : '';
         rowData.push({
           _children: {
@@ -300,7 +255,7 @@ export function createCustomComponentForReview(component, invalidFields = new Se
             _value: val
           }
         });
-      }
+      });
 
       // Create a table row for this field
       tableRows.push({ 
@@ -308,7 +263,7 @@ export function createCustomComponentForReview(component, invalidFields = new Se
         _fieldLabel: colLabel,
         _fieldKey: colKey
       });
-    }
+    });
     
     return {
       _label: label,
@@ -320,18 +275,13 @@ export function createCustomComponentForReview(component, invalidFields = new Se
     const children = component.components || [];
     
     if (shouldFlattenContainer(componentType)) {
-      // Battery optimization: Use for loop instead of filter().map()
-      const childItems = [];
-      for (let i = 0; i < children.length; i++) {
-        const child = children[i];
+      const childItems = children.filter(child => {
         if (child?.component?.hidden === true || child?.hidden === true) {
-          continue;
+          return false;
         }
         
         if (child?.disabled === true || child?.component?.disabled === true) {
-          if (child?.component?.reviewVisible !== true) {
-            continue;
-          }
+          return child?.component?.reviewVisible === true;
         }
         
         const isRequired = child?.component?.validate?.required === true;
@@ -339,37 +289,33 @@ export function createCustomComponentForReview(component, invalidFields = new Se
         const isInvalid = isComponentInvalid(child, invalidFields);
         
         if (isRequired && !isInvalid && !isReviewVisible) {
-          continue;
+          return false;
         }
         
-        if (isReviewVisible || isRequired) {
-          const childKey = child.key || child.path || '';
-          const childValue = child.dataValue || (data[childKey] || '');
-          childItems.push({
-            _label: child.label || child.key || 'Unnamed',
-            _key: childKey,
-            _type: child.type || child.component?.type,
-            _leaf: true,
-            _value: childValue
-          });
-        }
-      }
+        return isReviewVisible || isRequired;
+      })
+      .map(child => {
+        const childKey = child.key || child.path || '';
+        const childValue = child.dataValue || (data[childKey] || '');
+        return {
+          _label: child.label || child.key || 'Unnamed',
+          _key: childKey,
+          _type: child.type || child.component?.type,
+          _leaf: true,
+          _value: childValue
+        };
+      });
       
       return childItems.length > 0 ? childItems : null;
     }
     
-    // Battery optimization: Use for loop instead of filter().map()
-    const containerItems = [];
-    for (let i = 0; i < children.length; i++) {
-      const child = children[i];
+    const containerItems = children.filter(child => {
       if (child?.component?.hidden === true || child?.hidden === true) {
-        continue;
+        return false;
       }
       
       if (child?.disabled === true || child?.component?.disabled === true) {
-        if (child?.component?.reviewVisible !== true) {
-          continue;
-        }
+        return child?.component?.reviewVisible === true;
       }
       
       const isRequired = child?.component?.validate?.required === true;
@@ -377,23 +323,24 @@ export function createCustomComponentForReview(component, invalidFields = new Se
       const isInvalid = isComponentInvalid(child, invalidFields);
       
       if (isRequired && !isInvalid && !isReviewVisible) {
-        continue;
+        return false;
       }
       
-      if (isReviewVisible || isRequired) {
-        const childKey = child.key || child.path || '';
-        const childValue = child.dataValue || (data[childKey] || '');
-        containerItems.push({
-          _children: {
-            _label: child.label || child.key || 'Unnamed',
-            _key: childKey,
-            _type: child.type || child.component?.type,
-            _leaf: true,
-            _value: childValue
-          }
-        });
-      }
-    }
+      return isReviewVisible || isRequired;
+    }) 
+    .map(child => {
+      const childKey = child.key || child.path || '';
+      const childValue = child.dataValue || (data[childKey] || '');
+      return {
+        _children: {
+          _label: child.label || child.key || 'Unnamed',
+          _key: childKey,
+          _type: child.type || child.component?.type,
+          _leaf: true,
+          _value: childValue
+        }
+      };
+    });
     return {
       _label: label,
       _key: key,
@@ -434,13 +381,12 @@ export async function collectReviewLeavesAndLabels(root, invalidFields = new Set
       normalized = normalized.replace(/^([^.]+)\.\1(\.|$)/, '$1$2');
     }
     
-    // Battery optimization: Use cached regex patterns
     normalized = normalized
-      .replace(regexPatterns.leadingArrayIndex, '')     // Remove leading array indices
-      .replace(regexPatterns.intermediateArrayIndex, '.'); // Remove intermediate array indices
+      .replace(/^\d+\./, '')     // Remove leading array indices
+      .replace(/\.\d+\./g, '.'); // Remove intermediate array indices
 
     if (normalized.includes('[')) {
-      const matches = normalized.match(regexPatterns.arrayNotation);
+      const matches = normalized.match(/^(.+?)(\[\d+\].*)$/);
       if (matches) {
         const basePath = matches[1];
         const arrayPart = matches[2];
@@ -451,15 +397,15 @@ export async function collectReviewLeavesAndLabels(root, invalidFields = new Set
     // Remove intermediate panel segments for deduplication
     // e.g., hardwareForm.data.dataGrid[0].panel.panel1.picOfSn4 -> hardwareForm.data.dataGrid[0].picOfSn4
     // This ensures paths with and without panel segments are treated as the same
-    const simplified = normalized.replace(regexPatterns.panelSegment, '.').replace(regexPatterns.panelEnd, '');
+    const simplified = normalized.replace(/\.panel[^.]*\./g, '.').replace(/\.panel[^.]*$/, '');
     
     // Return the simplified version for deduplication, but we'll use the original normalized for structure
     // Actually, let's use a more aggressive approach: if we have array notation, remove panel segments before the array part
     if (normalized.includes('[')) {
-      const arrayMatch = normalized.match(regexPatterns.arrayNotation);
+      const arrayMatch = normalized.match(/^(.+?)(\[\d+\].*)$/);
       if (arrayMatch) {
-        const beforeArray = arrayMatch[1].replace(regexPatterns.panelSegment, '.').replace(regexPatterns.panelEnd, '');
-        const arrayPart = arrayMatch[2].replace(regexPatterns.panelSegment, '.').replace(regexPatterns.panelEnd, '');
+        const beforeArray = arrayMatch[1].replace(/\.panel[^.]*\./g, '.').replace(/\.panel[^.]*$/, '');
+        const arrayPart = arrayMatch[2].replace(/\.panel[^.]*\./g, '.').replace(/\.panel[^.]*$/, '');
         return `${beforeArray}${arrayPart}`;
       }
     }
@@ -474,14 +420,12 @@ export async function collectReviewLeavesAndLabels(root, invalidFields = new Set
     leaves.push(leaf);
   };
 
-  // Battery optimization: Use for loop instead of forEach
   const topIndexMap = new Map();
   if (Array.isArray(root?.components)) {
-    for (let i = 0; i < root.components.length; i++) {
-      const c = root.components[i];
+    root.components.forEach((c, i) => {
       const k = c?.component?.key || c?.key;
       if (k) topIndexMap.set(k, i);
-    }
+    });
   }
   const topIndexFor = (comp) => {
     let p = comp;
@@ -505,31 +449,22 @@ export async function collectReviewLeavesAndLabels(root, invalidFields = new Set
     }
     const prefix = f.__reviewPrefix || '';
 
-    // Battery optimization: Store components in array first, then push to queue
-    const componentsToEnqueue = [];
     f.everyComponent((c) => {
       const shouldSkip = c.parent && (isContainerType(c.parent.component?.type));
       if (shouldSkip) {
         return;
       }
       if (prefix) c.__prefix = prefix;
-      componentsToEnqueue.push(c);
+      queue.push(c);
     });
-    
-    // Push all at once (more efficient than individual pushes)
-    if (componentsToEnqueue.length > 0) {
-      queue.push(...componentsToEnqueue);
-    }
   };
 
   const safePath = (c) => (c?.__reviewPath) || (c?.__prefix ? `${c.__prefix}${c.path}` : c?.path);
 
   enqueueAll(root);
 
-  // Battery optimization: Use index-based queue instead of shift() (shift() is O(n))
-  let queueIndex = 0;
-  while (queueIndex < queue.length) {
-    const comp = queue[queueIndex++];
+  while (queue.length) {
+    const comp = queue.shift();
     if (!comp) continue;
 
     const isAddressComponentEarly = comp.component?.type === 'address' || comp.type === 'address';
@@ -658,14 +593,8 @@ function handleEditGridComponent(comp, safePath, topIndexFor, pushLeaf, indexByP
   indexByPathMap.set(gridPath, topIndexFor(comp));
 
   let colDefs = Array.isArray(comp.components) ? comp.components : [];
-  // Battery optimization: Use for loop instead of map
-  const columnKeys = [];
-  const columnLabels = [];
-  for (let i = 0; i < colDefs.length; i++) {
-    const c = colDefs[i];
-    columnKeys.push(c.key || c.path || c.component?.key || '');
-    columnLabels.push(c.label || c.component?.label || c.key || '');
-  }
+  const columnKeys = colDefs.map(c => c.key || c.path || c.component?.key || '');
+  const columnLabels = colDefs.map(c => c.label || c.component?.label || c.key || '');
 
   const editgridMeta = {
     kind: 'editgrid',
@@ -683,12 +612,8 @@ function handleEditGridComponent(comp, safePath, topIndexFor, pushLeaf, indexByP
   });
 
   if (Array.isArray(comp.editRows) && comp.editRows.length) {
-    // Battery optimization: Use for loops instead of nested forEach
-    for (let rIdx = 0; rIdx < comp.editRows.length; rIdx++) {
-      const r = comp.editRows[rIdx];
-      const components = r.components || [];
-      for (let chIdx = 0; chIdx < components.length; chIdx++) {
-        const ch = components[chIdx];
+    comp.editRows.forEach((r, rIdx) => {
+      (r.components || []).forEach((ch) => {
         let value = null;
         if ('getValue' in ch && typeof ch.getValue === 'function') {
           value = ch.getValue();
@@ -706,8 +631,8 @@ function handleEditGridComponent(comp, safePath, topIndexFor, pushLeaf, indexByP
           value: value,
           formIndex: topIndexFor(comp)
         });
-      }
-    }
+      });
+    });
   }
 }
 
@@ -799,17 +724,14 @@ function handleDataGridComponent(comp, safePath, topIndexFor, pushLeaf, indexByP
           Array.isArray(comp._data?.[comp.key]) ? comp._data[comp.key] : [];
 
     if (dataRows.length > 0) {
-      // Battery optimization: Use for loops instead of nested forEach
       const processedFields = new Map();
-      for (let rIdx = 0; rIdx < dataRows.length; rIdx++) {
-        const rowObj = dataRows[rIdx];
+      dataRows.forEach((rowObj, rIdx) => {
         if (!processedFields.has(rIdx)) processedFields.set(rIdx, new Set());
         const rowDone = processedFields.get(rIdx);
-        for (let i = 0; i < colDefs.length; i++) {
-          const c = colDefs[i];
+        colDefs.forEach((c, i) => {
           const cKey = c.key || c.component?.key || c.path;
           const cLabel = columnLabels[i] || cKey;
-          if (!cKey || rowDone.has(cKey)) continue;
+          if (!cKey || rowDone.has(cKey)) return;
           const val = rowObj?.[cKey];
           pushLeaf({
             comp: comp,
@@ -819,8 +741,8 @@ function handleDataGridComponent(comp, safePath, topIndexFor, pushLeaf, indexByP
             formIndex: topIndexFor(comp)
           });
           rowDone.add(cKey);
-        }
-      }
+        });
+      });
     } else {
       // Push a leaf for empty datatables so they appear in the review
       pushLeaf({
@@ -834,17 +756,12 @@ function handleDataGridComponent(comp, safePath, topIndexFor, pushLeaf, indexByP
   }
 
   if (Array.isArray(comp.rows) && comp.rows.length) {
-    // Battery optimization: Use for loops instead of forEach/Object.entries
-    for (let rIdx = 0; rIdx < comp.rows.length; rIdx++) {
-      const row = comp.rows[rIdx];
-      for (const colKey in row) {
-        if (row.hasOwnProperty(colKey)) {
-          const cellComp = row[colKey];
-          const base = `${gridPath}[${rIdx}].${colKey}`;
-          flattenCell(cellComp, base);
-        }
-      }
-    }
+    comp.rows.forEach((row, rIdx) => {
+      Object.entries(row).forEach(([colKey, cellComp]) => {
+        const base = `${gridPath}[${rIdx}].${colKey}`;
+        flattenCell(cellComp, base);
+      });
+    });
   } else {
     // Push a leaf for empty datagrids so they appear in the review
     pushLeaf({
@@ -870,9 +787,7 @@ function handleTableComponent(comp, safePath, topIndexFor, pushLeaf, indexByPath
     });
   }
   if (Array.isArray(comp.components)) {
-    // Battery optimization: Use for loop instead of forEach
-    for (let i = 0; i < comp.components.length; i++) {
-      const child = comp.components[i];
+    comp.components.forEach(child => {
       const childKey = child.key || child.path || '';
       const childPath = `${tablePath}.${childKey}`;
       indexByPathMap.set(childPath, topIndexFor(comp));
@@ -885,7 +800,7 @@ function handleTableComponent(comp, safePath, topIndexFor, pushLeaf, indexByPath
           formIndex: topIndexFor(comp)
         });
       }
-    }
+    });
   }
 }
 
@@ -906,9 +821,7 @@ function handleTagpadComponent(comp, safePath, topIndexFor, leaves, indexByPathM
       formIndex: formIndex
     });
   } else {
-    // Battery optimization: Use for loop instead of forEach
-    for (let idx = 0; idx < forms.length; idx++) {
-      const form = forms[idx];
+    forms.forEach((form, idx) => {
       const basePath = `${tagpadPath}[${idx}]`;
       const formLabel = `Tag ${idx + 1}`;
       indexByPathMap.set(basePath, formIndex);
@@ -925,14 +838,12 @@ function handleTagpadComponent(comp, safePath, topIndexFor, leaves, indexByPathM
           formIndex: formIndex
         });
       } else {
-        // Battery optimization: Use for loop instead of forEach
-        for (let chIdx = 0; chIdx < formComps.length; chIdx++) {
-          const ch = formComps[chIdx];
+        formComps.forEach((ch) => {
           const key =
             ch?.key ||
             ch?.path ||
             ch?.component?.key;
-          if (!key) continue;
+          if (!key) return;
 
           let val = (formData && Object.prototype.hasOwnProperty.call(formData, key))
             ? formData[key]
@@ -945,9 +856,9 @@ function handleTagpadComponent(comp, safePath, topIndexFor, leaves, indexByPathM
             value: val,
             formIndex: formIndex
           });
-        }
+        });
       }
-    }
+    });
   }
 }
 
@@ -958,10 +869,7 @@ function handleContainerComponent(comp, safePath, topIndexFor, indexByPathMap, q
   const isContainer = isContainerType([comp.type, comp.component?.type]);
 
   if (shouldFlattenContainer(componentType)) {
-    // Battery optimization: Push all at once instead of individual pushes
-    if (comp.components.length > 0) {
-      queue.push(...comp.components);
-    }
+    comp.components.forEach((ch) => queue.push(ch));
     return;
   }
 
@@ -972,10 +880,7 @@ function handleContainerComponent(comp, safePath, topIndexFor, indexByPathMap, q
   }
 
   indexByPathMap.set(containerPath, topIndexFor(comp));
-  // Battery optimization: Push all at once instead of individual pushes
-  if (comp.components.length > 0) {
-    queue.push(...comp.components);
-  }
+  comp.components.forEach((ch) => queue.push(ch));
 }
 
 function handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer, createCustomComponentForReview, invalidFields, leaves, queue, processedPaths) {
@@ -1017,13 +922,11 @@ function handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathM
     }
 
     if (Array.isArray(comp.components) && comp.components.length > 0) {
-      // Battery optimization: Use for loop instead of forEach
-      for (let i = 0; i < comp.components.length; i++) {
-        const child = comp.components[i];
+      comp.components.forEach(child => {
         if (!child.component) {
           child.component = {};
         }
-      }
+      });
     }
   }
 
@@ -1045,21 +948,15 @@ function handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathM
         leaves.push(processedContainer);
       }
       
-      // Battery optimization: Push all at once and use for loop
-      const childrenToQueue = [];
-      for (let i = 0; i < comp.components.length; i++) {
-        const childComp = comp.components[i];
+      comp.components.forEach(childComp => {
         if (childComp) {
           const childPath = safePath(childComp);
           if (!processedPaths.has(childPath)) {
             processedPaths.add(childPath);
-            childrenToQueue.push(childComp);
+            queue.push(childComp);
           }
         }
-      }
-      if (childrenToQueue.length > 0) {
-        queue.push(...childrenToQueue);
-      }
+      });
     }
   }
 
@@ -1138,9 +1035,7 @@ function handleLeafComponent(comp, safePath, topIndexFor, pushLeaf, indexByPathM
 
 function processRemainingComponents(root, safePath, topIndexFor, pushLeaf, indexByPathMap, isContainerType, shouldFlattenContainer, leaves, invalidFields) {
   if (Array.isArray(root?.components)) {
-    // Battery optimization: Use for loop instead of forEach
-    for (let i = 0; i < root.components.length; i++) {
-      const comp = root.components[i];
+    root.components.forEach(comp => {
       const containerType = comp.component?.type || comp.type;
       const isContainer = isContainerType([comp.type, comp.component?.type], ['table']) &&
                     Array.isArray(comp.components) && comp.components.length > 0;
@@ -1152,15 +1047,9 @@ function processRemainingComponents(root, safePath, topIndexFor, pushLeaf, index
       if (isContainer) {
         let panelPath = safePath(comp);
 
-        // Battery optimization: Use for loop instead of some()
-        let panelInLeaves = false;
-        for (let leafIdx = 0; leafIdx < leaves.length; leafIdx++) {
-          const leaf = leaves[leafIdx];
-          if (leaf.path === panelPath || leaf.comp === comp) {
-            panelInLeaves = true;
-            break;
-          }
-        }
+        const panelInLeaves = leaves.some(leaf =>
+          (leaf.path === panelPath || leaf.comp === comp)
+        );
 
         if (!panelInLeaves) {
           if (panelPath == "") {
@@ -1180,9 +1069,7 @@ function processRemainingComponents(root, safePath, topIndexFor, pushLeaf, index
             formIndex: panelFormIndex
           });
 
-          // Battery optimization: Use for loop instead of forEach
-          for (let childIdx = 0; childIdx < comp.components.length; childIdx++) {
-            const childComp = comp.components[childIdx];
+          comp.components.forEach(childComp => {
             const childKey = childComp.key || childComp.path || 'child';
             const childPath = `${panelPath}.${childKey}`;
             indexByPathMap.set(childPath, panelFormIndex);
@@ -1194,9 +1081,9 @@ function processRemainingComponents(root, safePath, topIndexFor, pushLeaf, index
               value: ('getValue' in childComp) ? childComp.getValue() : childComp.dataValue,
               formIndex: panelFormIndex
             });
-          }
+          });
         }
       }
-    }
+    });
   }
 }
