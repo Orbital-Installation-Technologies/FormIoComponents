@@ -782,87 +782,89 @@ export function applyFieldErrors(panel) {
   const maxAttempts = 10;
 
   const tryApplyErrors = function() {
-    let appliedCount = 0;
+    window.requestAnimationFrame(() => {
+      let appliedCount = 0;
 
-    panel.everyComponent(function(comp) {
-      const compKey = comp.component && comp.component.key;
-      if (compKey) {
-        if (panel._errorMap[compKey]) {
-          const err = panel._errorMap[compKey];
+      panel.everyComponent(function(comp) {
+        const compKey = comp.component && comp.component.key;
+        if (compKey) {
+          if (panel._errorMap[compKey]) {
+            const err = panel._errorMap[compKey];
 
-          comp.error = err.message;
-          if (comp.setCustomValidity) {
-            comp.setCustomValidity([err], true);
-          }
-          comp.setPristine(false);
+            comp.error = err.message;
+            if (comp.setCustomValidity) {
+              comp.setCustomValidity([err], true);
+            }
+            comp.setPristine(false);
 
-          if (comp.element) {
-            comp.element.classList.add('has-error', 'has-message', 'formio-error-wrapper');
+            if (comp.element) {
+              comp.element.classList.add('has-error', 'has-message', 'formio-error-wrapper');
 
-            const formGroup = comp.element.closest('.form-group') || comp.element.querySelector('.form-group') || comp.element;
-            formGroup.classList.add('has-error');
+              const formGroup = comp.element.closest('.form-group') || comp.element.querySelector('.form-group') || comp.element;
+              formGroup.classList.add('has-error');
 
-            const compType = comp.type || comp.component.type;
+              const compType = comp.type || comp.component.type;
 
-            const input = comp.element.querySelector('input, select, textarea, .choices');
-            if (input) {
-              input.classList.add('is-invalid', 'form-control-danger');
-              input.style.borderColor = '#d9534f';
-              input.style.borderWidth = '2px';
+              const input = comp.element.querySelector('input, select, textarea, .choices');
+              if (input) {
+                input.classList.add('is-invalid', 'form-control-danger');
+                input.style.borderColor = '#d9534f';
+                input.style.borderWidth = '2px';
 
-              const errMsg = document.createElement('div');
-              errMsg.className = 'formio-errors invalid-feedback';
-              errMsg.style.display = 'block';
-              errMsg.style.color = '#d9534f';
-              errMsg.innerHTML = '<p style="margin:0;">' + err.message + '</p>';
+                const errMsg = document.createElement('div');
+                errMsg.className = 'formio-errors invalid-feedback';
+                errMsg.style.display = 'block';
+                errMsg.style.color = '#d9534f';
+                errMsg.innerHTML = '<p style="margin:0;">' + err.message + '</p>';
 
-              const existing = comp.element.querySelector('.formio-errors');
-              if (existing) existing.remove();
+                const existing = comp.element.querySelector('.formio-errors');
+                if (existing) existing.remove();
 
-              let insertPoint;
-              if (compType === 'barcode') {
-                const barcodeWrapper = input.closest('.input-group') ||
-                  input.closest('.form-group') ||
-                  input.parentElement;
+                let insertPoint;
+                if (compType === 'barcode') {
+                  const barcodeWrapper = input.closest('.input-group') ||
+                    input.closest('.form-group') ||
+                    input.parentElement;
 
-                if (barcodeWrapper && barcodeWrapper.parentElement) {
-                  insertPoint = barcodeWrapper.parentElement;
-                  if (barcodeWrapper.nextSibling) {
-                    insertPoint.insertBefore(errMsg, barcodeWrapper.nextSibling);
+                  if (barcodeWrapper && barcodeWrapper.parentElement) {
+                    insertPoint = barcodeWrapper.parentElement;
+                    if (barcodeWrapper.nextSibling) {
+                      insertPoint.insertBefore(errMsg, barcodeWrapper.nextSibling);
+                    } else {
+                      insertPoint.appendChild(errMsg);
+                    }
                   } else {
+                    insertPoint = comp.element;
                     insertPoint.appendChild(errMsg);
                   }
+                } else if (compType === 'radio') {
+                  const radioContainer = comp.element.querySelector('.form-radio') ||
+                    comp.element.querySelector('.radio') ||
+                    comp.element.querySelector('[role="radiogroup"]') ||
+                    formGroup;
+
+                  if (radioContainer) {
+                    radioContainer.appendChild(errMsg);
+                  } else {
+                    comp.element.appendChild(errMsg);
+                  }
                 } else {
-                  insertPoint = comp.element;
+                  insertPoint = input.parentElement || comp.element;
                   insertPoint.appendChild(errMsg);
                 }
-              } else if (compType === 'radio') {
-                const radioContainer = comp.element.querySelector('.form-radio') ||
-                  comp.element.querySelector('.radio') ||
-                  comp.element.querySelector('[role="radiogroup"]') ||
-                  formGroup;
 
-                if (radioContainer) {
-                  radioContainer.appendChild(errMsg);
-                } else {
-                  comp.element.appendChild(errMsg);
-                }
-              } else {
-                insertPoint = input.parentElement || comp.element;
-                insertPoint.appendChild(errMsg);
+                appliedCount++;
               }
-
-              appliedCount++;
             }
           }
         }
+      });
+
+      if (appliedCount < Object.keys(panel._errorMap).length && attemptCount < maxAttempts) {
+        attemptCount++;
+        setTimeout(tryApplyErrors, 300);
       }
     });
-
-    if (appliedCount < Object.keys(panel._errorMap).length && attemptCount < maxAttempts) {
-      attemptCount++;
-      setTimeout(tryApplyErrors, 200);
-    }
   };
 
   tryApplyErrors();
