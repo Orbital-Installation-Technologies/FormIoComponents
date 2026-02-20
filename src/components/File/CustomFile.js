@@ -72,6 +72,7 @@ export default class CustomFile extends FileComponent {
     fileToSync.file = scrambledFile;
     fileToSync.name = scrambledName;
     fileToSync.originalName = scrambledName;
+    fileToSync.url = URL.createObjectURL(processedBlob);
 
     if (typeof setTimeout !== 'undefined') {
       setTimeout(() => this.resetFileInputs(), 0);
@@ -502,18 +503,6 @@ div.file img:hover {
       });
     });
   }
-  removeFile(index) {
-    // Ensure dataValue is an array so findIndex doesn't crash
-    if (this.dataValue && !Array.isArray(this.dataValue)) {
-      this.dataValue = [this.dataValue];
-    }
-
-    // Call the original Form.io removal logic
-    super.removeFile(index);
-
-    // Optional: Trigger a UI refresh to clean up your custom wrappers
-    this.updateImagePreviews();
-  }
   openImageModal(src) {
     if (typeof document === 'undefined' || !document.body) return;
 
@@ -573,13 +562,7 @@ div.file img:hover {
     if (typeof document === 'undefined' || !this.element) return res;
 
     this.loadImageCssOnce();
-
-    // Pre-load Pica so it's ready before the user picks a file (eliminates first-upload latency)
-    this.loadPica().catch(() => {});
-
-    // REMOVE the flag here so it re-scans for new images on every attach
-    // this.wrapDefaultImagesOnce = false;
-
+    this.wrapDefaultImagesOnce = false;
     if (typeof window !== 'undefined' && window.requestAnimationFrame) {
       window.requestAnimationFrame(() => {
         if (!this.element) return;
