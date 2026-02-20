@@ -13,8 +13,7 @@ import {
   DataCaptureContext,
   FrameSourceState,
   Camera,
-  configure,
-  OverrideState
+  configure
 } from "@scandit/web-datacapture-core";
 
 const FieldComponent = Components.components.field;
@@ -88,8 +87,7 @@ export default class BarcodeScanner extends FieldComponent {
     // License key can come from (in priority order):
     // 1. Component configuration (scanditLicenseKey set in Formio builder)
     // 2. Component data (scanditLicenseKey property)
-    // 3. Window global (set by host app e.g. Next.js formio-init so NEXT_PUBLIC_* is inlined)
-    // 4. Environment variable (NEXT_PUBLIC_SCANDIT_KEY - when bundled with env replacement)
+    // 3. Environment variable (NEXT_PUBLIC_SCANDIT_KEY - for development/testing)
     let envKey;
     if (this.component && this.component.scanditLicenseKey) {
       envKey = this.component.scanditLicenseKey;
@@ -709,6 +707,10 @@ export default class BarcodeScanner extends FieldComponent {
       try {
         this._dataCaptureView.connectToElement(container);
         if (!this._boundingBoxCanvas || !container.contains(this._boundingBoxCanvas)) {
+          if (this._resizeHandler) {
+            window.removeEventListener('resize', this._resizeHandler);
+            window.removeEventListener('orientationchange', this._resizeHandler);
+          }
           this._createBoundingBoxOverlay();
         } else {
           this._resizeBoundingBoxCanvas();
