@@ -530,12 +530,8 @@ div.file img:hover {
     overlay.onclick = closeModal;
     closeBtn.onclick = closeModal;
   }
-  setValue(value, flags = {}) {
-    //  Standard Form.io update
-    const normalizedValue = value ? (Array.isArray(value) ? value : [value]) : [];
-    const changed = super.setValue(normalizedValue, flags);
 
- setValue(value, flags = {}) {
+  setValue(value, flags = {}) {
     // Normalize to array for consistent handling
     const normalizedValue = value ? (Array.isArray(value) ? value : [value]) : [];
     const changed = super.setValue(normalizedValue, flags);
