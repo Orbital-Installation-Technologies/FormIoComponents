@@ -460,6 +460,11 @@ export default class BarcodeScanner extends FieldComponent {
       this._dataCaptureView.connectToElement(this.refs.scanditContainer);
       const containerHasCanvas = this._boundingBoxCanvas && this.refs.scanditContainer.contains(this._boundingBoxCanvas);
       if (!containerHasCanvas) {
+        // Remove stale window listeners from the previous overlay
+        if (this._resizeHandler) {
+          window.removeEventListener('resize', this._resizeHandler);
+          window.removeEventListener('orientationchange', this._resizeHandler);
+        }
         this._createBoundingBoxOverlay();
       } else {
         this._resizeBoundingBoxCanvas();
@@ -839,11 +844,7 @@ export default class BarcodeScanner extends FieldComponent {
             await configure({
                 licenseKey: this._licenseKey,
                 libraryLocation: "/scandit-lib/",
-                moduleLoaders: [barcodeCaptureLoader()],
-                // Disable SIMD/multithreading to avoid worker error "Uncaught 71695768" when
-                // the page is not crossOriginIsolated (no COOP/COEP headers).
-                overrideSimdSupport: OverrideState.Off,
-                overrideThreadsSupport: OverrideState.Off
+                moduleLoaders: [barcodeCaptureLoader()]
             });
             scanditConfigured = true;
         }
@@ -2573,6 +2574,15 @@ export default class BarcodeScanner extends FieldComponent {
     if (this._animationFrameId) {
       cancelAnimationFrame(this._animationFrameId);
       this._animationFrameId = null;
+    }
+
+    if (this._camera) {
+      try {
+        this._camera.switchToDesiredState(FrameSourceState.Off);
+      } catch (cameraError) {
+        console.warn("Error stopping camera in destroy:", cameraError);
+      }
+      this._camera = null;
     }
 
     if (this._barcodeBatch) {
