@@ -1,0 +1,65 @@
+name: PR Bundle Cleanup
+on:
+  pull_request:
+    types:
+      - closed
+
+env:
+  AWS_REGION: us-east-1
+  S3_BUCKET: form-cdn.orbitalcustoms.com
+  S3_PREFIX: components/components.bundle.pr-
+
+jobs:
+  cleanup:
+    name: Clean up PR bundles
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # required to delete tags
+    # Run for both merged and closed-without-merge
+    steps:
+      - name: Set PR number
+        id: pr
+        run: echo "pr_number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+
+      - name: Delete S3 bundle files for this PR
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          PREFIX="${S3_PREFIX}${PR_NUMBER}-build-"
+          echo "Deleting S3 objects with prefix: $PREFIX"
+          aws s3 rm "s3://${S3_BUCKET}/${PREFIX}" --recursive || true
+
+      - name: Checkout for tag cleanup
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Delete PR build tags
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          for tag in $(git tag -l "pr-${PR_NUMBER}-build-*"); do
+            echo "Deleting tag: $tag"
+            git push origin --delete "$tag" || true
+          done
+
+      - name: Close formio-renderer PRs and delete branches
+        env:
+          GH_TOKEN: ${{ secrets.TRIGGER_TOKEN }}
+          RENDERER_REPO: Orbital-Installation-Technologies/formio-renderer
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          echo "Finding formio-renderer PRs for FormIoComponents PR #$PR_NUMBER..."
+          gh pr list --repo "$RENDERER_REPO" --state open --json number,title,headRefName | \
+            jq -r --arg pr "PR $PR_NUMBER" --arg prefix "pr-${PR_NUMBER}-build-" \
+              '.[] | select(.title | contains($pr) or contains($prefix)) | "\(.number) \(.headRefName)"' | \
+          while read -r pr_num branch; do
+            echo "Closing PR #$pr_num (branch: $branch) in $RENDERER_REPO"
+            gh pr close "$pr_num" --repo "$RENDERER_REPO" --comment "Closed automatically: FormIoComponents PR #$PR_NUMBER was closed or merged."
+            echo "Deleting branch: $branch"
+            gh api -X DELETE "repos/$RENDERER_REPO/git/refs/heads/$branch" || true
+          done
