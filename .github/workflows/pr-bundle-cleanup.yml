@@ -47,19 +47,19 @@ jobs:
             git push origin --delete "$tag" || true
           done
 
-      - name: Close formio-renderer PRs and delete branches
+      - name: Close formio-renderer PRs and delete their branches
         env:
           GH_TOKEN: ${{ secrets.TRIGGER_TOKEN }}
           RENDERER_REPO: Orbital-Installation-Technologies/formio-renderer
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
         run: |
           echo "Finding formio-renderer PRs for FormIoComponents PR #$PR_NUMBER..."
-          gh pr list --repo "$RENDERER_REPO" --state open --json number,title,headRefName | \
+          gh pr list --repo "$RENDERER_REPO" --state open --json number,title,headRefName,headRepository | \
             jq -r --arg pr "PR $PR_NUMBER" --arg prefix "pr-${PR_NUMBER}-build-" \
-              '.[] | select(.title | contains($pr) or contains($prefix)) | "\(.number) \(.headRefName)"' | \
-          while read -r pr_num branch; do
+              '.[] | select(.title | contains($pr) or contains($prefix)) | "\(.number) \(.headRefName) \(.headRepository.owner.login)/\(.headRepository.name)"' | \
+          while read -r pr_num branch head_repo; do
             echo "Closing PR #$pr_num (branch: $branch) in $RENDERER_REPO"
             gh pr close "$pr_num" --repo "$RENDERER_REPO" --comment "Closed automatically: FormIoComponents PR #$PR_NUMBER was closed or merged."
-            echo "Deleting branch: $branch"
-            gh api -X DELETE "repos/$RENDERER_REPO/git/refs/heads/$branch" || true
+            echo "Deleting branch $branch from $head_repo"
+            gh api -X DELETE "repos/$head_repo/git/refs/heads/$branch" || true
           done
