@@ -13,7 +13,8 @@ import {
   DataCaptureContext,
   FrameSourceState,
   Camera,
-  configure
+  configure,
+  OverrideState
 } from "@scandit/web-datacapture-core";
 
 const FieldComponent = Components.components.field;
@@ -82,16 +83,20 @@ export default class BarcodeScanner extends FieldComponent {
     this._lastDrawTime = 0; // Throttle bounding box drawing
     this._frameThrottleMs = 100; // Process frames max once per 100ms
     this._drawThrottleMs = 50; // Draw bounding boxes max once per 50ms
+    this._containerResizeObserver = null; // Reconnect view when container gets size (hardware form first open)
 
     // License key can come from (in priority order):
     // 1. Component configuration (scanditLicenseKey set in Formio builder)
     // 2. Component data (scanditLicenseKey property)
-    // 3. Environment variable (NEXT_PUBLIC_SCANDIT_KEY - for development/testing)
+    // 3. Window global (set by host app e.g. Next.js formio-init so NEXT_PUBLIC_* is inlined)
+    // 4. Environment variable (NEXT_PUBLIC_SCANDIT_KEY - when bundled with env replacement)
     let envKey;
     if (this.component && this.component.scanditLicenseKey) {
       envKey = this.component.scanditLicenseKey;
     } else if (this.data && this.data.scanditLicenseKey) {
       envKey = this.data.scanditLicenseKey;
+    } else if (typeof window !== 'undefined' && window.__FORMIO_SCANDIT_LICENSE_KEY__) {
+      envKey = window.__FORMIO_SCANDIT_LICENSE_KEY__;
     } else if (typeof process !== 'undefined' && process?.env && process.env.NEXT_PUBLIC_SCANDIT_KEY) {
       envKey = process?.env?.NEXT_PUBLIC_SCANDIT_KEY;
     }
@@ -446,6 +451,42 @@ export default class BarcodeScanner extends FieldComponent {
 
   }
 
+  /**
+   * Reconnect Scandit view and overlay to current refs.scanditContainer after DOM/refs update.
+   * Call after redraw or attach when we have an active scanner to fix black screen.
+   */
+  async _reconnectScannerViewIfNeeded() {
+    if (!this._dataCaptureContext || !this._dataCaptureView || !this.refs?.scanditContainer) return;
+    try {
+      await this._waitForContainerReady();
+      this._dataCaptureView.connectToElement(this.refs.scanditContainer);
+      const containerHasCanvas = this._boundingBoxCanvas && this.refs.scanditContainer.contains(this._boundingBoxCanvas);
+      if (!containerHasCanvas) {
+        this._createBoundingBoxOverlay();
+      } else {
+        this._resizeBoundingBoxCanvas();
+      }
+      this._startCameraMonitoring();
+      this._drawBoundingBoxes(this._currentBarcodes || []);
+    } catch (err) {
+      console.warn('BarcodeScanner: error reconnecting view:', err);
+    }
+  }
+
+  /**
+   * When any form value changes, Form.io can call redraw() which replaces our DOM.
+   * The Scandit view stays connected to the old (detached) container → black screen.
+   * Reconnect the view and overlay to the new container whenever we have an active scanner.
+   */
+  redraw() {
+    const hadActiveScanner = !!(this._dataCaptureContext && this._dataCaptureView);
+    const result = super.redraw();
+    if (hadActiveScanner) {
+      requestAnimationFrame(() => this._reconnectScannerViewIfNeeded());
+    }
+    return result;
+  }
+
   attach(element) {
     const attached = super.attach(element);
 
@@ -536,6 +577,11 @@ export default class BarcodeScanner extends FieldComponent {
           this._isVideoFrozen = false;
         } catch (error) {
           console.warn("Error in close button handler (handled):", error);
+          try {
+            await this._releaseScannerResources();
+          } catch (releaseErr) {
+            console.warn("Error releasing scanner resources:", releaseErr);
+          }
           this._closeModal();
         }
       });
@@ -583,6 +629,10 @@ export default class BarcodeScanner extends FieldComponent {
       this._updateBarcodePreview();
     }
 
+    if (this._dataCaptureContext && this._dataCaptureView) {
+      requestAnimationFrame(() => this._reconnectScannerViewIfNeeded());
+    }
+
     return attached;
   }
 
@@ -623,6 +673,53 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
+  /**
+   * Wait for the scanner container to have non-zero size so Scandit view connects correctly.
+   * Fixes black screen on first open when the modal/container isn't laid out yet (e.g. hardware form).
+   */
+  async _waitForContainerReady() {
+    const container = this.refs?.scanditContainer;
+    if (!container) return;
+    const maxWait = 1500;
+    const start = Date.now();
+    while (Date.now() - start < maxWait) {
+      const rect = container.getBoundingClientRect();
+      if (rect && rect.width > 0 && rect.height > 0) return;
+      await new Promise(r => requestAnimationFrame(r));
+    }
+  }
+
+  /**
+   * If the container gets non-zero size after we already connected (e.g. hardware form first open),
+   * reconnect the view so the camera feed appears instead of staying black.
+   */
+  _observeContainerResizeOnce() {
+    const container = this.refs?.scanditContainer;
+    if (!container || !this._dataCaptureView || !this._dataCaptureContext) return;
+    const rect = container.getBoundingClientRect();
+    if (rect && rect.width > 0 && rect.height > 0) return;
+    const observer = new ResizeObserver(() => {
+      const r = container.getBoundingClientRect();
+      if (!r || r.width <= 0 || r.height <= 0) return;
+      observer.disconnect();
+      this._containerResizeObserver = null;
+      try {
+        this._dataCaptureView.connectToElement(container);
+        if (!this._boundingBoxCanvas || !container.contains(this._boundingBoxCanvas)) {
+          this._createBoundingBoxOverlay();
+        } else {
+          this._resizeBoundingBoxCanvas();
+        }
+        this._startCameraMonitoring();
+        this._drawBoundingBoxes(this._currentBarcodes || []);
+      } catch (err) {
+        console.warn('BarcodeScanner: error reconnecting on container resize:', err);
+      }
+    });
+    this._containerResizeObserver = observer;
+    observer.observe(container);
+  }
+
   async openScanditModal() {
     if (this._animationFrameId) {
       cancelAnimationFrame(this._animationFrameId);
@@ -634,6 +731,10 @@ export default class BarcodeScanner extends FieldComponent {
       clearTimeout(this._autoFreezeTimeout);
       this._autoFreezeTimeout = null;
     }
+
+    // Always release any existing scanner state so we get a fresh camera and context.
+    // Fixes frozen view when reopening after switching forms (e.g. VIN -> hardware -> back to VIN).
+    await this._releaseScannerResources();
 
     this._openModal();
     this._lastCodes = [];
@@ -666,26 +767,17 @@ export default class BarcodeScanner extends FieldComponent {
     }
 
     try {
-      if (!this._dataCaptureContext) {
-        await this._initializeScandit();
-      } else {
-        if (this._dataCaptureView && this.refs.scanditContainer) {
-          this._dataCaptureView.connectToElement(this.refs.scanditContainer);
-        }
-        
-        if (!this._boundingBoxCanvas || !this._boundingBoxCanvas.parentNode) {
-          this._createBoundingBoxOverlay();
-        } else {
-          this._resizeBoundingBoxCanvas();
-        }
-        
-        this._startLiveScanningMode();
-        this._startCameraMonitoring();
-        this._currentBarcodes = [];
-        this._drawBoundingBoxes(this._currentBarcodes);
-      }
+      // Give the modal two frames to lay out (helps hardware form / tabs where container is 0-sized at first)
+      await new Promise(r => requestAnimationFrame(r));
+      await new Promise(r => requestAnimationFrame(r));
+      // Wait for container to have dimensions so first open on hardware form (or after value change) isn't black
+      await this._waitForContainerReady();
+      // After release above, _dataCaptureContext is always null so we always do full init
+      await this._initializeScandit();
       if (this._dataCaptureContext) {
         await this._setupCamera();
+        // If container was still 0-sized (e.g. hardware form first open), reconnect when it gets size
+        this._observeContainerResizeOnce();
       }
     } catch (error) {
       console.warn("Scanner initialization error (handled):", error);
@@ -749,7 +841,11 @@ export default class BarcodeScanner extends FieldComponent {
             await configure({
                 licenseKey: this._licenseKey,
                 libraryLocation: "/scandit-lib/",
-                moduleLoaders: [barcodeCaptureLoader()]
+                moduleLoaders: [barcodeCaptureLoader()],
+                // Disable SIMD/multithreading to avoid worker error "Uncaught 71695768" when
+                // the page is not crossOriginIsolated (no COOP/COEP headers).
+                overrideSimdSupport: OverrideState.Off,
+                overrideThreadsSupport: OverrideState.Off
             });
             scanditConfigured = true;
         }
@@ -1392,37 +1488,8 @@ export default class BarcodeScanner extends FieldComponent {
         this.refs.freezeButton.style.display = 'none';
       }
 
-      if (this._animationFrameId) {
-        cancelAnimationFrame(this._animationFrameId);
-        this._animationFrameId = null;
-      }
-
-      // Clear auto-freeze timeout
-      if (this._autoFreezeTimeout) {
-        clearTimeout(this._autoFreezeTimeout);
-        this._autoFreezeTimeout = null;
-      }
-
-      if (this._camera) {
-        try {
-          await this._camera.switchToDesiredState(FrameSourceState.Off);
-        } catch (cameraError) {
-          console.warn("Error stopping camera:", cameraError);
-        }
-      }
-
-      this._stopLiveScanningMode();
-
-      if (this._cameraMonitoringInterval) {
-        clearInterval(this._cameraMonitoringInterval);
-        this._cameraMonitoringInterval = null;
-      }
-
-      this._clearBoundingBoxes();
-      this._isVideoFrozen = false;
-      this._showingConfirmation = false;
-      this._confirmingBarcode = false;
-      this._pendingBarcodes = [];
+      // Release camera, dispose context and clear refs so next open gets fresh state
+      await this._releaseScannerResources();
     } catch (e) {
       console.warn("Error in stopScanner:", e);
     } finally {
@@ -1826,6 +1893,69 @@ export default class BarcodeScanner extends FieldComponent {
       }
     } catch (error) {
       console.warn("Error in advanced symbology configuration:", error);
+    }
+  }
+
+  /**
+   * Release camera, stop intervals, dispose Scandit context and null refs.
+   * Call this when closing the scanner so the next open gets a fresh context
+   * and the correct container (avoids blank/frozen when switching forms).
+   */
+  async _releaseScannerResources() {
+    try {
+      if (this._animationFrameId) {
+        cancelAnimationFrame(this._animationFrameId);
+        this._animationFrameId = null;
+      }
+      if (this._autoFreezeTimeout) {
+        clearTimeout(this._autoFreezeTimeout);
+        this._autoFreezeTimeout = null;
+      }
+      if (this._camera) {
+        try {
+          await this._camera.switchToDesiredState(FrameSourceState.Off);
+        } catch (cameraError) {
+          console.warn("Error stopping camera on release:", cameraError);
+        }
+        this._camera = null;
+      }
+      this._stopLiveScanningMode();
+      if (this._cameraMonitoringInterval) {
+        clearInterval(this._cameraMonitoringInterval);
+        this._cameraMonitoringInterval = null;
+      }
+      if (this._containerResizeObserver) {
+        this._containerResizeObserver.disconnect();
+        this._containerResizeObserver = null;
+      }
+      this._clearBoundingBoxes();
+      this._isVideoFrozen = false;
+      this._showingConfirmation = false;
+      this._confirmingBarcode = false;
+      this._pendingBarcodes = [];
+
+      if (this._barcodeBatch) {
+        this._barcodeBatch = null;
+      }
+      if (this._barcodeCapture) {
+        try {
+          this._barcodeCapture.removeFromContext();
+        } catch (e) {
+          console.warn("Error removing barcode capture:", e);
+        }
+        this._barcodeCapture = null;
+      }
+      if (this._dataCaptureContext) {
+        try {
+          this._dataCaptureContext.dispose();
+        } catch (e) {
+          console.warn("Error disposing DataCaptureContext:", e);
+        }
+        this._dataCaptureContext = null;
+      }
+      this._dataCaptureView = null;
+    } catch (error) {
+      console.warn("Error in _releaseScannerResources (handled):", error);
     }
   }
 
@@ -2448,11 +2578,16 @@ export default class BarcodeScanner extends FieldComponent {
     }
 
     if (this._barcodeBatch) {
-      this._barcodeBatch.removeFromContext();
+      this._barcodeBatch = null;
     }
 
     if (this._barcodeCapture) {
-      this._barcodeCapture.removeFromContext();
+      try {
+        this._barcodeCapture.removeFromContext();
+      } catch (e) {
+        console.warn("Error removing barcode capture:", e);
+      }
+      this._barcodeCapture = null;
     }
 
     if (this._dataCaptureContext) {
@@ -2463,6 +2598,10 @@ export default class BarcodeScanner extends FieldComponent {
     if (this._cameraResizeObserver) {
       this._cameraResizeObserver.disconnect();
       this._cameraResizeObserver = null;
+    }
+    if (this._containerResizeObserver) {
+      this._containerResizeObserver.disconnect();
+      this._containerResizeObserver = null;
     }
 
     if (this._resizeTimeout) {
