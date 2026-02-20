@@ -40,6 +40,28 @@ export default class BarcodeScanner extends FieldComponent {
     );
   }
 
+  /**
+   * Shared reconnect flow used by redraw and ResizeObserver code paths.
+   */
+  _reconnectScannerViewAndOverlay(container = this.refs?.scanditContainer) {
+    if (!container || !this._dataCaptureContext || !this._dataCaptureView) return;
+
+    this._dataCaptureView.connectToElement(container);
+    const containerHasCanvas = this._boundingBoxCanvas && container.contains(this._boundingBoxCanvas);
+    if (!containerHasCanvas) {
+      // Remove stale window listeners from the previous overlay
+      if (this._resizeHandler) {
+        window.removeEventListener('resize', this._resizeHandler);
+        window.removeEventListener('orientationchange', this._resizeHandler);
+      }
+      this._createBoundingBoxOverlay();
+    } else {
+      this._resizeBoundingBoxCanvas();
+    }
+    this._startCameraMonitoring();
+    this._drawBoundingBoxes(this._currentBarcodes || []);
+  }
+
   static get builderInfo() {
     return {
       title: "Barcode Scanner",
@@ -455,20 +477,7 @@ export default class BarcodeScanner extends FieldComponent {
     if (!this._dataCaptureContext || !this._dataCaptureView || !this.refs?.scanditContainer) return;
     try {
       await this._waitForContainerReady();
-      this._dataCaptureView.connectToElement(this.refs.scanditContainer);
-      const containerHasCanvas = this._boundingBoxCanvas && this.refs.scanditContainer.contains(this._boundingBoxCanvas);
-      if (!containerHasCanvas) {
-        // Remove stale window listeners from the previous overlay
-        if (this._resizeHandler) {
-          window.removeEventListener('resize', this._resizeHandler);
-          window.removeEventListener('orientationchange', this._resizeHandler);
-        }
-        this._createBoundingBoxOverlay();
-      } else {
-        this._resizeBoundingBoxCanvas();
-      }
-      this._startCameraMonitoring();
-      this._drawBoundingBoxes(this._currentBarcodes || []);
+      this._reconnectScannerViewAndOverlay(this.refs.scanditContainer);
     } catch (err) {
       console.warn('BarcodeScanner: error reconnecting view:', err);
     }
@@ -697,6 +706,9 @@ export default class BarcodeScanner extends FieldComponent {
   _observeContainerResizeOnce() {
     const container = this.refs?.scanditContainer;
     if (!container || !this._dataCaptureView || !this._dataCaptureContext) return;
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
     const rect = container.getBoundingClientRect();
     if (rect && rect.width > 0 && rect.height > 0) return;
     const observer = new ResizeObserver(() => {
@@ -705,18 +717,7 @@ export default class BarcodeScanner extends FieldComponent {
       observer.disconnect();
       this._containerResizeObserver = null;
       try {
-        this._dataCaptureView.connectToElement(container);
-        if (!this._boundingBoxCanvas || !container.contains(this._boundingBoxCanvas)) {
-          if (this._resizeHandler) {
-            window.removeEventListener('resize', this._resizeHandler);
-            window.removeEventListener('orientationchange', this._resizeHandler);
-          }
-          this._createBoundingBoxOverlay();
-        } else {
-          this._resizeBoundingBoxCanvas();
-        }
-        this._startCameraMonitoring();
-        this._drawBoundingBoxes(this._currentBarcodes || []);
+        this._reconnectScannerViewAndOverlay(container);
       } catch (err) {
         console.warn('BarcodeScanner: error reconnecting on container resize:', err);
       }
