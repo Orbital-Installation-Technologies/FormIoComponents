@@ -95,8 +95,6 @@ export default class BarcodeScanner extends FieldComponent {
       envKey = this.component.scanditLicenseKey;
     } else if (this.data && this.data.scanditLicenseKey) {
       envKey = this.data.scanditLicenseKey;
-    } else if (typeof window !== 'undefined' && window.__FORMIO_SCANDIT_LICENSE_KEY__) {
-      envKey = window.__FORMIO_SCANDIT_LICENSE_KEY__;
     } else if (typeof process !== 'undefined' && process?.env && process.env.NEXT_PUBLIC_SCANDIT_KEY) {
       envKey = process?.env?.NEXT_PUBLIC_SCANDIT_KEY;
     }
