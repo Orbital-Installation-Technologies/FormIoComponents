@@ -35,14 +35,19 @@ export default class CustomFile extends FileComponent {
     if (file.type.startsWith("image/")) {
       try {
         const img = await this.fileToImage(file);
-        processedBlob = await this.compressImage(img);
+        processedBlob = await this.compressImage(img, file);
       } catch (err) {
         console.error("Compression failed, using original", err);
       }
     }
 
     // --- COLLISION-PROOF SCRAMBLING ---
-    const ext = file.name.substring(file.name.lastIndexOf('.')) || '.jpg';
+    // Use .jpg when compression produced image/jpeg regardless of original extension,
+    // to prevent a MIME-type/extension mismatch that causes a 400 from the /storage/s3 endpoint.
+    const outputType = processedBlob.type || '';
+    const ext = outputType === 'image/jpeg'
+      ? '.jpg'
+      : (file.name.includes('.') ? file.name.substring(file.name.lastIndexOf('.')) : '.jpg');
 
     // 1. Fixed Seed: Use size + high-res timestamp (sub-millisecond)
     const highResTime = typeof performance !== 'undefined' ? performance.now().toString(36).replace('.', '') : '';
@@ -67,7 +72,6 @@ export default class CustomFile extends FileComponent {
     fileToSync.file = scrambledFile;
     fileToSync.name = scrambledName;
     fileToSync.originalName = scrambledName;
-    fileToSync.url = URL.createObjectURL(processedBlob);
 
     if (typeof setTimeout !== 'undefined') {
       setTimeout(() => this.resetFileInputs(), 0);
@@ -185,15 +189,18 @@ export default class CustomFile extends FileComponent {
 
   fileToImage(file) {
     return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error("Failed to load image"));
-        img.src = e.target.result;
+      // createObjectURL is faster than readAsDataURL — no base64 encoding overhead
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(img);
       };
-      reader.onerror = () => reject(new Error("Failed to read file"));
-      reader.readAsDataURL(file);
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("Failed to load image"));
+      };
+      img.src = url;
     });
   }
 
@@ -231,7 +238,7 @@ export default class CustomFile extends FileComponent {
     }
   }
 
-  async compressImage(image) {
+  async compressImage(image, originalFile = null) {
     try {
       const p = await this.loadPica();
       if (!p) {
@@ -248,14 +255,17 @@ export default class CustomFile extends FileComponent {
       // Mobile-friendly: use smaller max size (1200px instead of 1500px)
       const maxDimension = 1200;
 
-      // If the image is already small enough, return original size as Blob
+      // If the image is already small enough, avoid canvas re-encoding
       if (smallest <= maxDimension) {
-        // Convert original image to Blob without resizing
+        // Already a JPEG at the right size — return as-is to avoid a lossy re-encode cycle
+        if (originalFile && originalFile.type === 'image/jpeg') {
+          return originalFile;
+        }
+        // Non-JPEG (PNG, HEIC, WebP…) — convert to JPEG via canvas
         if (typeof document === 'undefined') {
           throw new Error("Document is not available");
         }
         const canvas = document.createElement("canvas");
-        // Ensure canvas doesn't exceed mobile limits
         canvas.width = Math.min(srcW, 4096);
         canvas.height = Math.min(srcH, 4096);
         const ctx = canvas.getContext("2d");
@@ -563,6 +573,9 @@ div.file img:hover {
     if (typeof document === 'undefined' || !this.element) return res;
 
     this.loadImageCssOnce();
+
+    // Pre-load Pica so it's ready before the user picks a file (eliminates first-upload latency)
+    this.loadPica().catch(() => {});
 
     // REMOVE the flag here so it re-scans for new images on every attach
     // this.wrapDefaultImagesOnce = false;
