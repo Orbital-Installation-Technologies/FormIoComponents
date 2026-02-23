@@ -77,42 +77,51 @@ export default class ReviewButton extends FieldComponent {
     }
 }
   }
-  performSmartValidation() {
-  // We return a Promise to maintain compatibility with any 'await' calls in the handler
+  /**
+ * Consolidated Validation
+ * REMOVED 'async' keyword to prevent Webpack "Unexpected Token" error.
+ * Added setTimeout to prevent UI blocking on large forms.
+ */
+performSmartValidation() {
+  // We return a Promise manually; do NOT use the 'async' keyword on the method name
   return new Promise((resolve) => {
-    const invalidFields = new Set();
-    const invalidComponents = new Set();
-    
-    if (!this.root || typeof this.root.everyComponent !== 'function') {
-      return resolve({ invalidFields, invalidComponents });
-    }
-
-    // Perform a single pass over the form tree
-    this.root.everyComponent((component) => {
-      // Skip hidden or non-existent components
-      if (!component || !component.visible || component.component?.hidden) return;
-
-      const type = component.type || component.component?.type;
+    // Wrap in setTimeout to allow the browser to breath/render before heavy processing
+    setTimeout(() => {
+      const invalidFields = new Set();
+      const invalidComponents = new Set();
       
-      // Perform DataGrid logic only if it's a grid
-      if (['datagrid', 'editgrid'].includes(type)) {
-        this.validateDataGridRows(component);
+      if (!this.root || typeof this.root.everyComponent !== 'function') {
+        return resolve({ invalidFields, invalidComponents });
       }
 
-      // Check validity once per component
-      // NEW: Explicitly handle the file validation vs standard validation
-      const isValid = (type === 'file') 
-        ? validateFileComponentWithRelaxedRequired(component)
-        : component.checkValidity(component.data, true);
+      // Perform a single pass over the form tree
+      this.root.everyComponent((component) => {
+        // 1. Skip components that are hidden or destroyed
+        if (!component || !component.visible || component.component?.hidden) return;
 
-      if (!isValid) {
-        invalidFields.add(component.path || component.key);
-        invalidComponents.add(component);
-      }
-    });
+        const type = component.type || component.component?.type;
+        
+        // 2. DataGrid specific logic
+        if (['datagrid', 'editgrid'].includes(type)) {
+          this.validateDataGridRows(component);
+        }
 
-    // Resolve the promise with the collected results
-    resolve({ invalidFields, invalidComponents });
+        // 3. Perform Validation
+        // Use the relaxed file validation for 'file' type, standard for others
+        const isValid = (type === 'file') 
+          ? validateFileComponentWithRelaxedRequired(component)
+          : component.checkValidity(component.data, true);
+
+        if (!isValid) {
+          // Store both the path (for data lookup) and the component (for UI manipulation)
+          invalidFields.add(component.path || component.key);
+          invalidComponents.add(component);
+        }
+      });
+
+      // 4. Return the collected results
+      resolve({ invalidFields, invalidComponents });
+    }, 1); // 1ms delay is enough to unblock the event loop
   });
 }
   init() {
