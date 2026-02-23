@@ -69,8 +69,13 @@ export default class ReviewButton extends FieldComponent {
     if (typeof clearValidationCaches === 'function') clearValidationCaches();
     if (typeof clearDataProcessingCache === 'function') clearDataProcessingCache();
     
-    // IMPROVEMENT: Explicitly signal to the browser that we are done with heavy processing
-    console.log("Review resources cleared. Battery saved.");
+    if (this.root && this.root._topIndexCache) {
+        // NEW: Manually clear the Map to free memory
+        this.root._topIndexCache.clear(); 
+        // NEW: Delete the property from the root
+        delete this.root._topIndexCache; 
+    }
+}
   }
   // 1. Consolidated Validation (Reduction in CPU cycles)
   async performSmartValidation() {
