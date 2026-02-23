@@ -77,14 +77,20 @@ export default class ReviewButton extends FieldComponent {
     }
 }
   }
-  // 1. Consolidated Validation (Reduction in CPU cycles)
-  async performSmartValidation() {
+  performSmartValidation() {
+  // We return a Promise to maintain compatibility with any 'await' calls in the handler
+  return new Promise((resolve) => {
     const invalidFields = new Set();
     const invalidComponents = new Set();
     
+    if (!this.root || typeof this.root.everyComponent !== 'function') {
+      return resolve({ invalidFields, invalidComponents });
+    }
+
     // Perform a single pass over the form tree
     this.root.everyComponent((component) => {
-      if (!component.visible || component.component?.hidden) return;
+      // Skip hidden or non-existent components
+      if (!component || !component.visible || component.component?.hidden) return;
 
       const type = component.type || component.component?.type;
       
@@ -94,6 +100,7 @@ export default class ReviewButton extends FieldComponent {
       }
 
       // Check validity once per component
+      // NEW: Explicitly handle the file validation vs standard validation
       const isValid = (type === 'file') 
         ? validateFileComponentWithRelaxedRequired(component)
         : component.checkValidity(component.data, true);
@@ -104,8 +111,10 @@ export default class ReviewButton extends FieldComponent {
       }
     });
 
-    return { invalidFields, invalidComponents };
-  }
+    // Resolve the promise with the collected results
+    resolve({ invalidFields, invalidComponents });
+  });
+}
   init() {
     super.init();
     this.root.on("submitDone", (submission) => {
