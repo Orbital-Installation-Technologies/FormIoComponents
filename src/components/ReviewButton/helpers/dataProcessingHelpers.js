@@ -446,17 +446,35 @@ export async function collectReviewLeavesAndLabels(root, invalidFields = new Set
       if (k) topIndexMap.set(k, i);
     });
   }
-  const topIndexFor = (comp) => {
-    // IMPROVEMENT: Use a local WeakMap to cache parent lookups during this execution
-    if (topIndexCache.has(comp)) return topIndexCache.get(comp);
-    let p = comp;
-    while (p?.parent && p.parent !== root) p = p.parent;
-    const topKey = p?.component?.key || p?.key;
-    const result = topIndexMap.has(topKey) ? topIndexMap.get(topKey) : -1;
+  function topIndexFor(comp) {
+    // NEW: Immediate safety check for component existence
+    if (!comp) return -1;
   
-    topIndexCache.set(comp, result);
-    return result;
-  };
+    // NEW: Get the root or use the component itself as a fallback root
+    const root = comp.root || (typeof comp.getRoot === 'function' ? comp.getRoot() : null);
+    
+    // NEW: If we still have no root, we cannot use a cache; perform a direct calculation
+    if (!root) {
+        return findComponentIndexInParent(comp); 
+    }
+  
+    // NEW: Initialize the cache map if it's missing on the root
+    if (!root._topIndexCache) {
+      root._topIndexCache = new Map();
+    }
+  
+    // Return cached value if available
+    if (root._topIndexCache.has(comp)) {
+      return root._topIndexCache.get(comp);
+    }
+  
+    // Logic to calculate index...
+    const index = findComponentIndexInParent(comp);
+    
+    // Cache the result for future calls
+    root._topIndexCache.set(comp, index);
+    return index;
+  }
 
   if (root.ready) await root.ready;
   let leaves = [];
@@ -1090,8 +1108,9 @@ function processRemainingComponents(root, safePath, topIndexFor, pushLeaf, index
             panelPath = comp.key;
           }
 
-          const panelFormIndex = topIndexFor(comp);
+          const panelFormIndex = (comp && typeof topIndexFor === 'function') ? topIndexFor(comp) : 0;
           indexByPathMap.set(panelPath, panelFormIndex);
+          
 
           const isWell = containerType === 'well';
 
@@ -1104,6 +1123,7 @@ function processRemainingComponents(root, safePath, topIndexFor, pushLeaf, index
           });
 
           comp.components.forEach(childComp => {
+            if (!childComp) return;
             const childKey = childComp.key || childComp.path || 'child';
             const childPath = `${panelPath}.${childKey}`;
             indexByPathMap.set(childPath, panelFormIndex);
