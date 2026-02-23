@@ -53,12 +53,13 @@ export const shouldFlattenContainer = (t) => {
  */
 export function hasActualFileData (value) {
   if (!value) return false;
+  if (value instanceof File || value instanceof Blob) return true;
   if (value instanceof FileList) return value.length > 0;
   if (Array.isArray(value)) {
     return value.length > 0 && value.some(hasActualFileData);
   }
   // Checking properties is less expensive than deep recursion
-  return !!(v && (v.storage || v.url || v.name || v.size || v.data));
+  return !!(value && (value.storage || value.url || value.name || value.size || value.data));
 };
 
 /**
@@ -325,60 +326,67 @@ export const validateComponentsAndCollectResults = async (root, errorMap, warnin
 
       const componentType = component.type || component.component?.type;
       if (componentType === 'file') {
-        const isRequired = component.component?.validate?.required || component.validate?.required;
-        let hasValue = false;
+        // If it's your custom component, let IT decide if it's valid.
+        if (typeof component.checkValidity === 'function' && component.checkValidity()) {          const isValid = component.checkValidity();
+          if (!isValid) {
+            processComponentErrors(component, errorMap, results, showErrors);
+          }
+        } else {
+          const isRequired = component.component?.validate?.required || component.validate?.required;
+          let hasValue = false;
 
-        const dataValue = component.dataValue;
-        const componentData = component.data;
-        const getValue =  component.getValue && component.getValue();
-        const getValueAsString = component.getValueAsString && component.getValueAsString();
-        const nestedData = component.component?.data;
-        const privateData = component._data;
+          const dataValue = component.dataValue;
+          const componentData = component.data;
+          const getValue =  component.getValue && component.getValue();
+          const getValueAsString = component.getValueAsString && component.getValueAsString();
+          const nestedData = component.component?.data;
+          const privateData = component._data;
 
-        const rootData = root?.data;
-        const submissionData = root?.submission?.data;
-        const componentKey = component.key || component.component?.key;
-        const rootComponentData = rootData && componentKey ? rootData[componentKey] : null;
-        const submissionComponentData = submissionData && componentKey ? submissionData[componentKey] : null;
+          const rootData = root?.data;
+          const submissionData = root?.submission?.data;
+          const componentKey = component.key || component.component?.key;
+          const rootComponentData = rootData && componentKey ? rootData[componentKey] : null;
+          const submissionComponentData = submissionData && componentKey ? submissionData[componentKey] : null;
 
-        const componentPath = component.path || component.key;
+          const componentPath = component.path || component.key;
 
-        const nestedPathData = getNestedValue(rootData, componentPath);
-        const nestedSubmissionPathData = getNestedValue(submissionData, componentPath);
+          const nestedPathData = getNestedValue(rootData, componentPath);
+          const nestedSubmissionPathData = getNestedValue(submissionData, componentPath);
 
-        const candidates = [
-          dataValue, componentData, getValue, getValueAsString,
-          nestedData, privateData, rootComponentData, submissionComponentData,
-          nestedPathData, nestedSubmissionPathData
-        ];
+          const candidates = [
+            dataValue, componentData, getValue, getValueAsString,
+            nestedData, privateData, rootComponentData, submissionComponentData,
+            nestedPathData, nestedSubmissionPathData
+          ];
 
-        hasValue = candidates.some(hasActualFileData);
+          hasValue = candidates.some(hasActualFileData);
 
-        if (!hasValue && component.files && Array.isArray(component.files) && component.files.length > 0) hasValue = true;
-        if (!hasValue && component.element) {
-          const fileInputs = component.element.querySelectorAll('input[type="file"]');
-          for (const input of fileInputs) {
-            if (input.files && input.files.length > 0) {
-              hasValue = true;
-              break;
+          if (!hasValue && component.files && Array.isArray(component.files) && component.files.length > 0) hasValue = true;
+          if (!hasValue && component.element) {
+            const fileInputs = component.element.querySelectorAll('input[type="file"]');
+            for (const input of fileInputs) {
+              if (input.files && input.files.length > 0) {
+                hasValue = true;
+                break;
+              }
             }
           }
-        }
-        const files = component.fileService?.files;
-        if (!hasValue && component.fileService && files && Array.isArray(files) && files.length > 0) {
-          hasValue = true;
-        }
+          const files = component.fileService?.files;
+          if (!hasValue && component.fileService && files && Array.isArray(files) && files.length > 0) {
+            hasValue = true;
+          }
 
-        const isValid = !isRequired || hasValue;
-        if (!isValid) {
-          processComponentErrors(component, errorMap, results, showErrors);
+          const isValid = !isRequired || hasValue;
+          if (!isValid) {
+            processComponentErrors(component, errorMap, results, showErrors);
+          }
+       
         }
         if (includeWarnings && component.warnings?.length) {
           processComponentWarnings(component, warningMap, results);
         }
         return;
       }
-
       // ---------- GPS components ----------
       if (isGpsComponent(component)) {
            const isRequired = !!(component.component?.validate?.required || component.validate?.required);
@@ -449,16 +457,20 @@ export const isFormValid = async (root) => {
             return;
           }
         } else if (type === 'file' && (comp.validate?.required || c.validate?.required)) {
-          const hasValue = 
-            hasActualFileData(c.dataValue) ||
-            hasActualFileData(c.data) ||
-            (rootData && componentKey && hasActualFileData(rootData[componentKey])) ||
-            (submissionData && componentKey && hasActualFileData(submissionData[componentKey])) ||
-            (c.files && Array.isArray(c.files) && c.files.length > 0);
+          if (typeof c.checkValidity === 'function' && c.checkValidity()) {
+            // Component says it is valid, do nothing and continue
+         } else {
+            const hasValue = 
+              hasActualFileData(c.dataValue) ||
+              hasActualFileData(c.data) ||
+              (rootData && componentKey && hasActualFileData(rootData[componentKey])) ||
+              (submissionData && componentKey && hasActualFileData(submissionData[componentKey])) ||
+              (c.files && Array.isArray(c.files) && c.files.length > 0);
 
-          if (!hasValue) {
-            isValid = false;
-            return;
+            if (!hasValue) {
+              isValid = false;
+              return;
+            }
           }
         } else if (!c.checkValidity()) {
           isValid = false;
@@ -801,7 +813,7 @@ export function validateFileComponentWithRelaxedRequired(comp) {
 
   const isRequired = !!(comp.component?.validate?.required || comp.validate?.required);
   if (!isRequired) return true;
-  
+  const checkFile = (val) => typeof hasActualFileData === 'function' ? hasActualFileData(val) : !!val;
   const candidates = [
     comp.dataValue,
     comp.files,
@@ -814,10 +826,13 @@ export function validateFileComponentWithRelaxedRequired(comp) {
     comp.fileList
   ];
 
-  let hasVal = candidates.some(v => hasActualFileData(v));
+  // CHANGED: Use a more explicit variable name 'fileCandidate' instead of 'v' 
+  // to avoid ReferenceErrors caused by minification/shadowing.
+  let hasVal = candidates.some(fileCandidate => checkFile(fileCandidate));
+
   // IMPROVEMENT: Only call expensive getters if local data check fails
   if (!hasVal && typeof comp.getValue === 'function') {
-    hasVal = hasActualFileData(comp.getValue());
+    hasVal = checkFile(comp.getValue());
   }
 
   // IMPROVEMENT: DOM access (querySelectorAll) is very expensive for battery (Layout Thrashing)
@@ -836,8 +851,8 @@ export function validateFileComponentWithRelaxedRequired(comp) {
  
 }
 /**
- * Cleanup function (Optional)
- * IMPROVEMENT: Provide a way to clear caches when the form is destroyed to prevent memory leaks
+ * Clears all validation caches and error states to save battery and memory
+ * @param {Object} comp - Form.io component to clear errors from (optional)
  */
 export function clearValidationCaches() {
   containerCheckCache.clear();
