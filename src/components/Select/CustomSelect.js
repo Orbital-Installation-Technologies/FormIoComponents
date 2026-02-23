@@ -1,3 +1,4 @@
+
 import { Components } from "@formio/js";
 import CustomSelectEditForm from "./CustomSelect.form";
 
@@ -14,107 +15,80 @@ export default class CustomSelect extends SelectComponent {
 
   constructor(...args) {
     super(...args);
-    // Bind the method once to ensure the reference is stable for removeEventListener
-    this.onShowDropdown = this.onShowDropdown.bind(this);
-  } 
+  }
 
   attach(element) {
     const result = super.attach(element);
 
-    // Use Static CSS for Error Icons
-    // Instead of a MutationObserver watching for class changes, we inject a CSS rule.
-    // This is significantly more performant as the browser handles the styling natively.
-    if (!document.getElementById('customSelectStyles')) {
-      const style = document.createElement('style');
-      style.id = 'customSelectStyles';
-      style.innerHTML = `
-        .form-control.ui.fluid.selection.dropdown.is-invalid {
-          background-position: calc(100% - 1.5rem) calc(50% - 0.5px) !important;
-        }
-       
-        .choices {
-          position: relative !important;
-          overflow: visible !important;
-        }
-        .choices__list--dropdown {
-          position: absolute !important;
-          top: 100% !important; /* Forces it right below the input */
-          left: 0 !important;
-          width: 100% !important;
-          z-index: 10000 !important;
-        }
-      `;
-      document.head.appendChild(style);
+    // Store observer for cleanup
+    this.errorIconObserver?.disconnect();
+    // Function to adjust the error icon
+    const adjustErrorIcon = () => {
+      // Look for the error icon inside the parent of the element
+      const errorIcon = element.parentNode.querySelector(
+        '.form-control.ui.fluid.selection.dropdown.is-invalid'
+      );
+
+      if (errorIcon) {
+        errorIcon.style.backgroundPosition = 'calc(100% - 1.5rem) calc(50% - 0.5px)';
+      }
+    };
+    adjustErrorIcon();
+    if (element.parentNode) {
+      this.errorIconObserver = new MutationObserver(() => adjustErrorIcon());
+      this.errorIconObserver.observe(element.parentNode, { childList: true, subtree: true });
     }
 
-    //  Replace MutationObserver with Choices.js Events
-    // Choices.js (the engine Form.io uses) emits events when the dropdown opens.
+    // DYNAMIC DROPDOWN HEIGHT BASED ON SCREEN
     const choicesInstance = this.choices || this._choices;
 
-    if (choicesInstance && choicesInstance.passedElement && choicesInstance?.passedElement?.element) {
-      // We listen specifically for the 'showDropdown' event
-      this.choicesElement = choicesInstance.passedElement.element;
-      this.choicesElement.addEventListener('showDropdown', this.onShowDropdown);
+    if (choicesInstance) {
+      const observer = new MutationObserver(() => {
+        const dropdown = element.parentNode.querySelector(
+          '.choices__list.choices__list--dropdown.is-active'
+        );
+        if (!dropdown) return;
+
+        // Make dropdown overlay content
+        dropdown.style.position = 'absolute';
+        dropdown.style.zIndex = 9999;
+        dropdown.style.width = `${element.offsetWidth}px`;
+
+        const rect = element.getBoundingClientRect();
+        const margin = 10; // Safe margin
+
+        const spaceBelow = window.innerHeight - rect.bottom - margin;
+        const spaceAbove = rect.top - margin;
+
+        let maxHeight = 400;
+
+        // Small screen / rotated landscape adjustment
+        const smallScreenThreshold = 400; // pixels, adjust if needed
+        if (window.innerHeight < smallScreenThreshold) {
+          maxHeight = Math.min(spaceBelow,200); // limit max-height to 200px for tiny screens
+        }
+
+        // Open upwards if more space above
+        if (spaceBelow < 200 && spaceAbove > spaceBelow) {
+          maxHeight = Math.min(spaceAbove, maxHeight);
+          dropdown.style.bottom = `${rect.height}px`; // open upward
+        } else {
+          dropdown.style.bottom = 'auto'; // open downward
+        }
+
+        dropdown.style.top = 'auto';
+        dropdown.style.maxHeight = `${maxHeight}px`;
+        dropdown.style.overflowY = 'auto';
+      });
+
+      observer.observe(element.parentNode, { childList: true, subtree: true });
+      this.dropdownObserver = observer;
     }
 
     return result;
   }
-  // Wrapper to handle the event reference
-  onShowDropdown() {
-    const choicesInstance = this.choices || this._choices;
-    if (choicesInstance) {
-      // 3. RequestAnimationFrame: Move DOM reads/writes to the next browser paint
-      // This prevents "Jank" and reduces CPU overhead
-      window.requestAnimationFrame(() => {
-        this.adjustDropdownLogic(this.element, choicesInstance);
-      });
-    }
-  }
-
-  adjustDropdownLogic(element, choicesInstance) {
-    if (!element || !choicesInstance.containerOuter?.element) return;
-    const dropdown = choicesInstance.containerOuter.element.querySelector(
-      '.choices__list--dropdown'
-    );
-    
-    if (!dropdown) return;
-
-    // Apply your dynamic height and positioning logic
-    dropdown.style.width = `${element.offsetWidth}px`;
-
-    const rect = element.getBoundingClientRect();
-    const margin = 10;
-    const spaceBelow = window.innerHeight - rect.bottom - margin;
-    const spaceAbove = rect.top - margin;
-
-    let maxHeight = 400;
-
-    // Use CSS classes to toggle direction instead of manual 'top/bottom' strings
-    // This allows the browser to optimize the render tree
-    const isUpward = spaceBelow < 200 && spaceAbove > spaceBelow;
-    // Small screen adjustment
-    if (window.innerHeight < 400) {
-      maxHeight = Math.min(spaceBelow, 200);
-    }
-
-
-    if (isUpward) {
-      choicesInstance.containerOuter.element.classList.add('is-flipped');
-      dropdown.style.maxHeight = `${Math.min(spaceAbove, 400)}px`;
-    } else {
-      choicesInstance.containerOuter.element.classList.remove('is-flipped');
-      dropdown.style.maxHeight = `${Math.min(spaceBelow, 400)}px`;
-    }
-
-   
-    dropdown.style.overflowY = 'auto';
-  }
-
   detach() {
-    // 5. CRITICAL: Remove the listener to stop battery drain from memory leaks
-    if (this.choicesElement) {
-      this.choicesElement.removeEventListener('showDropdown', this.onShowDropdown);
-    }
+    this.errorIconObserver?.disconnect();
     return super.detach();
   }
 }
