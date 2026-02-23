@@ -450,32 +450,48 @@ export async function collectReviewLeavesAndLabels(root, invalidFields = new Set
     // NEW: Immediate safety check for component existence
     if (!comp) return -1;
   
-    // NEW: Get the root or use the component itself as a fallback root
+    // NEW: Get the root, ensuring it exists. 
+    // If comp.root is undefined, we use the component itself as a fallback
     const root = comp.root || (typeof comp.getRoot === 'function' ? comp.getRoot() : null);
     
-    // NEW: If we still have no root, we cannot use a cache; perform a direct calculation
     if (!root) {
-        return findComponentIndexInParent(comp); 
+      // If we still have no root, we can't use the cache system, so calculate directly
+      return findComponentIndexInParent(comp);
     }
   
-    // NEW: Initialize the cache map if it's missing on the root
+    // NEW: Initialize the cache Map on the root if it doesn't exist yet
     if (!root._topIndexCache) {
       root._topIndexCache = new Map();
     }
   
-    // Return cached value if available
+    // Check if we already have the index cached
     if (root._topIndexCache.has(comp)) {
       return root._topIndexCache.get(comp);
     }
   
-    // Logic to calculate index...
+    // Helper logic to find the index (usually a loop through parent components)
     const index = findComponentIndexInParent(comp);
     
-    // Cache the result for future calls
+    // Cache the result for future calls during this render cycle
     root._topIndexCache.set(comp, index);
     return index;
   }
-
+  /**
+   * Fallback helper to find index when root/cache is unavailable
+   */
+  function findComponentIndexInParent(comp) {
+    try {
+      let current = comp;
+      // Walk up the tree until we find the direct child of the root form
+      while (current.parent && current.parent !== current.root) {
+        current = current.parent;
+      }
+      // Return the index of that top-level component in the root components array
+      return (current.root?.components || []).indexOf(current);
+    } catch (e) {
+      return 0;
+    }
+  }
   if (root.ready) await root.ready;
   let leaves = [];
   const labelByPathMap = new Map();
