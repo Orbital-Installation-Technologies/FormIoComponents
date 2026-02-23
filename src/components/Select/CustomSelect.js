@@ -1,4 +1,3 @@
-
 import { Components } from "@formio/js";
 import CustomSelectEditForm from "./CustomSelect.form";
 
