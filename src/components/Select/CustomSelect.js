@@ -20,75 +20,85 @@ export default class CustomSelect extends SelectComponent {
   attach(element) {
     const result = super.attach(element);
 
-    // Store observer for cleanup
-    this.errorIconObserver?.disconnect();
-    // Function to adjust the error icon
-    const adjustErrorIcon = () => {
-      // Look for the error icon inside the parent of the element
-      const errorIcon = element.parentNode.querySelector(
-        '.form-control.ui.fluid.selection.dropdown.is-invalid'
-      );
-
-      if (errorIcon) {
-        errorIcon.style.backgroundPosition = 'calc(100% - 1.5rem) calc(50% - 0.5px)';
-      }
-    };
-    adjustErrorIcon();
-    if (element.parentNode) {
-      this.errorIconObserver = new MutationObserver(() => adjustErrorIcon());
-      this.errorIconObserver.observe(element.parentNode, { childList: true, subtree: true });
+    // Use Static CSS for Error Icons
+    // Instead of a MutationObserver watching for class changes, we inject a CSS rule.
+    // This is significantly more performant as the browser handles the styling natively.
+    if (!document.getElementById('customSelectStyles')) {
+      const style = document.createElement('style');
+      style.id = 'customSelectStyles';
+      style.innerHTML = `
+        .form-control.ui.fluid.selection.dropdown.is-invalid {
+          background-position: calc(100% - 1.5rem) calc(50% - 0.5px) !important;
+        }
+       
+        .choices {
+          position: relative !important;
+          overflow: visible !important;
+        }
+        .choices__list--dropdown {
+          position: absolute !important;
+          top: 100% !important; /* Forces it right below the input */
+          left: 0 !important;
+          width: 100% !important;
+          z-index: 10000 !important;
+        }
+      `;
+      document.head.appendChild(style);
     }
 
-    // DYNAMIC DROPDOWN HEIGHT BASED ON SCREEN
+    //  Replace MutationObserver with Choices.js Events
+    // Choices.js (the engine Form.io uses) emits events when the dropdown opens.
     const choicesInstance = this.choices || this._choices;
 
-    if (choicesInstance) {
-      const observer = new MutationObserver(() => {
-        const dropdown = element.parentNode.querySelector(
-          '.choices__list.choices__list--dropdown.is-active'
-        );
-        if (!dropdown) return;
-
-        // Make dropdown overlay content
-        dropdown.style.position = 'absolute';
-        dropdown.style.zIndex = 9999;
-        dropdown.style.width = `${element.offsetWidth}px`;
-
-        const rect = element.getBoundingClientRect();
-        const margin = 10; // Safe margin
-
-        const spaceBelow = window.innerHeight - rect.bottom - margin;
-        const spaceAbove = rect.top - margin;
-
-        let maxHeight = 400;
-
-        // Small screen / rotated landscape adjustment
-        const smallScreenThreshold = 400; // pixels, adjust if needed
-        if (window.innerHeight < smallScreenThreshold) {
-          maxHeight = Math.min(spaceBelow,200); // limit max-height to 200px for tiny screens
-        }
-
-        // Open upwards if more space above
-        if (spaceBelow < 200 && spaceAbove > spaceBelow) {
-          maxHeight = Math.min(spaceAbove, maxHeight);
-          dropdown.style.bottom = `${rect.height}px`; // open upward
-        } else {
-          dropdown.style.bottom = 'auto'; // open downward
-        }
-
-        dropdown.style.top = 'auto';
-        dropdown.style.maxHeight = `${maxHeight}px`;
-        dropdown.style.overflowY = 'auto';
+    if (choicesInstance && choicesInstance.passedElement) {
+      // We listen specifically for the 'showDropdown' event
+      choicesInstance.passedElement.element.addEventListener('showDropdown', () => {
+        this.adjustDropdownLogic(element, choicesInstance);
       });
-
-      observer.observe(element.parentNode, { childList: true, subtree: true });
-      this.dropdownObserver = observer;
     }
 
     return result;
   }
+
+
+  adjustDropdownLogic(element, choicesInstance) {
+    const dropdown = choicesInstance.containerOuter.element.querySelector(
+      '.choices__list--dropdown'
+    );
+    
+    if (!dropdown) return;
+
+    // Apply your dynamic height and positioning logic
+    dropdown.style.width = `${element.offsetWidth}px`;
+
+    const rect = element.getBoundingClientRect();
+    const margin = 10;
+    const spaceBelow = window.innerHeight - rect.bottom - margin;
+    const spaceAbove = rect.top - margin;
+
+    let maxHeight = 400;
+
+    // Small screen adjustment
+    if (window.innerHeight < 400) {
+      maxHeight = Math.min(spaceBelow, 200);
+    }
+
+    // Directional logic (Upward vs Downward)
+    if (spaceBelow < 200 && spaceAbove > spaceBelow) {
+      maxHeight = Math.min(spaceAbove, maxHeight);
+      dropdown.style.bottom = `${rect.height}px`; // Open upward
+      dropdown.style.top = 'auto';
+    } else {
+      dropdown.style.bottom = 'auto'; // Open downward
+      dropdown.style.top = '100%';
+    }
+
+    dropdown.style.maxHeight = `${maxHeight}px`;
+    dropdown.style.overflowY = 'auto';
+  }
+
   detach() {
-    this.errorIconObserver?.disconnect();
+
     return super.detach();
   }
 }

@@ -80,6 +80,8 @@ export default class BarcodeScanner extends FieldComponent {
     this._allDetectedBarcodes = []; // Store ALL barcodes for backup field
     this._lastFrameTime = 0; // Throttle frame processing
     this._lastDrawTime = 0; // Throttle bounding box drawing
+    this._frameThrottleMs = 100; // Process frames max once per 100ms
+    this._drawThrottleMs = 50; // Draw bounding boxes max once per 50ms
 
 
     this._frameThrottleMs = 150; // Increased from 100ms: Reduces frequency of session processing

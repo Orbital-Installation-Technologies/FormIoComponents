@@ -90,7 +90,6 @@ export default class CustomFile extends FileComponent {
     }
 
     const uploadedData = await super.uploadFile(fileToSync);
-    
     this.updateImagePreviews();
 
     return uploadedData;
@@ -537,7 +536,10 @@ div.file img:hover {
     const img = document.createElement('img');
     img.src = src;
     img.className = 'custom-file-modal-content';
- img.onclick = (e) => e.stopPropagation();
+
+    // Prevent clicking the image from closing the modal
+    img.onclick = (e) => e.stopPropagation();
+
     overlay.appendChild(closeBtn);
     overlay.appendChild(img);
     document.body.appendChild(overlay);
@@ -546,8 +548,9 @@ div.file img:hover {
     overlay.onclick = closeModal;
     closeBtn.onclick = closeModal;
   }
+
   setValue(value, flags = {}) {
-    //  Standard Form.io update
+    // Normalize to array for consistent handling
     const normalizedValue = value ? (Array.isArray(value) ? value : [value]) : [];
     const changed = super.setValue(normalizedValue, flags);
 
