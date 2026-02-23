@@ -1,4 +1,98 @@
 /**
+ * Main rendering helpers for ReviewButton component
+ * Contains the main renderLeaves function and related rendering logic
+ */
+
+import { shouldFlattenContainer, isContainerType } from "./validationUtils.js";
+import { findComponentByKey } from "./dataProcessingHelpers.js";
+import { formatValue, firstLeafVal, getInvalidStyle, isFieldInvalid } from "./uiRenderingHelpers.js";
+
+/**
+ * Main renderNode function - renders a node and its children
+ */
+function renderNode(node, depth = 0, rootInstance = null, invalidFields = new Set(), basePath = '', invalidComponents = new Set()) {
+  let pad = `padding-left:10px; border-left:1px dotted #ccc;`;
+
+  const sortedEntries = Object.entries(node).sort((a, b) => {
+    const aIsTagpad = a[1]?.__label === 'Tagpad' || a[1]?.__comp?.component?.type === 'tagpad';
+    const bIsTagpad = b[1]?.__label === 'Tagpad' || b[1]?.__comp?.component?.type === 'tagpad';
+
+    if (aIsTagpad && bIsTagpad) {
+      return (a[1]?.__formIndex ?? -1) - (b[1]?.__formIndex ?? -1);
+    }
+
+    if (aIsTagpad) return (a[1]?.__formIndex ?? -1) - (a[1]?.__formIndex ?? 0);
+    if (bIsTagpad) return (a[1]?.__formIndex ?? 0) - (b[1]?.__formIndex ?? -1);
+
+    return (a[1]?.__formIndex ?? -1) - (b[1]?.__formIndex ?? -1);
+  });
+
+  return sortedEntries.map(([k, v], index) => {
+    const isAddressComponentRender = v.__comp?.component?.type === 'address' || v.__comp?.type === 'address';
+    
+    // Check if component is invalid FIRST - if invalid, always show it regardless of visibility
+    const isInvalid = isFieldInvalid(v.__comp, k, invalidFields) || invalidComponents.has(v.__comp);
+    
+    // If component is invalid, skip all visibility checks and show it
+    if (!isInvalid) {
+      if (v.__comp?._visible == false || v.__comp?.type === 'datasource') {
+        return '';
+      }
+      
+      if (v.__comp?.component?.hidden === true || v.__comp?.hidden === true) {
+        return '';
+      }
+      
+      if (v.__comp?.disabled === true || v.__comp?.component?.disabled === true) {
+        if (v.__comp?.component?.reviewVisible !== true) {
+          return '';
+        }
+      }
+      
+      const isRequired = v.__comp?.component?.validate?.required === true;
+      const isReviewVisible = v.__comp?.component?.reviewVisible === true;
+      
+      if (isRequired && !isReviewVisible) {
+        return '';
+      }
+      
+      if (!isRequired && !isReviewVisible && !isAddressComponentRender) {
+        return '';
+      }
+    }
+
+    if (v.__comp?.parent?.type === 'datamap') {
+      if (index === 0) {
+        delete v.__comp;
+      } else if (v?.__rows) {
+        v.__children = {};
+        Object.values(v.__rows).forEach(row => {
+          if (row?.__children) {
+            Object.entries(row.__children).forEach(([childKey, childVal]) => {
+              v.__children[childVal.__label] = childKey;
+            });
+          }
+        });
+        v.__rows = {};
+      }
+    }
+
+    if (/^\d+\]$/.test(k) || v?.__comp == undefined) {
+        return v && typeof v === 'object' ? renderNode(v.__children || {}, depth, rootInstance, invalidFields, basePath, invalidComponents) : '';
+    }
+
+    if (v && v.__leaf) {
+      return renderLeafNode(v, k, depth, basePath, invalidFields, invalidComponents);
+    }
+
+    if (v && typeof v === 'object') {
+        return renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath, pad, invalidComponents);
+    }
+    return '';
+  }).join('');
+}
+
+/**
  * Main function to render leaves into HTML
  */
 export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPath, indexByPath, rootInstance, invalidFields = new Set(), invalidComponents = new Set()) {
@@ -529,513 +623,501 @@ export function renderLeaves(leaves, labelByPath, suppressLabelForKey, metaByPat
 }
 
 /**
- * Creates and configures the review modal DOM element
+ * Renders a leaf node
  */
+function renderLeafNode(v, k, depth, basePath, invalidFields, invalidComponents = new Set()) {
+  const isFormComponent = v.__comp?.type === 'form' || v.__comp?.component?.type === 'form';
+  const val = firstLeafVal(v);
+  const isTagpadDot = (v.__comp?.type === 'tagpad') || (v.__comp?.parent?.type === 'tagpad');
+  const isEmptyDatagrid = val && typeof val === 'object' && val._empty === true;
 
-export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, supportNumber, showSupportFields = true, errorDetails = []) {
-  if (typeof document !== "undefined" && !document.getElementById("customDropdownStyle")) {
-    const styleTag = document.createElement("style");
-    styleTag.id = "customDropdownStyle";
-    styleTag.textContent = customCSS;
-    document.head.appendChild(styleTag);
+  // Check if this component is invalid using multiple path variations
+  // The component's actual path might differ from the rendered path
+  // e.g., leaf path: "hardwareForm.data.dataGrid[0].panel.panel1.picOfSn4"
+  //      invalid field: "hardwareForm.data.dataGrid[0].picOfSn4"
+  // Trim trailing spaces from keys
+  const trimKey = (k) => typeof k === 'string' ? k.trimEnd() : k;
+  const compPath = trimKey(v.__comp?.path || v.__comp?.key || v.__comp?.component?.key || '');
+  const compKey = trimKey(v.__comp?.key || v.__comp?.component?.key || '');
+  const fullPath = basePath ? `${basePath}.${trimKey(k)}` : trimKey(k);
+  
+  // Check multiple path variations to catch invalid fields
+  // Use the component's actual path for matching
+  const invalidStyle = getInvalidStyle(v.__comp, compPath || fullPath, basePath, invalidFields, invalidComponents);
+
+  if (isFormComponent) {
+    return renderFormComponent(v, k, depth, basePath, invalidFields, invalidComponents);
+  } else if (isEmptyDatagrid) {
+    return `<div idx="7" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${invalidStyle}">${v.__label || k}:</strong> <span style="font-style: italic; color: #666;">No data to display</span></div>`;
+  } else if (isTagpadDot) {
+    return `<div idx="5" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${invalidStyle}">${v.__label || k}:</strong> ${val}</div>`;
+  } else if (val && typeof val === 'string' && val.includes('__TEXTAREA__')) {
+    const textareaContent = val.replace(/__TEXTAREA__/g, '');
+    return `<div idx="6" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc; display: flex; align-items: flex-start;">
+              <strong style="${invalidStyle}">${v.__label || k}:</strong>
+              ${textareaContent}
+            </div>`;
+  } else {
+    return `<div idx="6" depth="${depth}" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${invalidStyle}">${v.__label || k}:</strong> ${val}</div>`;
   }
-  const modal = document.createElement("div");
+}
 
-  modal.style.zIndex = "1000";
-  modal.style.setProperty('overflow-y', 'auto', 'important');
-  modal.className = "fixed top-0 left-0 w-full h-screen inset-0 bg-black bg-opacity-50 flex items-center justify-center";
-  document.body.classList.add("no-scroll"); // block page scroll
-  modal.innerHTML = `
-    <div class="bg-white p-6 rounded shadow-md w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-      <h2 class="text-xl font-semibold mb-4">Review Form Data</h2>
-      <div idx="22" class="mb-4 text-sm" style="max-height:200px; overflow-y:auto; border:1px solid #ccc; padding:8px;">
-        ${reviewHtml}
-      </div>
-      ${hasErrors ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-         <p class="text-red-700 font-medium">⚠️ Fix the errors in the form before submitting</p>
-      </div>` : ''}
+/**
+ * Renders a form component
+ */
+function renderFormComponent(v, k, depth, basePath, invalidFields, invalidComponents = new Set()) {
+  const formValue = v.__value || {};
+  let formContentHtml = '<div idx="10" depth="${depth}" style="padding-left: 10px;">';
+
+  if (typeof formValue === 'object' && !Array.isArray(formValue)) {
+    const contentItems = Object.entries(formValue)
+      .filter(([fieldKey, fieldVal]) => fieldVal !== null && fieldVal !== undefined)
+      .map(([fieldKey, fieldVal]) => {
+        const displayVal = typeof fieldVal === 'object'
+          ? JSON.stringify(fieldVal)
+          : String(fieldVal);
+        const fieldPath = `${k}.${fieldKey}`;
+        return `<div idx="2" depth="${depth}" style="margin-left:10px; padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(v.__comp, fieldPath, basePath, invalidFields, invalidComponents)}">${fieldKey}:</strong> ${displayVal}</div>`;
+      })
+      .join('');
+    formContentHtml += contentItems;
+  }
+
+  formContentHtml += '</div>';
+
+  return `
+    <div idx="1" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields, invalidComponents)}">${v.__label || k}:</strong></div>
+    ${formContentHtml || `<div idx="3" style="padding-left: 10px;"><div idx="4" style="padding-left:10px; border-left:1px dotted #ccc;">(No data)</div></div>`}
+  `;
+}
+
+/**
+ * Renders a container node
+ */
+function renderContainerNode(v, k, depth, rootInstance, invalidFields, basePath, pad, invalidComponents = new Set()) {
+  if (!v.__label) {
+    const foundComponent = findComponentByKey(rootInstance, k);
+    if (foundComponent) {
+      v.__label = foundComponent.component.component?.label || foundComponent.component.label || k;
+    } else {
+      v.__label = k;
+    }
+  }
+
+  const hasChildren = v.__children && Object.keys(v.__children).length;
+  const hasRows = v.__rows && Object.keys(v.__rows).length;
+  const isDataGridComponent = v.__kind === 'datagrid' || v.__kind === 'datatable' || v.__kind === 'editgrid';
+  const isDataTableComponent = v.__comp?.component?.type === 'datatable' || v.__comp?.type === 'datatable';
+  const isTableComponent = v.__comp?.component?.type === 'table' || v.__comp?.type === 'table';
+  const isContainerComponent = 
+      !isDataGridComponent && !isDataTableComponent && !isTableComponent &&
+      ((isContainerType([v.__comp?.component?.type, v.__comp?.type, v.__value?._type]) ) || 
+      Array.isArray(v.__value?._row));
+
+  const displayLabel = v.__suppress ? '' : (v.__label || (k === 'form' ? '' : k + " - missing __label") );
+  
+  let headerStyle = ""
+  const header = `<div idx="12" style="${headerStyle}">`;
+
+  if (isDataTableComponent && v.__comp) {
+    const comp = v.__comp;
+    const mockValue = { _type: 'datatable' };
+    const tableHtml = formatValue(mockValue, comp);
+    
+    return `${header}<div style="margin-bottom:10px;"><strong>${displayLabel}</strong></div>${tableHtml}</div>`;
+  }
+
+  if (isTableComponent && v.__comp) {
+    const comp = v.__comp;
+    const mockValue = { _type: 'table' };
+    const tableHtml = formatValue(mockValue, comp);
+    
+    return `${header}<div style="margin-bottom:10px;"><strong>${displayLabel}</strong></div>${tableHtml}</div>`;
+  }
+
+  if (isContainerComponent) {
+    return renderContainerComponent(v, k, depth, rootInstance, invalidFields, basePath, pad, hasChildren);
+  } else {
+    headerStyle += "border-left:1px dotted #ccc;"
+  }
+
+  const conditionMet = (v.__kind === 'datagrid' || v.__kind === 'datatable' || v.__kind === 'editgrid') && hasRows;
+  const isDataGridWithNoRows = (v.__kind === 'datagrid' || v.__kind === 'datatable' || v.__kind === 'editgrid') && !hasRows;
+  
+  if (conditionMet) {
+    return renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, header, invalidComponents);
+  }
+  
+  if (isDataGridWithNoRows) {
+    return `${header}<div style="margin-bottom:10px;"><strong>${displayLabel}</strong></div><div style="font-style: italic; color: #666;">No data to display</div></div>`;
+  }
+
+  // Check if this container is nested inside a datagrid row - if so, don't create row labels
+  const isNestedInDatagrid = basePath && (basePath.includes('[0]') || basePath.includes('[1]') || basePath.includes('[2]') || basePath.match(/\[\d+\]/));
+  
+  // If nested in datagrid and has rows, ALWAYS flatten - never create row labels
+  // Also check if this is a panel/well component - they should NEVER create rows when nested in datagrid
+  const isPanelOrWell = v.__comp?.component?.type === 'panel' || v.__comp?.type === 'panel' ||
+                        v.__comp?.component?.type === 'well' || v.__comp?.type === 'well';
+  // Panels/wells inside datagrid rows should ALWAYS flatten, even if they somehow have rows
+  const shouldFlattenRows = isNestedInDatagrid || (isPanelOrWell && isNestedInDatagrid);
+  
+  // CRITICAL: If this is a panel/well and we're inside a datagrid row, NEVER render rows
+  // Force flatten even if hasRows is true - this prevents duplicate "Row 1:" labels
+  if (isPanelOrWell && isNestedInDatagrid && hasRows) {
+    // Flatten immediately - don't create row labels
+    // Merge all row children into a single flat structure
+    const allFlattenedChildren = {};
+    Object.entries(v.__rows).forEach(([i, r]) => {
+      if (r.__children) {
+        Object.assign(allFlattenedChildren, r.__children);
+      }
+    });
+    // Also include direct children if any
+    if (v.__children) {
+      Object.assign(allFlattenedChildren, v.__children);
+    }
+    // Render all children directly without row labels
+    const flattenedContent = Object.keys(allFlattenedChildren).length > 0
+      ? renderNode(allFlattenedChildren, depth, rootInstance, invalidFields, basePath ? `${basePath}.${k}` : k, invalidComponents, true)
+      : '';
+    return `${header}${flattenedContent}</div>`;
+  }
+  
+  // Also check: if panel/well is nested and has children but no rows, render children directly
+  if (isPanelOrWell && isNestedInDatagrid && !hasRows && hasChildren) {
+    return `${header}${renderNode(v.__children, depth, rootInstance, invalidFields, basePath ? `${basePath}.${k}` : k, invalidComponents, true)}</div>`;
+  }
+  
+  const childrenHtml = [
+    hasRows && !shouldFlattenRows
+      ? `<ul style="list-style-type:circle; padding-left:30px; margin:0; border-left:1px dotted #ccc;">${(() => {
+        return Object.entries(v.__rows).map(([i, r]) => {
+          const isTagpad = k === 'tagpad' ||
+            v.__label === 'Tagpad' ||
+            v.__comp?.component?.type === 'tagpad' ||
+            v.__comp?.type === 'tagpad';
+          const rowLabel = isTagpad ? `Tag ${Number(i) + 1}` : `Row ${Number(i) + 1}`;
+
+          const rowHasErrors = isRowInvalid(r, k, parseInt(i), invalidFields, invalidComponents);
+          const rowLabelStyle = rowHasErrors ? 'background-color:rgb(255 123 123); border-radius: 3px;' : '';
+
+          const hasChildren = r.__children && Object.keys(r.__children).length;
+          const content = hasChildren
+            ? renderNode(r.__children, depth + 1, rootInstance, invalidFields, `${basePath ? basePath + '.' : ''}${k}[${i}]`, invalidComponents, true)
+            : ``;
+
+          const rowClass = isTagpad ? 'tagpad-row' : 'data-row';
+
+          return `<li class="${rowClass}" style="margin-left:0 !important; padding-left: 0 !important;"><strong style="${rowLabelStyle}">${rowLabel}:</strong>${content}</li>`;
+        }).join('');
+      })()}</ul>` : 
+    hasRows && shouldFlattenRows
+      ? (() => {
+          // Flatten nested rows - don't create row labels, just render children directly
+          // This prevents duplicate "Row 1:" labels when panels are nested in datagrid rows
+          const flattenedContent = Object.entries(v.__rows).map(([i, r]) => {
+            const hasChildren = r.__children && Object.keys(r.__children).length;
+            return hasChildren
+              ? renderNode(r.__children, depth, rootInstance, invalidFields, `${basePath ? basePath + '.' : ''}${k}[${i}]`, invalidComponents, true)
+              : '';
+          }).join('');
+          return flattenedContent;
+        })() : '',
+    hasChildren ? renderNode(v.__children, depth + 1, rootInstance, invalidFields, basePath ? `${basePath}.${k}` : k, invalidComponents, shouldFlattenRows || isNestedInDatagrid) : ''
+  ].join('');
+  return `${header}${childrenHtml}</div>`;
+}
+
+/**
+ * Renders container components
+ */
+function renderContainerComponent(v, k, depth, rootInstance, invalidFields, basePath, pad, hasChildren) {
+  let panelChildrenHtml = '';
+
+  if (hasChildren) {
+    const containerPath = basePath ? `${basePath}.${k}` : k;
+    panelChildrenHtml = renderNode(v.__children, depth + 1, rootInstance, invalidFields, containerPath, invalidComponents);
+  } else if (v.__comp && Array.isArray(v.__comp.components) && v.__comp.components.length > 0) {
+    const artificialChildren = {};
+    v.__comp.components.forEach((comp, index) => {
+      if (comp && comp.key) {
+        artificialChildren[comp.key] = {
+          __label: comp.label || comp.key,
+          __comp: comp,
+          __leaf: !comp.components || comp.components.length === 0,
+          __value: comp.defaultValue || '',
+          __children: comp.components && comp.components.length > 0 ? 
+            comp.components.reduce((acc, child, idx) => {
+              if (child && child.key) {
+                acc[child.key] = {
+                  __label: child.label || child.key,
+                  __comp: child,
+                  __leaf: !child.components || child.components.length === 0,
+                  __value: child.defaultValue || ''
+                };
+              }
+              return acc;
+            }, {}) : {}
+        };
+      }
+    });
+    
+    const containerPath = basePath ? `${basePath}.${k}` : k;
+     
+    if (v?.__comp?.editRows && Array.isArray(v.__comp.editRows)) {
+      const transformedEditRows = {};
       
- ${!hasErrors && showSupportFields ? `
-      <div class="flex space-x-4 mb-4">
-        <div class="text-sm w-1/2">
-          <label class="block font-medium mb-1">Support Number</label>
-          <input type="text" id="supportNumber" class="w-full border rounded p-2 text-sm bg-gray-100" value="${supportNumber}" disabled />
+      v.__comp.editRows.forEach((row, rowIdx) => {
+        const rowKey = `Row ${rowIdx + 1}`;
+        transformedEditRows[rowKey] = {
+          __children: {},
+          __comp: v.__comp
+        };
+        
+        if (row.components && Array.isArray(row.components)) {
+          row.components.forEach(comp => {
+            const compKey = comp.key || comp.component?.key || 'unknown';
+            const compValue = row.data && row.data[compKey] ? row.data[compKey] : (comp.getValue ? comp.getValue() : comp.dataValue);
+            const compLabel = comp.component?.label || comp.label || compKey;
+            
+            transformedEditRows[rowKey].__children[compKey] = {
+              __leaf: true,
+              __label: compLabel,
+              __value: compValue,
+              __comp: comp,
+              __children: {},
+              __rows: {}
+            };
+          });
+        }
+      });
+      
+      panelChildrenHtml = renderNode(transformedEditRows, depth + 1, rootInstance, invalidFields, containerPath, invalidComponents);
+    } else {
+      panelChildrenHtml = renderNode(artificialChildren, depth + 1, rootInstance, invalidFields, containerPath, invalidComponents);
+    }
+  }
+
+  const customStructure = v.__value && v.__value._type && v.__value._row;
+  if (customStructure) {
+    const containerType = v.__value._type;
+    const containerLabel = v.__value._label || displayLabel || containerType;
+    let customChildrenHtml = '';
+
+    if (Array.isArray(v.__value._row)) {
+      customChildrenHtml = v.__value._row.map(item => {
+        if (item._children) {
+          const childLabel = item._children._label || '';
+          const childValue = item._children._value || '';
+          const childPath = item._children._key || childLabel;
+          return `<div idx="13" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(item._children, childPath, basePath, invalidFields, invalidComponents)}">${childLabel}:</strong> ${childValue}</div>`;
+        } else if (item._row && Array.isArray(item._row)) {
+          return item._row.map(cell => {
+            if (cell._children) {
+              const cellLabel = cell._children._label || '';
+              const cellValue = cell._children._value || '';
+              const cellPath = cell._children._key || cellLabel;
+              return `<div idx="14" style="padding-left:10px; border-left:1px dotted #ccc;"><strong style="${getInvalidStyle(cell._children, cellPath, basePath, invalidFields, invalidComponents)}">${cellLabel}:</strong> ${cellValue}</div>`;
+            }
+            return '';
+          }).join('');
+        }
+        return '';
+      }).join('');
+    }
+
+    return `
+      <div idx="15" style="padding-left:10px; margin-left:0px; border-left:1px dotted #ccc;">
+        <strong style="${getInvalidStyle(v.__comp, k, basePath, invalidFields, invalidComponents)}">${containerLabel}</strong>
+        <div idx="16" style="padding-left: 10px;">
+          ${customChildrenHtml || panelChildrenHtml}
         </div>
-        <div class="custom-dropdown">
-          <label class="dropdown-label">Verified</label>
-          <div id="verified" class="dropdown-selected w-full border rounded p-2 text-sm" tabindex="0" data-value="Empty">
-            <span class="selected-text">Select verification type</span>
-            <i class="dropdown icon"></i> 
-          </div>
-          <ul class="dropdown-list">
-            <li data-value="Empty">Select verification type</li>
-            <li data-value="App">App</li>
-            <li data-value="Support">Support</li>
-            <li data-value="Not Verified">Not Verified</li>
-          </ul>
-        </div>
-        <div id="selected-value"></div>
-      </div>` : ''}
-      <div idx="23" class="mb-4 text-sm w-full" id="screenshotWrapper" style="display: none;">
-        <label for="screenshotContainer">Screenshot Upload<span class="text-red-500">(Required)*</label>
-        <div id="screenshotContainer"></div>
-      </div>
-      <div idx="24" class="mb-4 text-sm w-full" id="notesOptionalWrapper" style="display: none;">
-        <label class="block font-medium mb-1">Notes (optional)</label>
-        <textarea id="notesOptional" class="w-full border rounded p-2 text-sm"></textarea>
-      </div>
-      <div idx="25" class="mb-4 text-sm w-full" id="notesRequiredWrapper" style="display: none;">
-        <label class="block font-medium mb-1">Explain why not verified<span class="text-red-500">(Required)*</span></label>
-        <textarea id="notesRequired" class="w-full border rounded p-2 text-sm"></textarea>
-      </div>
-      <div class="mt-4 flex justify-end space-x-4">
-        <button class="px-4 py-2 btn btn-primary rounded" id="cancelModal">${hasErrors ? 'Close' : 'Cancel'}</button>
-        ${!hasErrors ? '<button class="px-4 py-2 btn btn-primary rounded" id="submitModal">Submit</button>' : ''}
       </div>
     `;
-
-  return modal;
-}
-
-/**
- * Validates the modal form fields
- */
-export function validateModalForm(modal, screenshotComp, formData = null, requireSupportFields = true) {
-  let hasErrors = false;
-
-  if (requireSupportFields) {
-    const verifiedElement = modal.querySelector("#verified");
-    const selectedVerificationType = verifiedElement ? verifiedElement.getAttribute('data-value') : "Empty";
-
-    if (verifiedElement && selectedVerificationType === "Empty") {
-      verifiedElement.style.border = "2px solid red";
-      verifiedElement.classList.add("invalid-field");
-      hasErrors = true;
-    } else if (verifiedElement) {
-      verifiedElement.style.border = "";
-      verifiedElement.classList.remove("invalid-field");
-    }
-    const supportNumberElement = modal.querySelector("#supportNumber");
-    if (supportNumberElement && !supportNumberElement.value.trim()) {
-      supportNumberElement.style.border = "2px solid red";
-      supportNumberElement.classList.add("invalid-field");
-      hasErrors = true;
-    } else if (supportNumberElement) {
-      supportNumberElement.style.border = "";
-      supportNumberElement.classList.remove("invalid-field");
-    }
-  }
-
-  if (requireSupportFields) {
-    const verifiedElement = modal.querySelector("#verified");
-    const selectedVerificationType = verifiedElement ? verifiedElement.getAttribute('data-value') : "Empty";
-    const screenshotWrapper = modal.querySelector("#screenshotWrapper");
-    const isScreenshotVisible = screenshotWrapper && screenshotWrapper.style.display !== "none";
-
-    if ((selectedVerificationType === "App" || selectedVerificationType === "Support") && isScreenshotVisible) {
-      const uploadedFiles = screenshotComp ? (screenshotComp.getValue() || []) : [];
-
-      if (uploadedFiles.length === 0) {
-        const screenshotContainer = modal.querySelector("#screenshotContainer");
-        if (screenshotContainer) {
-          screenshotContainer.style.border = "2px solid red";
-          hasErrors = true;
-        }
-      } else if (modal.querySelector("#screenshotContainer")) {
-        modal.querySelector("#screenshotContainer").style.border = "";
-      }
-    } else {
-      const screenshotContainer = modal.querySelector("#screenshotContainer");
-      if (screenshotContainer) {
-        screenshotContainer.style.border = "";
-        screenshotContainer.classList.remove("invalid-field");
-        const childElements = screenshotContainer.querySelectorAll("*");
-        childElements.forEach(el => {
-          el.style.border = "";
-          el.classList.remove("invalid-field");
-        });
-      }
-    }
-
-    if (selectedVerificationType === "Not Verified") {
-      const notesRequiredElement = modal.querySelector("#notesRequired");
-      if (notesRequiredElement && !notesRequiredElement.value.trim()) {
-        notesRequiredElement.style.border = "2px solid red";
-        notesRequiredElement.classList.add("invalid-field");
-        hasErrors = true;
-      } else if (notesRequiredElement) {
-        notesRequiredElement.style.border = "";
-        notesRequiredElement.classList.remove("invalid-field");
-      }
-    }
-  }
-
-  let hasFormData = true;
-  if (formData) {
-    hasFormData = checkFormHasData(formData);
-  }
-
-  const submitButton = modal.querySelector("#submitModal");
-  if (submitButton && submitButton.style != null) {
-    if (hasErrors || !hasFormData) {
-      submitButton.style.backgroundColor = "gray";
-      submitButton.style.cursor = "not-allowed";
-      submitButton.disabled = true;
-    } else {
-      submitButton.style.backgroundColor = "";
-      submitButton.style.cursor = "pointer";
-      submitButton.disabled = false;
-    }
-  }
-
-  return hasErrors;
-}
-
-/**
- * Checks if the form has meaningful data
- */
-function checkFormHasData(formData) {
-  if (!formData || typeof formData !== 'object') {
-    return false;
-  }
-
-  const hasData = Object.values(formData).some(value => {
-    if (value === null || value === undefined || value === '') {
-      return false;
-    }
-    if (Array.isArray(value)) {
-      return value.length > 0 && value.some(item =>
-        item !== null && item !== undefined && item !== ''
-      );
-    }
-    if (typeof value === 'object') {
-      return Object.keys(value).length > 0 && Object.values(value).some(v =>
-        v !== null && v !== undefined && v !== ''
-      );
-    }
-    return true;
-  });
-
-  return hasData;
-}
-
-/**
- * Sets up screenshot component in the modal
- */
-export function setupScreenshotComponent(modal, screenshotComp, validateModalForm, formData = null, requireSupportFields = true) {
-  if (!screenshotComp) return null;
-  const screenshotContainer = modal.querySelector("#screenshotContainer");
-  if (!screenshotContainer) return null;
-
-  const html = screenshotComp.render();
-  const tmp = document.createElement("div");
-  tmp.innerHTML = html;
-  const compEl = tmp.firstElementChild;
-  screenshotContainer.appendChild(compEl);
-  screenshotComp.attach(compEl);
-
-  screenshotComp.component.hidden = false;
-  if (typeof screenshotComp.setVisible === "function") {
-    screenshotComp.setVisible(true);
   } else {
-    screenshotComp.visible = true;
-  }
-
-  if (screenshotComp && typeof screenshotComp.on === 'function') {
-    screenshotComp.on('change', () => validateModalForm(modal, screenshotComp, formData, requireSupportFields));
-  }
-
-  return {
-    hide: () => {
-      screenshotComp.component.hidden = true;
-      if (typeof screenshotComp.setVisible === "function") {
-        screenshotComp.setVisible(false);
-      } else {
-        screenshotComp.visible = false;
-      }
-    },
-    show: () => {
-      screenshotComp.component.hidden = false;
-      if (typeof screenshotComp.setVisible === "function") {
-        screenshotComp.setVisible(true);
-      } else {
-        screenshotComp.visible = true;
-      }
+    if (depth >= 1) {
+      pad += `margin-left: 10px;`;
     }
-  };
-}
-
-/**
- * Sets up modal event handlers
- */
-export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, validateModalForm, onSubmit, formData = null, requireSupportFields = true) {
-
-  const verifiedSelect = modal.querySelector("#verified");
-  const screenshotWrapper = modal.querySelector("#screenshotWrapper");
-  const notesOptionalWrapper = modal.querySelector("#notesOptionalWrapper");
-  const notesRequiredWrapper = modal.querySelector("#notesRequiredWrapper");
-
-  if (verifiedSelect) {
-    verifiedSelect.onchange = () => {
-      // const value = verifiedSelect.value;
-      const value = verifiedSelect.getAttribute('data-value');
-      const needShot = value === "App" || value === "Support";
-
-      if (screenshotWrapper) {
-        screenshotWrapper.style.display = needShot ? "block" : "none";
-      }
-      if (notesOptionalWrapper) {
-        notesOptionalWrapper.style.display = needShot ? "block" : "none";
-      }
-      if (notesRequiredWrapper) {
-        notesRequiredWrapper.style.display = value === "Not Verified" ? "block" : "none";
-      }
-
-      if (needShot && hideScreenshot && typeof hideScreenshot.show === 'function') {
-        hideScreenshot.show();
-      } else if (!needShot && hideScreenshot && typeof hideScreenshot.hide === 'function') {
-        hideScreenshot.hide();
-        const screenshotContainer = modal.querySelector("#screenshotContainer");
-        if (screenshotContainer) {
-          screenshotContainer.style.border = "";
-          screenshotContainer.classList.remove("invalid-field");
-          const childElements = screenshotContainer.querySelectorAll("*");
-          childElements.forEach(el => {
-            el.style.border = "";
-            el.classList.remove("invalid-field");
-          });
-        }
-      }
-
-      validateModalForm(modal, screenshotComp, formData, requireSupportFields);
-    };
+    return `
+      <div idx="17" style="${pad}">
+        ${panelChildrenHtml}
+      </div>
+    `;
   }
-
-  modal.querySelector("#cancelModal").onclick = async () => {
-    if (hideScreenshot && typeof hideScreenshot === 'function') {
-      hideScreenshot();
-    }
-    document.body.classList.remove("no-scroll"); // restore page scroll
-    document.body.removeChild(modal);
-  };
-
-  const submitButton = modal.querySelector("#submitModal");
-  if (submitButton) {
-    submitButton.onclick = async () => {
-      const hasErrors = validateModalForm(modal, screenshotComp, formData, requireSupportFields);
-      if (hasErrors) return;
-
-      const verifiedElement = modal.querySelector("#verified");
-      const selectedVerificationType = verifiedElement ? verifiedElement.getAttribute('data-value') : "Empty";
-      const notesRequired = modal.querySelector("#notesRequired")?.value || "";
-      const notesOptional = modal.querySelector("#notesOptional")?.value || "";
-      const supportNumber = modal.querySelector("#supportNumber")?.value || "Unavailable";
-
-      let uploadedFiles = [];
-      if (screenshotComp) {
-        uploadedFiles = screenshotComp.getValue() || [];
-      }
-
-      if (requireSupportFields) {
-        if (selectedVerificationType === "Not Verified" && !notesRequired.trim()) {
-          alert("Please explain why not verified.");
-          return;
-        }
-        if ((selectedVerificationType === "App" || selectedVerificationType === "Support") && uploadedFiles.length === 0) {
-          alert("Screenshot is required for App or Support verification.");
-          return;
-        }
-      }
-
-      await onSubmit({
-        selectedVerificationType,
-        notesRequired,
-        notesOptional,
-        supportNumber,
-        uploadedFiles
-      });
-
-      if (hideScreenshot && typeof hideScreenshot === 'function') {
-        hideScreenshot();
-      }
-      document.body.classList.remove("no-scroll"); 
-      document.body.removeChild(modal);
-    };
-  }
-
-  const addInputListeners = (element) => {
-    if (!element) return;
-
-    const inputs = element.querySelectorAll('input, textarea, select');
-    inputs.forEach(input => {
-      input.addEventListener('input', () => validateModalForm(modal, screenshotComp, formData, requireSupportFields));
-      input.addEventListener('change', () => validateModalForm(modal, screenshotComp, formData, requireSupportFields));
-    });
-  };
-
-  addInputListeners(modal);
 }
 
 /**
- * Updates form values with modal data
+ * Renders data grid rows
  */
-export function updateFormWithModalData(root, modalData) {
-  root.getComponent("reviewed")?.setValue("true");
-  root.getComponent("supportNumber")?.setValue(modalData.supportNumber);
-  root.getComponent("verifiedSelect")?.setValue(modalData.selectedVerificationType);
-  root.getComponent("notesOptional")?.setValue(modalData.notesOptional);
-  root.getComponent("notesRequired")?.setValue(modalData.notesRequired);
-}
-
-/**
- * Collects and processes form data for review display
- */
-export function collectFormDataForReview(root) {
-  const allData = root.getValue();
-  const supportNumber = allData?.data?.billingCustomer || "Unavailable";
-
-  return {
-    allData,
-    supportNumber
-  };
-}
-/**
- * Scroll to the bottom of the page when Review and Submit button is clicked
- */
-export function scrollToEndOfPage() {
-    // Scroll exactly to the bottom
-    window.scrollTo({
-      top: document.body.scrollHeight,
-      behavior: 'smooth'  // change to 'smooth' if you want animation
-    });
-}
-
-/**
- * Updates datagrid and form values before review
- */
-export function updateFormValuesBeforeReview(root) {
-  const allDatagrids = [];
-
-
-  root.everyComponent(comp => {
-    const componentType = comp.component?.type || comp.type;
-
-    if (componentType === 'well' || componentType === 'table') {
-      allDatagrids.push(comp);
-    }
+function renderDataGridRows(v, k, depth, rootInstance, invalidFields, basePath, header, invalidComponents = new Set()) {
+  const presentKeys = new Set();
+  Object.values(v.__rows).forEach(r => {
+    Object.keys(r.__children || {}).forEach(cKey => presentKeys.add(cKey));
   });
 
-  for (const datagrid of allDatagrids) {
-    try {
-      if (datagrid.updateValue) {
-        datagrid.updateValue();
-      }
-      if (datagrid.component?.type === 'datatable' && datagrid.savedRows) {
-        const savedRows = datagrid.savedRows;
-        savedRows.forEach(row => {
-          if (row.components) {
-            const rowComponents = row.components;
-            rowComponents.forEach(component => {
-              if (component && component.updateValue) {
-                component.updateValue();
-              }
-            });
+  const orderedKeys = Array.isArray(v.__colKeys) && v.__colKeys.length
+    ? v.__colKeys.filter(cKey => presentKeys.has(cKey))
+    : Array.from(presentKeys);
+
+  const labelByKey = new Map(
+    (v.__colKeys || []).map((cKey, i) => [cKey, (v.__colLabels || [])[i] || cKey])
+  );
+  
+  const rowIdxs = Object.keys(v.__rows).map(n => Number(n)).sort((a, b) => a - b);
+  let rowsHtml = '';
+  const rowsItems = rowIdxs.map((rowIdx) => {
+    const row = v.__rows[rowIdx];
+    const haveMultiCols = orderedKeys.length > 1;
+    const rowHasErrors = isRowInvalid(row, k, rowIdx, invalidFields, invalidComponents);
+    const rowLabelStyle = rowHasErrors ? 'background-color:rgb(255 123 123); border-radius: 3px;' : '';
+
+    const padRow = `padding-left:10px; border-left:1px dotted #ccc;`;
+    const padCol = `padding-left:10px; border-left:1px dotted #ccc;`;
+
+    if (haveMultiCols) {
+      const processedInThisRow = new Set();
+
+      let colsHtml = '<div idx="19" style="padding-left: 10px;">';
+      const colsItems = orderedKeys.map((colKey, colIdx) => {
+        if (processedInThisRow.has(colKey)) {
+          return '';
+        }
+
+        processedInThisRow.add(colKey);
+        const cell = row.__children[colKey];
+        let cellContent = '';
+
+        if (cell.__leaf || (v?.__rows && v?.__rows?.length > 0)) {
+          const val = firstLeafVal(cell);
+          const cellPath = `${k}[${rowIdx}].${colKey}`;
+          // Check if this cell is invalid using the full path
+          const cellIsInvalid = isFieldInvalid(cell.__comp, cellPath, invalidFields) || 
+                               (cell.__comp && invalidComponents.has(cell.__comp)) ||
+                               invalidFields.has(cellPath);
+          const invalidStyle = getInvalidStyle(cell.__comp, cellPath, `${k}[${rowIdx}]`, invalidFields, invalidComponents);
+          
+          if (val && typeof val === 'string' && val.includes('__TEXTAREA__')) {
+            const textareaContent = val.replace(/__TEXTAREA__/g, '');
+            cellContent = `<div idx="20" style="${padCol}">
+                            <strong style="${invalidStyle}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong><br/>
+                            ${textareaContent}
+                          </div>`;
+          } else {
+            cellContent = `<div idx="21" style="${padCol}"><strong style="${invalidStyle}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${val}</div>`;
           }
-        });
-      } else if (datagrid.rows) {
-        const datagridRows = datagrid.rows;
-        datagridRows.forEach(row => {
-          const values = Object.values(row);
-          values.forEach(component => {
-            if (component && component.updateValue) {
-              component.updateValue();
-            }
-          });
-        });
-      }
-    } catch (e) {
+        } else {
+          const hasChildren = cell?.__children && Object.keys(cell.__children).length > 0;
+          let nestedHtml = '';
+          
+          if (hasChildren) {
+            nestedHtml = renderNode(cell.__children, depth + 1, rootInstance, invalidFields, `${k}[${rowIdx}].${colKey}`, invalidComponents, true);
+          }
+          
+          const hasNestedContent = nestedHtml && nestedHtml.trim().length > 0;
+          
+          const directVal = cell?.__value !== undefined ? formatValue(cell.__value, cell.__comp) : firstLeafVal(cell);
+          const cellPath = `${k}[${rowIdx}].${colKey}`;
+          // Check if this cell is invalid using the full path
+          const cellIsInvalid = isFieldInvalid(cell.__comp, cellPath, invalidFields) || 
+                               (cell.__comp && invalidComponents.has(cell.__comp)) ||
+                               invalidFields.has(cellPath);
+          const invalidStyle = getInvalidStyle(cell.__comp, cellPath, `${k}[${rowIdx}]`, invalidFields, invalidComponents);
+          
+          if (hasNestedContent) {
+            cellContent = `<div idx="23" style="${padCol}"><strong style="${invalidStyle}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong></div>${nestedHtml}`;
+          } else if (directVal) {
+            cellContent = `<div idx="22" style="${padCol}"><strong style="${invalidStyle}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong> ${directVal}</div>`;
+          } else {
+            cellContent = `<div idx="24" style="${padCol}"><strong style="${invalidStyle}">${cell.__label || labelByKey.get(colKey) || colKey}:</strong></div>`;
+          }
+        }
+        return `${cellContent}`;
+      }).filter(html => html.length > 0).join('');
+      colsHtml += colsItems;
+      colsHtml += '</div>';
+
+      return `<li style="margin-left:15 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;', '')}"><strong style="${rowLabelStyle}">Row ${rowIdx + 1}:</strong>${colsHtml}</li>`;
+    } else {
+      const onlyKey = orderedKeys[0];
+      const cell = row.__children[onlyKey];
+      const cellPath = `${k}[${rowIdx}].${onlyKey}`;
+      // Check if this cell is invalid using the full path
+      const cellIsInvalid = isFieldInvalid(cell.__comp, cellPath, invalidFields) || 
+                           (cell.__comp && invalidComponents.has(cell.__comp)) ||
+                           invalidFields.has(cellPath);
+      const invalidStyle = getInvalidStyle(cell.__comp, cellPath, `${k}[${rowIdx}]`, invalidFields, invalidComponents);
+      const val = cell?.__leaf ? firstLeafVal(cell) : null;
+      const inner = cell?.__leaf
+        ? (val && typeof val === 'string' && val.includes('__TEXTAREA__'))
+          ? (() => {
+              const textareaContent = val.replace(/__TEXTAREA__/g, '');
+              return `<div idx="21" style="${padRow}">
+                       <strong style="${invalidStyle}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong><br/>
+                       ${textareaContent}
+                     </div>`;
+            })()
+          : `<div idx="21" style="${padRow}"><strong style="${invalidStyle}">${cell.__label || labelByKey.get(onlyKey) || onlyKey}:</strong> ${val}</div>`
+        : renderNode(cell?.__children || {}, depth + 1, rootInstance, invalidFields, cellPath, invalidComponents, true);
+      return `<li style="margin-left:0 !important; padding-left: 0 !important;${padRow.replace('border-left:1px dotted #ccc;', '')}"><strong style="${rowLabelStyle}">Row ${rowIdx + 1}:</strong>${inner}</li>`;
+    }
+  }).join('');
+  rowsHtml += rowsItems;
+
+  return `${header}<ul style="list-style-type:circle; padding-left:30px; margin:0; border-left:1px dotted #ccc;">${rowsHtml}</ul></div>`;
+}
+
+/**
+ * Checks if a row is invalid
+ */
+function isRowInvalid(row, datagridKey, rowIdx, invalidFields, invalidComponents = new Set()) {
+  if (!row.__children) return false;
+
+  const hasDirectInvalid = Object.keys(row.__children).some(colKey => {
+    const cell = row.__children[colKey];
+    const cellPath = `${datagridKey}[${rowIdx}].${colKey}`;
+    const isInvalid = isFieldInvalid(cell.__comp, cellPath, invalidFields) || invalidComponents.has(cell.__comp);
+    return isInvalid;
+  });
+
+  if (hasDirectInvalid) {
+    return true;
+  }
+
+  const hasNestedInvalid = Object.keys(row.__children).some(colKey => {
+    const cell = row.__children[colKey];
+    const cellPath = `${datagridKey}[${rowIdx}].${colKey}`;
+    const isNestedInvalid = isRowInvalidRecursive(cell, cellPath, invalidFields, invalidComponents);
+    return isNestedInvalid;
+  });
+
+  if (hasNestedInvalid) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Recursively checks if a row is invalid
+ */
+function isRowInvalidRecursive(node, currentPath, invalidFields, invalidComponents = new Set()) {
+  if (node.__comp && (isFieldInvalid(node.__comp, currentPath, invalidFields) || invalidComponents.has(node.__comp))) {
+    return true;
+  }
+
+  if (node.__children) {
+    const hasInvalidChild = Object.keys(node.__children).some(childKey => {
+      const childNode = node.__children[childKey];
+      const childPath = `${currentPath}.${childKey}`;
+      const isChildInvalid = isRowInvalidRecursive(childNode, childPath, invalidFields, invalidComponents);
+      return isChildInvalid;
+    });
+    
+    if (hasInvalidChild) {
+      return true;
     }
   }
 
-  const rootComponents = root.components;
-  rootComponents.forEach(comp => {
-    if (comp.updateValue && typeof comp.updateValue === 'function') {
-      try {
-        comp.updateValue();
-      } catch (e) { }
-    }
-  });
-
+  return false;
 }
-
-
-// Add this at the top of your JS file (for example: reviewHelpers.js)
-const customCSS = `
-.no-scroll {
-  overflow: hidden;
-}
-.custom-dropdown {
-  width: 220px;
-  position: relative;
-}
-.dropdown-list { display: none; }
-.dropdown-list.open { display: block; }
-.dropdown-label {
-  display: block;
-  font-weight: 500;
-  margin-bottom: 6px;
-}
-.dropdown-selected {
-  margin-top: -2px;
-  border: 1px solid #888;
-  border-radius: 5px;
-  padding: 10px 32px 10px 10px;
-  background: #fff;
-  cursor: pointer;
-  position: relative;
-  min-height: 38px;
-}
-
-.dropdown-list {
-  position: absolute;
-  left: 0;
-  right: 0;
-  background: #fff;
-  border: 1px solid #888;
-  border-radius: 5px;
-  margin: 2px 0 0 0;
-  z-index: 100;
-  list-style: none;
-  padding: 0;
-  animation: fadeIn 0.2s;
-}
-.dropdown-list li {
-  cursor: pointer;
-  padding-left: 5px;
-}
-.dropdown-list li:hover,
-.dropdown-list li.selected {
-  background: #f0f4ff;
-}
-/* Optional: Animate dropdown open */
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(-8px);}
-  to   { opacity: 1; transform: none; }
-}
-.dropdown-selected i.dropdown.icon {
- position: absolute;
- right: 10px;
- top: 50%;
- transform: translateY(-50%) rotate(45deg); /* arrow pointing down */
- border: solid #888;
- border-width: 0 2px 2px 0;
- padding: 4px;
- display: inline-block;
- pointer-events: none;
- transition: transform 0.2s ease;
-}
-.dropdown-selected.open i.dropdown.icon {
-  transform: translateY(-50%) rotate(225deg); /* pointing up */
-}
-
-`;
