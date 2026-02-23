@@ -69,12 +69,6 @@ export default class ReviewButton extends FieldComponent {
     if (typeof clearValidationCaches === 'function') clearValidationCaches();
     if (typeof clearDataProcessingCache === 'function') clearDataProcessingCache();
     
-    if (this.root && this.root._topIndexCache) {
-        // NEW: Manually clear the Map to free memory
-        this.root._topIndexCache.clear(); 
-        // NEW: Delete the property from the root
-        delete this.root._topIndexCache; 
-    }
 }
   /**
  * Consolidated Validation
