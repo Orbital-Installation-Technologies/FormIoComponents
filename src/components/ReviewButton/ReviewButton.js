@@ -76,7 +76,6 @@ export default class ReviewButton extends FieldComponent {
         delete this.root._topIndexCache; 
     }
 }
-  }
   /**
  * Consolidated Validation
  * REMOVED 'async' keyword to prevent Webpack "Unexpected Token" error.
