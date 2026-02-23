@@ -439,6 +439,7 @@ export async function collectReviewLeavesAndLabels(root, invalidFields = new Set
   };
 
   const topIndexMap = new Map();
+  const topIndexCache = new WeakMap();
   if (Array.isArray(root?.components)) {
     root.components.forEach((c, i) => {
       const k = c?.component?.key || c?.key;
@@ -447,12 +448,14 @@ export async function collectReviewLeavesAndLabels(root, invalidFields = new Set
   }
   const topIndexFor = (comp) => {
     // IMPROVEMENT: Use a local WeakMap to cache parent lookups during this execution
-    if (!this._topIndexCache) this._topIndexCache = new WeakMap();
-    if (this._topIndexCache.has(comp)) return this._topIndexCache.get(comp);  
+    if (topIndexCache.has(comp)) return topIndexCache.get(comp);
     let p = comp;
     while (p?.parent && p.parent !== root) p = p.parent;
     const topKey = p?.component?.key || p?.key;
-    return topIndexMap.has(topKey) ? topIndexMap.get(topKey) : -1;
+    const result = topIndexMap.has(topKey) ? topIndexMap.get(topKey) : -1;
+  
+    topIndexCache.set(comp, result);
+    return result;
   };
 
   if (root.ready) await root.ready;
