@@ -11,19 +11,16 @@ const FLATTEN_TYPES = new Set(['columns', 'fieldset', 'tabs', 'tagpad', 'survey'
  */
 export const isContainerType = (t, exclude = []) => {
   if (!t) return false;
-
+  
+  // If no exclusion, use the static global Set (Fastest)
   if (!exclude || exclude.length === 0) {
-    return Array.isArray(t)
-      ? t.some(x => x && CONTAINER_TYPES.has(x))
-      : CONTAINER_TYPES.has(t);
+    return Array.isArray(t) ? t.some(x => CONTAINER_TYPES.has(x)) : CONTAINER_TYPES.has(t);
   }
 
-  const excluded = new Set(exclude);
-  const allowed = new Set([...CONTAINER_TYPES].filter(x => !excluded.has(x)));
-
+  // If exclusion exists, use a simple .includes to avoid object allocation
   return Array.isArray(t)
-    ? t.some(x => x && allowed.has(x))
-    : allowed.has(t);
+    ? t.some(x => CONTAINER_TYPES.has(x) && !exclude.includes(x))
+    : CONTAINER_TYPES.has(t) && !exclude.includes(t);
 };
 
 /**
@@ -324,7 +321,30 @@ export const validateComponentsAndCollectResults = async (root, errorMap, warnin
         }
         return;
       }
-
+      const walkRows = (comp) => {
+        // Check if this is a DataGrid or EditGrid with rows
+        const rows = comp.rows || comp.editRows;
+        if (rows && Array.isArray(rows)) {
+          rows.forEach((row, index) => {
+            // Form.io often stores row components in different sub-properties
+            const rowComponents = row.components || (row.panel ? [row.panel] : []);
+            
+            rowComponents.forEach(child => {
+              // Manually trigger validation for row-level instances
+              if (child.checkValidity) {
+                const isRowValid = child.checkValidity();
+                if (!isRowValid) {
+                  // This is where paths like dataGrid[0] are finally captured!
+                  processComponentErrors(child, errorMap, results, showErrors);
+                }
+              }
+            });
+          });
+        }
+      };
+    
+      // Run the row walker
+      walkRows(component);
       const componentType = component.type || component.component?.type;
       if (componentType === 'file') {
         const isRequired = component.component?.validate?.required || component.validate?.required;
