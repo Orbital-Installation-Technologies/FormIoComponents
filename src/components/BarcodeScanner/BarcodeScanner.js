@@ -82,7 +82,10 @@ export default class BarcodeScanner extends FieldComponent {
     this._lastDrawTime = 0; // Throttle bounding box drawing
     this._frameThrottleMs = 100; // Process frames max once per 100ms
     this._drawThrottleMs = 50; // Draw bounding boxes max once per 50ms
+    this._intersectionObserver = null; // New reference for visibility control
 
+    this._frameThrottleMs = 150; // Increased from 100ms: Reduces frequency of session processing
+    this._drawThrottleMs = 100;  // Increased from 50ms: Less frequent canvas redraws saves GPU/Battery
     // License key can come from (in priority order):
     // 1. Component configuration (scanditLicenseKey set in Formio builder)
     // 2. Component data (scanditLicenseKey property)
@@ -95,7 +98,7 @@ export default class BarcodeScanner extends FieldComponent {
     } else if (typeof process !== 'undefined' && process?.env && process.env.NEXT_PUBLIC_SCANDIT_KEY) {
       envKey = process?.env?.NEXT_PUBLIC_SCANDIT_KEY;
     }
-    this._licenseKey = envKey || 'undefined' 
+    this._licenseKey = envKey || 'undefined'
   }
 
 
@@ -623,6 +626,28 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
+  /**
+   * IMPROVEMENT: Visibility Control
+   * Ensures the camera sensor is physically OFF when not on screen.
+   */
+  setupVisibilityControl() {
+    if (this._intersectionObserver) this._intersectionObserver.disconnect();
+
+    this._intersectionObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (this._camera) {
+          // FrameSourceState.Off stops the camera hardware sensor entirely
+          const state = entry.isIntersecting ? FrameSourceState.On : FrameSourceState.Off;
+          this._camera.switchToDesiredState(state).catch(err => console.warn(err));
+        }
+      });
+    }, { threshold: 0.1 });
+
+    if (this.refs.barcodeContainer) {
+      this._intersectionObserver.observe(this.refs.barcodeContainer);
+    }
+  }
+
   async openScanditModal() {
     if (this._animationFrameId) {
       cancelAnimationFrame(this._animationFrameId);
@@ -686,6 +711,7 @@ export default class BarcodeScanner extends FieldComponent {
       }
       if (this._dataCaptureContext) {
         await this._setupCamera();
+        this.setupVisibilityControl();
       }
     } catch (error) {
       console.warn("Scanner initialization error (handled):", error);
@@ -769,27 +795,37 @@ export default class BarcodeScanner extends FieldComponent {
         const availableSymbologies = allSymbologies.filter(sym => sym !== undefined);
         settings.enableSymbologies(availableSymbologies);
 
-        // Performance optimization: Filter duplicate barcodes within 300ms
-        settings.codeDuplicateFilter = 300;
-
+        // IMPROVEMENT: Aggressive duplicate filtering to avoid redundant logic execution
+        settings.codeDuplicateFilter = 1000; // Increased from 300ms to ignore same codes longer
+        
         if (settings.locationSelection) {
             settings.locationSelection = null;
         }
 
-        // Performance optimization: Limit codes per frame to reduce processing
+        // IMPROVEMENT: Hard limit on codes per frame to minimize processing overhead
         if (typeof settings.maxNumberOfCodesPerFrame !== 'undefined') {
-            settings.maxNumberOfCodesPerFrame = 5;
+          settings.maxNumberOfCodesPerFrame = 3; // Reduced from 5: Prevents CPU spikes in dense environments
         }
-
-        // Performance optimization: Enable battery saving mode
-        if (typeof settings.batterySaving !== 'undefined') {
-            settings.batterySaving = true;
-        }
+        settings.batterySaving = true; // explicitly enabled
 
         this._configureAdvancedSymbologySettings(settings);
 
         if (!this._dataCaptureContext) {
             throw new Error("DataCaptureContext is null - cannot create BarcodeCapture");
+        }
+        this._intersectionObserver = new IntersectionObserver((entries) => {
+          entries.forEach(entry => {
+            if (this._camera) {
+              // If visible, turn camera ON. If not, turn camera OFF.
+              // This physically powers down the camera sensor to save battery.
+              const state = entry.isIntersecting ? FrameSourceState.On : FrameSourceState.Off;
+              this._camera.switchToDesiredState(state);
+            }
+          });
+        }, { threshold: 0.1 });
+        
+        if (this.refs.barcodeContainer) {
+          this._intersectionObserver.observe(this.refs.barcodeContainer);
         }
 
         this._barcodeBatch = await BarcodeBatch.forContext(this._dataCaptureContext, settings);
@@ -806,7 +842,8 @@ export default class BarcodeScanner extends FieldComponent {
                   return; // Skip this frame if too soon
                 }
                 this._lastFrameTime = now;
-                
+                // IMPROVEMENT: Only process and draw if the modal is actually visible to the user
+                if (this.refs.quaggaModal.style.display === 'none') return;
                 this._trackedBarcodes = session.trackedBarcodes || {};
                 const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
                 this._currentBarcodes = barcodes;
@@ -1410,9 +1447,11 @@ export default class BarcodeScanner extends FieldComponent {
           console.warn("Error stopping camera:", cameraError);
         }
       }
-
+      // IMPROVEMENT: Disable the capture mode to stop background processing cycles
+      if (this._barcodeBatch) {
+        await this._barcodeBatch.setEnabled(false);
+      }
       this._stopLiveScanningMode();
-
       if (this._cameraMonitoringInterval) {
         clearInterval(this._cameraMonitoringInterval);
         this._cameraMonitoringInterval = null;
@@ -1949,7 +1988,12 @@ export default class BarcodeScanner extends FieldComponent {
       cancelAnimationFrame(this._animationFrameId);
       this._animationFrameId = null;
     }
-
+    if (this._camera) {
+      this._camera.switchToDesiredState(FrameSourceState.Off);
+    }
+    if (this._intersectionObserver) {
+      this._intersectionObserver.disconnect();
+    }
     this._stopLiveScanningMode();
 
     if (this._resizeHandler) {
@@ -2489,7 +2533,17 @@ export default class BarcodeScanner extends FieldComponent {
       window.removeEventListener('unhandledrejection', this._unhandledRejectionHandler);
       this._unhandledRejectionHandler = null;
     }
-
+    // IMPROVEMENT: Clean up all hardware references to prevent memory leaks and background drain
+    if (this._camera) {
+      this._camera.switchToDesiredState(FrameSourceState.Off);
+    }
+    if (this._dataCaptureView && this._dataCaptureView.htmlElement) {
+      const canvas = this._dataCaptureView.htmlElement.querySelector('canvas');
+      if (canvas) { 
+        canvas.width = 0; // Native hardware release signal
+        canvas.height = 0; 
+      }
+    }
     this._barcodeBatch = null;
     this._barcodeCapture = null;
     this._camera = null;
@@ -2499,16 +2553,20 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   setValue(value, flags = {}) {
+    // Check if the value is actually different to avoid redundant UI work
+    const isNewValue = value !== this.dataValue;
     const changed = super.setValue(value, flags);
+  
     if (this.refs && this.refs.barcode) {
       this.refs.barcode.value = value || "";
     }
-    if (changed) {
+  
+    // OPTIMIZATION: Only redraw if the value is new and redraw is allowed
+    if (changed && isNewValue && !flags.noRedraw) {
       this.redraw();
     }
     return changed;
   }
-
   get defaultSchema() {
     return BarcodeScanner.schema();
   }
