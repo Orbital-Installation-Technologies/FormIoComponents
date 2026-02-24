@@ -3,9 +3,36 @@
   "version": "1.1.1",
   "description": "",
   "main": "src/app-prod.js",
+  "module": "src/app-prod.js",
+  "files": [
+    "src",
+    "dist"
+  ],
+  "exports": {
+    ".": "./src/app-prod.js",
+    "./BarcodeScanner": "./src/components/BarcodeScanner/index.js",
+    "./BarcodeScanner/*": "./src/components/BarcodeScanner/*.js",
+    "./Rating": "./src/components/Rating/index.js",
+    "./Rating/*": "./src/components/Rating/*.js",
+    "./Gps": "./src/components/Gps/index.js",
+    "./Gps/*": "./src/components/Gps/*.js",
+    "./ReviewButton": "./src/components/ReviewButton/index.js",
+    "./ReviewButton/*": "./src/components/ReviewButton/*.js",
+    "./File": "./src/components/File/index.js",
+    "./File/*": "./src/components/File/*.js",
+    "./Select": "./src/components/Select/index.js",
+    "./Select/*": "./src/components/Select/*.js",
+    "./src/components/BarcodeScanner/BarcodeScanner": "./src/components/BarcodeScanner/BarcodeScanner.js",
+    "./src/components/Gps/Gps": "./src/components/Gps/Gps.js",
+    "./src/components/Rating/Rating": "./src/components/Rating/Rating.js",
+    "./src/components/ReviewButton/ReviewButton": "./src/components/ReviewButton/ReviewButton.js",
+    "./src/components/File/CustomFile": "./src/components/File/CustomFile.js",
+    "./src/components/Select/CustomSelect": "./src/components/Select/CustomSelect.js"
+  },
   "scripts": {
     "dev": "webpack serve --config webpack.config.cjs",
-    "dev-pack": "node -e \"const fs=require('fs');const pkg=JSON.parse(fs.readFileSync('package.json'));pkg.version=pkg.version==='1.1.1'?'1.1.0':'1.1.1';fs.writeFileSync('package.json',JSON.stringify(pkg,null,2));\" && npm pack"
+    "dev-pack": "node -e \"const fs=require('fs');const pkg=JSON.parse(fs.readFileSync('package.json'));pkg.version=pkg.version==='1.1.1'?'1.1.0':'1.1.1';fs.writeFileSync('package.json',JSON.stringify(pkg,null,2));\" && npm pack",
+    "build": "webpack --config webpack.prod.cjs"
   },
   "keywords": [],
   "author": "",
@@ -19,7 +46,8 @@
     "prettier": "^3.4.1",
     "webpack": "^5.96.1",
     "webpack-cli": "^5.1.4",
-    "webpack-dev-server": "^5.1.0"
+    "webpack-dev-server": "^5.1.0",
+    "ajv-keywords": "^5.1.0"
   },
   "dependencies": {
     "@formio/js": "^5.1.2",
@@ -30,4 +58,3 @@
     "pica": "^8.0.0"
   }
 }
-
