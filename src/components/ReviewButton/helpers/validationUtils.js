@@ -321,7 +321,30 @@ export const validateComponentsAndCollectResults = async (root, errorMap, warnin
         }
         return;
       }
-
+      const walkRows = (comp) => {
+        // Check if this is a DataGrid or EditGrid with rows
+        const rows = comp.rows || comp.editRows;
+        if (rows && Array.isArray(rows)) {
+          rows.forEach((row, index) => {
+            // Form.io often stores row components in different sub-properties
+            const rowComponents = row.components || (row.panel ? [row.panel] : []);
+            
+            rowComponents.forEach(child => {
+              // Manually trigger validation for row-level instances
+              if (child.checkValidity) {
+                const isRowValid = child.checkValidity();
+                if (!isRowValid) {
+                  // This is where paths like dataGrid[0] are finally captured!
+                  processComponentErrors(child, errorMap, results, showErrors);
+                }
+              }
+            });
+          });
+        }
+      };
+    
+      // Run the row walker
+      walkRows(component);
       const componentType = component.type || component.component?.type;
       if (componentType === 'file') {
         const isRequired = component.component?.validate?.required || component.validate?.required;
