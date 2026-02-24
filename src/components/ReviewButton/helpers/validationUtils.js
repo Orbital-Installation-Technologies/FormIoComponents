@@ -177,29 +177,44 @@ export const processComponentErrors = (component, errorMap, results, showErrors)
 
   const componentKey = component.key || component.path;
   const componentLabel = component.component?.label || componentKey;
-  const componentPath = component.path || componentKey;
+  const rawPath = component.path || componentKey;
+
+  // FIX: Normalize the path immediately. 
+  // This removes ".data." and "form." prefixes so the key is consistent.
+  const componentPath = rawPath.replace(/(^form\.|^data\.|\.data\.)/g, '.').replace(/^\./, '');
 
   const errors = component.errors;
   if (!errors || !errors.length) {
     return;
   }
   
+  // Use the CLEAN path as the key for the Map
   let entry = errorMap.get(componentPath);
   if (!entry) {
     entry = { label: componentLabel, errors: [] };
     errorMap.set(componentPath, entry);
   }
+  
   errors.forEach(error => {
-    entry.errors.push(error);
+    // Prevent duplicate error messages in the summary
+    const errorMsg = typeof error === 'string' ? error : error.message;
+    if (!entry.errors.includes(errorMsg)) {
+      entry.errors.push(errorMsg);
+    }
   });
 
+  // Push the component with BOTH paths so helpers can find it either way
   results.invalidComponents.push({
     component,
     path: componentPath,
+    rawPath: rawPath,
     label: componentLabel
   });
 
   if (showErrors && errors && errors.length) {
+    // Only apply the UI validity if we are in "Show" mode
+    // This prevents the green "Success" highlights from being overwritten 
+    // by invisible errors in the background.
     component.setCustomValidity(errors, true);
   }
 };
@@ -635,24 +650,78 @@ export const generateErrorSummary = (errorMap, results) => {
 /**
  * Find components to validate by keys
  */
-export const findComponentsToValidate = (keys, root) => {
-  if (!keys || !Array.isArray(keys) || keys.length === 0) {
-    return [];
-  }
+export function findComponentsToValidate(instance, invalidFields = new Set()) {
+  const components = [];
+  
+  // 1. Expanded list of types to hide from the error list
+  const EXCLUDE_FROM_INVALID_LIST = new Set([
+    'form',
+    'panel', 
+    'datagrid', 
+    'container', 
+    'well', 
+    'columns', 
+    'fieldset',
+    'htmlelement',
+    'content'
+  ]);
 
-  const componentsToValidate = [];
-  const keySet = new Set(keys);
+  // Helper to normalize paths (removes .data. noise)
+  const clean = (p) => p.replace(/(^form\.|^data\.|\.data\.)/g, '.').replace(/^\./, '');
 
-  root.everyComponent((component) => {
-    const componentKey = component.key || component.path;
-    if (keySet.has(componentKey)) {
-      componentsToValidate.push(component);
+  const walk = (comp) => {
+    if (!comp) return;
+
+    const rawPath = comp.path || comp.key || "";
+    const cleanCompPath = clean(rawPath);
+    const type = comp.type || comp.component?.type;
+    
+    // 2. CHECK: Is this specific component path (or its parent) marked invalid?
+    let isPathInvalid = false;
+    for (let field of invalidFields) {
+      const cleanField = clean(field);
+      // Check exact match or if the error is inside this component
+      if (cleanCompPath === cleanField || rawPath === field) {
+        isPathInvalid = true;
+        break;
+      }
     }
-  });
 
-  return componentsToValidate;
-};
+    if (isPathInvalid) {
+      // 3. THE REFINED FILTER: 
+      // - Must NOT be in our excluded list
+      // - Must be a "real" input (not a layout component)
+      const isIgnoredType = EXCLUDE_FROM_INVALID_LIST.has(type);
+      
+      // We explicitly check if it's NOT a datagrid even if comp.input is true
+      if (!isIgnoredType && comp.input === true && type !== 'datagrid') {
+        components.push(comp);
+      }
+    }
 
+    // Always continue walking to find the inputs INSIDE the containers
+    if (comp.components && Array.isArray(comp.components)) {
+      comp.components.forEach(walk);
+    }
+    
+    // Specifically walk into DataGrid rows
+    if (comp.rows && Array.isArray(comp.rows)) {
+      comp.rows.forEach(row => {
+        // Form.io rows can be objects or arrays; we walk every component instance found inside
+        if (row && typeof row === 'object') {
+          Object.values(row).forEach(val => {
+             if (val && typeof val === 'object' && (val.isComponent || val.component)) {
+                walk(val);
+             }
+          });
+        }
+      });
+    }
+  };
+
+  walk(instance);
+  return components;
+}
 /**
  * Clears all error states and visual indicators from a field component
  * @param {Object} comp - Form.io component to clear errors from
