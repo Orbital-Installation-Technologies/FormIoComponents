@@ -98,7 +98,7 @@ export default class BarcodeScanner extends FieldComponent {
     } else if (typeof process !== 'undefined' && process?.env && process.env.NEXT_PUBLIC_SCANDIT_KEY) {
       envKey = process?.env?.NEXT_PUBLIC_SCANDIT_KEY;
     }
-    this._licenseKey = "Au8G/21VRMq5Lvn7WaAk+zVFZTuJBRkTUBAg0ffx98NbZe+mNG10R6Ijzj2/XQ26BVoZJWBzCp8Eb4OGwQ9ZyMYtdylQcDI1STqNz9NO5OptVRRZtFGuFPcOJ2OjBdOrOxsrfzFszQEhIbuc1RtVI0esLsGWE1nhzjkXQ2flTbOUo//+aUcytCvX0FP0nYEI913wnW34WX/5Zqj08aAka3HMn2B24cchIWYl+X3m+O6Y6kN5WAlGBTDINqDqbC25mgDxe2G2kYQeb3b0Ls0Qsb2+hT+pH/Ry+ZUGTmJ5ZMsB1hkl5kcVHgKF5+lZkY9A3ApxiUh5ic/p2HzUIEfVLCDAa5Wvpi61CAeL3iGPtBBMI01SQl4t3RSnFbUb3GzAWhlGffUjvbIgR66YsjzcwnXn/f0oU/MPsMsYs/kyDnlzi+P1ZwminBd7xNmNJ2kAJQrBWZ8GHO5g0NbsmMJL59U2Wgopvxus6lyrS/fyr3wB1VjXMggEdZRIkQKdhesJXp912VK62679cU66i33J61R90eqAohJ0lfr5iITlMj7epRZ3Yx23crUeydQX7LmyONuDFLCEMu9fJHiAphzmSBmQRJfkfwGyIYdn+WRmBU09XB6TBG1aa9WvvD5mgY4zjgYJzkdYvv3MFL0NOFX8aukKVU1H8WiBzgFuVfgRq1aMBNkr1ZshXh9waOKQ67Siu2KebPxv2Qb2hgcnBkMv0CJVeVLqN5rgxzJvdBQyhKNWR++SBgNffwV2Ex4Wwc003npe2maC9X9QWjI7MjOxUcshAAn5ZdOWgyJYupgpoUxU/LasmQ=="
+    this._licenseKey = envKey || 'undefined'
   }
 
 
