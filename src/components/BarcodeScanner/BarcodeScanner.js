@@ -883,6 +883,7 @@ export default class BarcodeScanner extends FieldComponent {
                 var processedBarcodes = [];
                 var processedBarcode = {};
                 barcodes.forEach((barcode , index)=> {
+                  console.log('barcode', barcode);
                   processedBarcode = processBarcode(barcode, index);
               
                   if (processedBarcode && processedBarcode.data) {
