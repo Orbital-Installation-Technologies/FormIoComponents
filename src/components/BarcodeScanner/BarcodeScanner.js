@@ -812,7 +812,9 @@ export default class BarcodeScanner extends FieldComponent {
                 this._trackedBarcodesProcessed = Object.values(this._trackedBarcodes);
                 const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
 
-                const processBarcode = (scannedData, index) => {            
+                const processBarcode = (scannedData, index) => {  
+                  console.log('this._trackedBarcodesProcessed', this._trackedBarcodesProcessed);
+
                   if (!this._trackedBarcodesProcessed || !this._trackedBarcodesProcessed[index]) {
                       return scannedData;
                   }
@@ -882,6 +884,7 @@ export default class BarcodeScanner extends FieldComponent {
            
                 var processedBarcodes = [];
                 var processedBarcode = {};
+                console.log('barcodes', barcodes);
                 barcodes.forEach((barcode , index)=> {
                   console.log('barcode', barcode);
                   processedBarcode = processBarcode(barcode, index);
