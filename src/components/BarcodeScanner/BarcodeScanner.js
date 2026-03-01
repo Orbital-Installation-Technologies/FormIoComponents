@@ -826,16 +826,19 @@ export default class BarcodeScanner extends FieldComponent {
                       // 1. EXCLUSION: If it's a Mexican EAN (0 + 750), DO NOT STRIP.
                       if (currentData.startsWith('0750')) {
                           finalBarcode.data = currentData;
-                              finalBarcode.symbology = "EAN-13"; // Explicitly tag as US symbology
+                          finalBarcode.symbology = "EAN-13"; // Explicitly tag as US symbology
                       } 
                       else {
-                          // 2. POTENTIAL US UPC: Strip the zero and validate
+                          // POTENTIAL US UPC: Strip the zero and validate
                           const potentialUPC = currentData.substring(1);
                           
                           // Validate that the stripped version is a mathematically correct UPC
                           if (isValidUPCChecksum(potentialUPC)) {
                               finalBarcode.data = potentialUPC;
                               finalBarcode.symbology = "UPCA"; // Explicitly tag as US symbology
+                          }else{
+                            finalBarcode.data = currentData;
+                            finalBarcode.symbology = "EAN-13"; // Explicitly tag as US symbology
                           }
                       }
                   }
