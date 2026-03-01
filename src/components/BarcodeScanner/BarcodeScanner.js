@@ -812,15 +812,17 @@ export default class BarcodeScanner extends FieldComponent {
                 this._trackedBarcodesProcessed = Object.values(this._trackedBarcodes);
                 const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
 
-                const processBarcode = (scannedData, index) => {
-                                
-                  let currentData = scannedData.data;
-                  let finalBarcode = { ...scannedData };
-                  finalBarcode.data = finalBarcode._data;
-                  finalBarcode.symbology = finalBarcode._symbology; // Explicitly tag as US symbology
+                const processBarcode = (scannedData, index) => {            
                   if (!this._trackedBarcodesProcessed || !this._trackedBarcodesProcessed[index]) {
                       return scannedData;
                   }
+                  let currentData = scannedData.data;
+                  let currentSymbology = scannedData.symbology;
+                  let finalBarcode = {
+                      ...scannedData,
+                      data: currentData,
+                      symbology: currentSymbology
+                  };
                   // Check for 13-digit codes starting with '0'
                   if (currentData.length === 13) {
                     if (currentData.startsWith('0')) {
