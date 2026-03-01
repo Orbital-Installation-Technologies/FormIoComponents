@@ -849,6 +849,7 @@ export default class BarcodeScanner extends FieldComponent {
                     }
                   }
               
+                  
                   this._trackedBarcodesProcessed[index]._barcode = finalBarcode;
                   return finalBarcode;
               };
