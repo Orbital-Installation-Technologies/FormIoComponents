@@ -823,6 +823,9 @@ export default class BarcodeScanner extends FieldComponent {
                       data: currentData,
                       symbology: currentSymbology
                   };
+                  console.log("currentData", currentData);
+                  console.log("currentSymbology", currentSymbology);
+                  console.log("finalBarcode", finalBarcode);
                   // Check for 13-digit codes starting with '0'
                   if (currentData.length === 13) {
                     if (currentData.startsWith('0')) {
