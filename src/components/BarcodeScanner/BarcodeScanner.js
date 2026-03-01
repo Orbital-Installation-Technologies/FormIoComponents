@@ -819,17 +819,18 @@ export default class BarcodeScanner extends FieldComponent {
               
                   let currentData = scannedData.data;
                   let finalBarcode = { ...scannedData };
-              
+                  finalBarcode.data = finalBarcode._data;
+                  finalBarcode.symbology = finalBarcode._symbology; // Explicitly tag as US symbology
                   // Check for 13-digit codes starting with '0'
-                  if (currentData.length === 13 && currentData.startsWith('0')) {
-                      
+                  if (currentData.length === 13) {
+                    if (currentData.startsWith('0')) {
                       // 1. EXCLUSION: If it's a Mexican EAN (0 + 750), DO NOT STRIP.
                       if (currentData.startsWith('0750')) {
                           finalBarcode.data = currentData;
                           finalBarcode.symbology = "EAN-13"; // Explicitly tag as US symbology
                       } 
                       else {
-                          // POTENTIAL US UPC: Strip the zero and validate
+                          // 2. POTENTIAL US UPC: Strip the zero and validate
                           const potentialUPC = currentData.substring(1);
                           
                           // Validate that the stripped version is a mathematically correct UPC
@@ -837,10 +838,15 @@ export default class BarcodeScanner extends FieldComponent {
                               finalBarcode.data = potentialUPC;
                               finalBarcode.symbology = "UPCA"; // Explicitly tag as US symbology
                           }else{
+
                             finalBarcode.data = currentData;
                             finalBarcode.symbology = "EAN-13"; // Explicitly tag as US symbology
                           }
                       }
+                    }else{
+                      finalBarcode.data = currentData;
+                      finalBarcode.symbology = "EAN-13"; // Explicitly tag as US symbology
+                    }
                   }
               
                   this._trackedBarcodesProcessed[index]._barcode = finalBarcode;
