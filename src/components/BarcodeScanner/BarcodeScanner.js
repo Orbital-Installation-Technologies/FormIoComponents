@@ -832,7 +832,7 @@ export default class BarcodeScanner extends FieldComponent {
                 this._trackedBarcodesProcessed = trackedValues.map((trackedBarcode) => {
                   const rawBarcode = trackedBarcode.barcode.toJSON();
 
-                  let finalData = rawBarcode.data || "";
+                  let finalData = rawBarcode.data.toString() || "";
                   let finalSymbology = rawBarcode.symbology ? rawBarcode.symbology.toString() : "";
                   
                   if (finalData && finalData.length === 13) {
