@@ -813,9 +813,9 @@ export default class BarcodeScanner extends FieldComponent {
                 const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
 
                 const processBarcode = (scannedData, index) => {  
-                  console.log('this._trackedBarcodesProcessed', this._trackedBarcodesProcessed);
 
-                  if (!this._trackedBarcodesProcessed || !this._trackedBarcodesProcessed[index]) {
+                  if (!scannedData || !scannedData.data) {
+                      console.error('No data found in scannedData at index', index);
                       return scannedData;
                   }
                   let currentData = scannedData.data;
@@ -825,15 +825,12 @@ export default class BarcodeScanner extends FieldComponent {
                       data: currentData,
                       symbology: currentSymbology
                   };
-                  console.log("currentData", currentData);
-                  console.log("currentSymbology", currentSymbology);
-                  console.log("finalBarcode", finalBarcode);
+
                   // Check for 13-digit codes starting with '0'
                   if (currentData.length === 13) {
                     if (currentData.startsWith('0')) {
                       // 1. EXCLUSION: If it's a Mexican EAN (0 + 750), DO NOT STRIP.
                       if (currentData.startsWith('0750')) {
-                          finalBarcode.data = currentData;
                           finalBarcode.symbology = "EAN-13"; // Explicitly tag as US symbology
                       } 
                       else {
@@ -845,19 +842,16 @@ export default class BarcodeScanner extends FieldComponent {
                               finalBarcode.data = potentialUPC;
                               finalBarcode.symbology = "UPCA"; // Explicitly tag as US symbology
                           }else{
-
-                            finalBarcode.data = currentData;
                             finalBarcode.symbology = "EAN-13"; // Explicitly tag as US symbology
                           }
                       }
                     }else{
-                      finalBarcode.data = currentData;
                       finalBarcode.symbology = "EAN-13"; // Explicitly tag as US symbology
                     }
                   }
-              
-                  
-                  this._trackedBarcodesProcessed[index]._barcode = finalBarcode;
+                  if (this._trackedBarcodesProcessed && this._trackedBarcodesProcessed[index]) {
+                      this._trackedBarcodesProcessed[index]._barcode = finalBarcode;
+                  }
                   return finalBarcode;
               };
               
