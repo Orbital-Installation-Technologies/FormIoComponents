@@ -832,18 +832,21 @@ export default class BarcodeScanner extends FieldComponent {
                 this._trackedBarcodesProcessed = trackedValues.map((trackedBarcode) => {
                   const rawBarcode = trackedBarcode.barcode.toJSON();
 
-                  let finalData = rawBarcode.data.toString() || "";
-                  let finalSymbology = rawBarcode.symbology ? rawBarcode.symbology.toString() : "";
-                  
-                  if (finalData && finalData.length === 13) {
-                    if (finalData.startsWith('0')) {
+                  let currentData = rawBarcode.data.toString() || "";
+                  let finalSymbology = rawBarcode.symbology.toString() || "";
+                  let finalData = "";
+                  console.log("current data", currentData);
+                  console.log("finalSymbology", finalSymbology);
+                  if (currentData && currentData.length === 13) {
+                    if (currentData.startsWith('0')) {
                       // 1. EXCLUSION: If it's a Mexican EAN (0 + 750), DO NOT STRIP.
-                      if (finalData.startsWith('0750')) {
+                      if (currentData.startsWith('0750')) {
+                        finalData = currentData;
                         finalSymbology = "EAN-13"; // Explicitly tag as US symbology
                       } 
                       else {
                           // 2. POTENTIAL US UPC: Strip the zero and validate
-                          const potentialUPC = finalData.substring(1);
+                          const potentialUPC = currentData.substring(1);
                           
                           // Validate that the stripped version is a mathematically correct UPC
                           if (isValidUPCChecksum(potentialUPC)) {
@@ -851,10 +854,12 @@ export default class BarcodeScanner extends FieldComponent {
                             finalSymbology = "UPCA";
                         
                           }else{
+                            finalData = currentData;
                             finalSymbology = "EAN-13"; // Explicitly tag as US symbology
                           }
                       }
                     }else{
+                      finalData = currentData;
                       finalSymbology = "EAN-13"; // Explicitly tag as US symbology
                     }
                   }
@@ -867,8 +872,7 @@ export default class BarcodeScanner extends FieldComponent {
                         data: finalData,
                         symbology: finalSymbology
                     }
-                };
-
+                  };
 
                 })  
                 
