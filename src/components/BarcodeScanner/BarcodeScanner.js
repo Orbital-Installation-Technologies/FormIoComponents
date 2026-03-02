@@ -807,56 +807,7 @@ export default class BarcodeScanner extends FieldComponent {
                   return; // Skip this frame if too soon
                 }
                 this._lastFrameTime = now;
-                
-                this._trackedBarcodes = session.trackedBarcodes || {};
-                this._trackedBarcodesProcessed = Object.values(this._trackedBarcodes);
-                const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
-
-                const processBarcode = (scannedData, index) => {  
-
-                  if (!scannedData || !scannedData.data) {
-                      console.error('No data found in scannedData at index', index);
-                      return scannedData;
-                  }
-                  let currentData = scannedData.data;
-                  let currentSymbology = scannedData.symbology;
-                  let finalBarcode = {
-                      ...scannedData,
-                      data: currentData,
-                      symbology: currentSymbology
-                  };
-
-                  // Check for 13-digit codes starting with '0'
-                  if (currentData.length === 13) {
-                    if (currentData.startsWith('0')) {
-                      // 1. EXCLUSION: If it's a Mexican EAN (0 + 750), DO NOT STRIP.
-                      if (currentData.startsWith('0750')) {
-                          finalBarcode.symbology = "EAN-13"; // Explicitly tag as US symbology
-                      } 
-                      else {
-                          // 2. POTENTIAL US UPC: Strip the zero and validate
-                          const potentialUPC = currentData.substring(1);
-                          
-                          // Validate that the stripped version is a mathematically correct UPC
-                          if (isValidUPCChecksum(potentialUPC)) {
-                              finalBarcode.data = potentialUPC;
-                              finalBarcode.symbology = "UPCA"; // Explicitly tag as US symbology
-                          }else{
-                            finalBarcode.symbology = "EAN-13"; // Explicitly tag as US symbology
-                          }
-                      }
-                    }else{
-                      finalBarcode.symbology = "EAN-13"; // Explicitly tag as US symbology
-                    }
-                  }
-                  if (this._trackedBarcodesProcessed && this._trackedBarcodesProcessed[index]) {
-                      this._trackedBarcodesProcessed[index]._barcode = finalBarcode;
-                  }
-                  return finalBarcode;
-              };
-              
-              // Standard Modulo 10 Checksum for UPC/EAN
-              const isValidUPCChecksum = (code) => {
+                const isValidUPCChecksum = (code) => {
                   if (code.length !== 12 && code.length !== 13) return false;
               
                   const digits = code.split('').map(Number);
@@ -875,21 +826,57 @@ export default class BarcodeScanner extends FieldComponent {
                   const calculatedCheckDigit = (10 - (sum % 10)) % 10;
                   return calculatedCheckDigit === lastDigit;
               };
-           
-                var processedBarcodes = [];
-                var processedBarcode = {};
-                console.log('barcodes', barcodes);
-                barcodes.forEach((barcode , index)=> {
-                  console.log('barcode', barcode);
-                  processedBarcode = processBarcode(barcode, index);
-              
-                  if (processedBarcode && processedBarcode.data) {
-                    processedBarcodes.push(processedBarcode);
+                // IMPROVEMENT: Only process and draw if the modal is actually visible to the user
+                const trackedBarcodesMap = session.trackedBarcodes || {};
+                const trackedValues = Object.values(trackedBarcodesMap);
+                this._trackedBarcodesProcessed = trackedValues.map((trackedBarcode) => {
+                  const rawBarcode = trackedBarcode.barcode;
+
+                  let finalData = rawBarcode.data;
+                  let finalSymbology = rawBarcode.symbology;
+                  
+                  if (finalData && finalData.length === 13) {
+                    if (finalData.startsWith('0')) {
+                      // 1. EXCLUSION: If it's a Mexican EAN (0 + 750), DO NOT STRIP.
+                      if (finalData.startsWith('0750')) {
+                        finalSymbology = "EAN-13"; // Explicitly tag as US symbology
+                      } 
+                      else {
+                          // 2. POTENTIAL US UPC: Strip the zero and validate
+                          const potentialUPC = finalData.substring(1);
+                          
+                          // Validate that the stripped version is a mathematically correct UPC
+                          if (isValidUPCChecksum(potentialUPC)) {
+                            finalData = potentialUPC;
+                            finalSymbology = "UPCA";
+                        
+                          }else{
+                            finalSymbology = "EAN-13"; // Explicitly tag as US symbology
+                          }
+                      }
+                    }else{
+                      finalSymbology = "EAN-13"; // Explicitly tag as US symbology
+                    }
                   }
-                });
-                this._trackedBarcodes = this._trackedBarcodesProcessed;
+
+
+                  return {
+                    ...trackedBarcode,
+                    barcode: {
+                        ...rawBarcode,
+                        data: finalData,
+                        symbology: finalSymbology
+                    }
+                };
+
+
+                })  
                 
-                this._currentBarcodes = processedBarcodes;
+                const barcodes = this._trackedBarcodesProcessed.map(tp => tp.barcode);
+                
+                this._trackedBarcodes = this._trackedBarcodesProcessed;
+                 
+                this._currentBarcodes =  barcodes;
                 
                 // Performance optimization: Throttle bounding box drawing
                 const drawNow = Date.now();
