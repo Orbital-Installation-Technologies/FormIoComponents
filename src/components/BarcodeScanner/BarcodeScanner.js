@@ -830,13 +830,12 @@ export default class BarcodeScanner extends FieldComponent {
                 const trackedBarcodesMap = session.trackedBarcodes || {};
                 const trackedValues = Object.values(trackedBarcodesMap);
                 this._trackedBarcodesProcessed = trackedValues.map((trackedBarcode) => {
-                  const rawBarcode = trackedBarcode.barcode.toJSON();
+                  const rawBarcode = trackedBarcode.barcode;
 
-                  let currentData = rawBarcode.data.toString() || "";
-                  let finalSymbology = rawBarcode.symbology.toString() || "";
-                  let finalData = "";
-                  console.log("current data", currentData);
-                  console.log("finalSymbology", finalSymbology);
+                  let currentData = rawBarcode.data != null ? String(rawBarcode.data) : "";
+                  let finalSymbology = rawBarcode.symbology != null ? String(rawBarcode.symbology) : "";
+                  // Default: preserve raw data and symbology for all types (Code128, QR, DataMatrix, etc.)
+                  let finalData = currentData;
                   if (currentData && currentData.length === 13) {
                     if (currentData.startsWith('0')) {
                       // 1. EXCLUSION: If it's a Mexican EAN (0 + 750), DO NOT STRIP.
@@ -873,13 +872,12 @@ export default class BarcodeScanner extends FieldComponent {
                         symbology: finalSymbology
                     }
                   };
-
                 })  
                 
                 const barcodes = this._trackedBarcodesProcessed.map(tp => tp.barcode);
                 
                 this._trackedBarcodes = this._trackedBarcodesProcessed;
-                 
+                
                 this._currentBarcodes =  barcodes;
                 
                 // Performance optimization: Throttle bounding box drawing
