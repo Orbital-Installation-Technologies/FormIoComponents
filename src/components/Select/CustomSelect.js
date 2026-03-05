@@ -82,22 +82,27 @@ adjustDropdownPosition(event) {
   if (dropdown.dataset.adjusted === "true") return;
   dropdown.dataset.adjusted = "true";
 
-  const rect = element.getBoundingClientRect();
-  const spaceBelow = window.innerHeight - rect.bottom - 10; // 10px buffer
-  const spaceAbove = rect.top - 10;
+  window.requestAnimationFrame(() => {
+    if (!dropdown || !element) return;
+    
+    const rect = element.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const spaceBelow = viewportHeight - rect.bottom - 10;
+    const spaceAbove = rect.top - 10;
 
-  // Logic: If less than 200px below and more space above, flip it UP
-  if (spaceBelow < 200 && spaceAbove > spaceBelow) {
-    dropdown.style.bottom = `${rect.height}px`; 
-    dropdown.style.top = 'auto';
-    dropdown.style.maxHeight = `${Math.min(spaceAbove, 400)}px`;
-  } else {
-    dropdown.style.bottom = 'auto';
-    dropdown.style.top = '100%';
-    dropdown.style.maxHeight = `${Math.min(spaceBelow, 400)}px`;
-  }
-  
-  dropdown.style.overflowY = 'auto';
+    // Write styles in one go
+    dropdown.style.width = `${rect.width}px`;
+    
+    if (spaceBelow < 200 && spaceAbove > spaceBelow) {
+      dropdown.style.bottom = `${rect.height}px`;
+      dropdown.style.top = 'auto';
+      dropdown.style.maxHeight = `${Math.min(spaceAbove, 400)}px`;
+    } else {
+      dropdown.style.bottom = 'auto';
+      dropdown.style.top = '100%';
+      dropdown.style.maxHeight = `${Math.min(spaceBelow, 400)}px`;
+    }
+  });
 }
 
   adjustDropdownLogic(element, choicesInstance) {
