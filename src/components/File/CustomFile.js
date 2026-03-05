@@ -93,17 +93,18 @@ export default class CustomFile extends FileComponent {
   // Reset file input elements to prevent mobile browsers from reusing cached files
   resetFileInputs() {
     if (typeof document === 'undefined' || !this.element) return;
-    
-    requestAnimationFrame(() => {
-      const fileInputs = this.element.querySelectorAll('input[type="file"]');
-      fileInputs.forEach(input => {
-        try {
-          input.value = '';
-        } catch (e) {
-          // Fallback only if necessary
-        }
+    if (typeof window !== 'undefined' && window.requestAnimationFrame) {
+      window.requestAnimationFrame(() => {
+        const fileInputs = this.element.querySelectorAll('input[type="file"]');
+        fileInputs.forEach(input => {
+          try {
+            input.value = '';
+          } catch (e) {
+            // Fallback only if necessary
+          }
+        });
       });
-    });
+    }
   }
 
   // New method to ensure image previews are displayed
@@ -668,25 +669,9 @@ div.file img:hover {
       }
     }, { once: false });
   }
-
- // BATTERY FIX: Clean up heavy WASM/Pica references when component is destroyed
- detach() {
-  if (this._uiUpdateTimeout) cancelAnimationFrame(this._uiUpdateTimeout);
-  if (this._previewTimer) clearTimeout(this._previewTimer);
-  
-  if (this._fileInputObserver) {
-    this._fileInputObserver.disconnect();
-    this._fileInputObserver = null;
-  }
-  this.picaInstance = null;
-    this._workerCanvas = null; 
-    
-    return super.detach();
-}
-
   triggerUpdate() {
-    if (this._uiUpdateTimeout) cancelAnimationFrame(this._uiUpdateTimeout);
-    this._uiUpdateTimeout = requestAnimationFrame(() => {
+    if (this._uiUpdateTimeout) window.cancelAnimationFrame(this._uiUpdateTimeout);
+    this._uiUpdateTimeout = window.requestAnimationFrame(() => {
       this.wrapDefaultImages();
       this.updateImagePreviews();
     });
@@ -706,4 +691,20 @@ div.file img:hover {
     }
     return super.checkComponentValidity(data, dirty, row, options);
   }
+ // BATTERY FIX: Clean up heavy WASM/Pica references when component is destroyed
+ detach() {
+  if (this._uiUpdateTimeout) window.cancelAnimationFrame(this._uiUpdateTimeout);
+  if (this._previewTimer) clearTimeout(this._previewTimer);
+  
+  if (this._fileInputObserver) {
+    this._fileInputObserver.disconnect();
+    this._fileInputObserver = null;
+  }
+  this.picaInstance = null;
+    this._workerCanvas = null; 
+    
+    return super.detach();
+}
+
+ 
 }
