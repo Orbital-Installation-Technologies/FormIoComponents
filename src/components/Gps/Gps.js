@@ -33,7 +33,7 @@ export default class Gps extends FieldComponent {
     this.fetchedInitially = false;
     // IMPROVEMENT: Initialize a variable to store the watch ID to ensure we can stop tracking
     this._watchId = null;
-    
+    this._visibilityHandler = null;
     // IMPROVEMENT: Initialize a timer for location timeouts to prevent the GPS from hanging indefinitely
     this._locationTimeout = null;
   }
@@ -221,7 +221,7 @@ export default class Gps extends FieldComponent {
       longitude: "single",
       gpsButton: "single",
     });
-
+ 
     const latitudeField = this.refs.latitude;
     const longitudeField = this.refs.longitude;
 
@@ -277,6 +277,16 @@ export default class Gps extends FieldComponent {
         this.getLocation();
       });
     }
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        this.stopTracking(); 
+      } else if (this.component.autoTrack) {
+        this.startTracking(); // Only if your logic supports auto-restart
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    this._visibilityHandler = handleVisibilityChange;
     return attached;
   }
 
@@ -290,13 +300,13 @@ export default class Gps extends FieldComponent {
       clearTimeout(this._locationTimeout);
     }
     const options = {
-      enableHighAccuracy: true,
+      enableHighAccuracy: false,
       // IMPROVEMENT: Set a strict timeout (10s) to prevent the GPS hardware from staying active too long if a fix isn't found
       timeout: 10000, 
       // IMPROVEMENT: Allow the use of a cached location if it's recent (within 1 minute) to avoid waking the GPS chip
       maximumAge: 60000 
     };
-
+  
     
     this._watchId = navigator.geolocation.watchPosition(
       (position) => {
@@ -380,6 +390,8 @@ export default class Gps extends FieldComponent {
   }
 
   detach() {
+    document.removeEventListener("visibilitychange", this._visibilityHandler);
+    this._visibilityHandler = null;
     this.stopTracking(); // IMPROVEMENT: Ensure hardware is released even on component detach
     return super.detach();
   }
@@ -402,15 +414,17 @@ export default class Gps extends FieldComponent {
         this.triggerChange();
       }
     }
-
+  
+    // OPTIMIZATION: Update the input values directly without a full component redraw
     if (this.refs && this.refs.latitude && this.refs.longitude) {
       const [latitude, longitude] = value ? value.split(",") : ["", ""];
-      this.refs.latitude.value = latitude;
-      this.refs.longitude.value = longitude;
+      if (this.refs.latitude.value !== latitude) this.refs.latitude.value = latitude;
+      if (this.refs.longitude.value !== longitude) this.refs.longitude.value = longitude;
     }
-
-    if (changed) {
-      this.redraw();
+  
+    // Only redraw if we absolutely have to change the structure of the component
+    if (changed && flags.fromUser) {
+      // this.redraw(); // Consider removing this unless the UI structure changes
     }
   }
 
