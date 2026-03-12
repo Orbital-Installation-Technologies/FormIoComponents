@@ -18,6 +18,36 @@ export default class CustomFile extends FileComponent {
   }
 
   /**
+   * On slow/weak connections mobile browsers may report file.type = "" when the
+   * file is selected before the OS has fully read it (common with camera capture).
+   * The base validateFileSettings() immediately rejects empty-type files that have
+   * a filePattern set (e.g. "image/*"), showing a false "wrong type" error even
+   * though the image will upload fine once the type resolves.
+   *
+   * Fix: if the file has no MIME type but its extension looks like an image,
+   * skip the pattern check and only run the size constraints.
+   */
+  validateFileSettings(file) {
+    const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|webp|heic|heif|bmp|tiff?)$/i;
+    if (!file.type && file.name && this.component.filePattern && IMAGE_EXTENSIONS.test(file.name)) {
+      if (this.component.fileMinSize && !this.validateMinSize(file, this.component.fileMinSize)) {
+        return {
+          status: 'error',
+          message: this.t('File is too small; it must be at least {{ size }}', { size: this.component.fileMinSize }),
+        };
+      }
+      if (this.component.fileMaxSize && !this.validateMaxSize(file, this.component.fileMaxSize)) {
+        return {
+          status: 'error',
+          message: this.t('File is too big; it must be at most {{ size }}', { size: this.component.fileMaxSize }),
+        };
+      }
+      return {};
+    }
+    return super.validateFileSettings(file);
+  }
+
+  /**
    * This is the key: fileToSync is an object containing:
    *  - file: the actual File object
    *  - name: file name
