@@ -155,19 +155,36 @@ export default class BarcodeScanner extends FieldComponent {
             font-size: 14px !important;
           }
         }
+
+        /* On small screens, give barcode input full width so placeholder and error stay visible */
+        @media (max-width: 576px) {
+          .barcode-input-row {
+            flex-wrap: wrap !important;
+          }
+          .barcode-input-row .form-control {
+            min-width: 100% !important;
+            width: 100% !important;
+            margin-right: 0 !important;
+            margin-bottom: 8px !important;
+            box-sizing: border-box !important;
+          }
+          .barcode-input-row .btn {
+            margin-right: 0 !important;
+          }
+        }
       `;
       document.head.appendChild(style);
     }
 
     return super.render(`
       <div style="display:block; position:relative; gap:8px;">
-        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:nowrap; margin-bottom:8px;">
+        <div class="barcode-input-row" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:nowrap; margin-bottom:8px;">
           <input
             ref="barcode"
             type="text"
             class="form-control"
             value="${this.dataValue || ""}"
-            placeholder="Scan or enter barcode"
+            placeholder="${this.component.placeholder || ""}"
             style="flex-grow:1; margin-right:10px; min-width:0;"
           />
           <button ref="scanButton" type="button" class="btn btn-primary" style="margin-right:5px; flex-shrink:0; padding:6px 12px; display:flex; align-items:center; justify-content:center; min-width:40px;" title="Open camera to scan">
