@@ -1,0 +1,14 @@
+---
+description: Code quality standards — comments, duplication, dead code, refactors
+alwaysApply: true
+---
+
+# Code quality
+
+- Do not generate excessive comments.
+- Comments must explain intent or non-obvious business rules only.
+- Avoid duplicate structures or repeated conditional logic.
+- Remove unreachable code and dead branches.
+- Prefer refactoring over patching around old code.
+- Call out unused imports, vars, and functions.
+- If you detect duplicate logic, unreachable code, or dead code in existing files, point it out and suggest a refactor.
