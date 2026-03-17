@@ -36,7 +36,7 @@ export default class CustomSelect extends SelectComponent {
         }
         .choices__list--dropdown {
           position: absolute !important;
-          top: 100% !important; /* Forces it right below the input */
+          top: 100% !important;
           left: 0 !important;
           width: 100% !important;
           z-index: 10000 !important;
@@ -59,6 +59,15 @@ export default class CustomSelect extends SelectComponent {
           word-break: break-word !important;
           overflow-wrap: break-word !important;
         }
+        .choices.choices-dropdown-unclip .choices__list--dropdown {
+          position: fixed !important;
+          left: var(--choices-dropdown-left) !important;
+          top: var(--choices-dropdown-top) !important;
+          bottom: var(--choices-dropdown-bottom) !important;
+          width: var(--choices-dropdown-width) !important;
+          max-height: var(--choices-dropdown-max-height) !important;
+          z-index: 10001 !important;
+        }
       `;
       document.head.appendChild(style);
     }
@@ -74,50 +83,48 @@ export default class CustomSelect extends SelectComponent {
     const choicesInstance = this.choices || this._choices;
 
     if (choicesInstance && choicesInstance.passedElement) {
-      // We listen specifically for the 'showDropdown' event
-      choicesInstance.passedElement.element.addEventListener('showDropdown', () => {
-        this.adjustDropdownLogic(element, choicesInstance);
+      const container = choicesInstance.containerOuter.element;
+      const passedEl = choicesInstance.passedElement.element;
+      passedEl.addEventListener('showDropdown', () => {
+        this._applyDropdownUnclip(container);
+      });
+      passedEl.addEventListener('hideDropdown', () => {
+        this._clearDropdownUnclip(container);
       });
     }
 
     return result;
   }
 
-
-  adjustDropdownLogic(element, choicesInstance) {
-    const dropdown = choicesInstance.containerOuter.element.querySelector(
-      '.choices__list--dropdown'
-    );
-    
-    if (!dropdown) return;
-
-    // Apply your dynamic height and positioning logic
-    dropdown.style.width = `${element.offsetWidth}px`;
-
-    const rect = element.getBoundingClientRect();
+  _applyDropdownUnclip(container) {
+    const rect = container.getBoundingClientRect();
     const margin = 10;
     const spaceBelow = window.innerHeight - rect.bottom - margin;
     const spaceAbove = rect.top - margin;
-
     let maxHeight = 400;
-
-    // Small screen adjustment
     if (window.innerHeight < 400) {
       maxHeight = Math.min(spaceBelow, 200);
     }
-
-    // Directional logic (Upward vs Downward)
-    if (spaceBelow < 200 && spaceAbove > spaceBelow) {
+    const openUp = spaceBelow < 200 && spaceAbove > spaceBelow;
+    if (openUp) {
       maxHeight = Math.min(spaceAbove, maxHeight);
-      dropdown.style.bottom = `${rect.height}px`; // Open upward
-      dropdown.style.top = 'auto';
-    } else {
-      dropdown.style.bottom = 'auto'; // Open downward
-      dropdown.style.top = '100%';
     }
 
-    dropdown.style.maxHeight = `${maxHeight}px`;
-    dropdown.style.overflowY = 'auto';
+    container.classList.add('choices-dropdown-unclip');
+    container.style.setProperty('--choices-dropdown-left', `${rect.left}px`);
+    container.style.setProperty('--choices-dropdown-width', `${rect.width}px`);
+    container.style.setProperty('--choices-dropdown-max-height', `${maxHeight}px`);
+    container.style.setProperty('--choices-dropdown-top', openUp ? 'auto' : `${rect.bottom}px`);
+    container.style.setProperty('--choices-dropdown-bottom', openUp ? `${window.innerHeight - rect.top}px` : 'auto');
+  }
+
+  _clearDropdownUnclip(container) {
+    container.classList.remove('choices-dropdown-unclip');
+    container.style.removeProperty('--choices-dropdown-left');
+    container.style.removeProperty('--choices-dropdown-width');
+    container.style.removeProperty('--choices-dropdown-max-height');
+    container.style.removeProperty('--choices-dropdown-top');
+    container.style.removeProperty('--choices-dropdown-bottom');
   }
 
   detach() {
