@@ -58,7 +58,10 @@ export default class ReviewButton extends FieldComponent {
       schema: ReviewButton.schema(),
     };
   }
-
+  constructor(...args) {
+    super(...args);
+    this._outsideClickListener = null; // Reference for cleanup
+  }
   init() {
     super.init();
     this.root.on("submitDone", (submission) => {
@@ -1929,11 +1932,16 @@ export default class ReviewButton extends FieldComponent {
           }
         });
 
-        document.addEventListener('mousedown', function(e) {
-          if (!dropdown?.contains(e.target)) {
+       
+        // DEFINE the listener using the reference
+        this._outsideClickListener = (e) => {
+          // dropdown and list should be defined in your attach scope
+          if (dropdown && !dropdown.contains(e.target)) {
             list?.classList.remove('open');
           }
-        });
+        };
+        // ADD the global listener
+        document.addEventListener('mousedown', this._outsideClickListener);
         // Initial validation to set submit button state
         validateModalForm(modal, screenshotComp, formData, requireSupportFields);
 
@@ -1949,5 +1957,15 @@ export default class ReviewButton extends FieldComponent {
     });
 
     return super.attach(element);
+  }
+  
+  destroy() {
+    // REMOVE the global listener to prevent memory leaks
+    if (this._outsideClickListener) {
+      document.removeEventListener('mousedown', this._outsideClickListener);
+      this._outsideClickListener = null;
+    }
+    
+    return super.destroy();
   }
 }
