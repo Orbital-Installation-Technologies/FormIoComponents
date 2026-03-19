@@ -643,8 +643,8 @@ export default class BarcodeScanner extends FieldComponent {
       });
     }, { threshold: 0.1 });
 
-    if (this.refs.barcodeContainer) {
-      this._intersectionObserver.observe(this.refs.barcodeContainer);
+    if (this.refs.scanditContainer) {
+      this._intersectionObserver.observe(this.refs.scanditContainer);
     }
   }
 
@@ -824,8 +824,8 @@ export default class BarcodeScanner extends FieldComponent {
           });
         }, { threshold: 0.1 });
         
-        if (this.refs.barcodeContainer) {
-          this._intersectionObserver.observe(this.refs.barcodeContainer);
+        if (this.refs.scanditContainer) {
+           this._intersectionObserver.observe(this.refs.scanditContainer);
         }
 
         this._barcodeBatch = await BarcodeBatch.forContext(this._dataCaptureContext, settings);
