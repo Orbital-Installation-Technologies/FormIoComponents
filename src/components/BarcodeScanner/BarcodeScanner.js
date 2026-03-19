@@ -813,20 +813,6 @@ export default class BarcodeScanner extends FieldComponent {
         if (!this._dataCaptureContext) {
             throw new Error("DataCaptureContext is null - cannot create BarcodeCapture");
         }
-        this._intersectionObserver = new IntersectionObserver((entries) => {
-          entries.forEach(entry => {
-            if (this._camera) {
-              // If visible, turn camera ON. If not, turn camera OFF.
-              // This physically powers down the camera sensor to save battery.
-              const state = entry.isIntersecting ? FrameSourceState.On : FrameSourceState.Off;
-              this._camera.switchToDesiredState(state);
-            }
-          });
-        }, { threshold: 0.1 });
-        
-        if (this.refs.scanditContainer) {
-           this._intersectionObserver.observe(this.refs.scanditContainer);
-        }
 
         this._barcodeBatch = await BarcodeBatch.forContext(this._dataCaptureContext, settings);
 
