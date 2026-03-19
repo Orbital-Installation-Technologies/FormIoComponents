@@ -677,19 +677,67 @@ div.file img:hover {
     });
   }
 
-  checkComponentValidity(data, dirty, row, options) {
-    // If the field is marked required and has files, force it to be valid
-    if (this.component.validate && this.component.validate.required) {
-      const hasFiles = this.component.multiple 
-        ? (Array.isArray(this.dataValue) && this.dataValue.length > 0)
-        : (!!this.dataValue);
-
-      if (hasFiles) {
-        this.setCustomValidity('');
-        return true;
-      }
+checkComponentValidity(data, dirty, row, options) {
+    // 1. If the component is hidden or disabled, it's technically valid
+    if (!this.visible || this.disabled) {
+      return true;
     }
+  
+    const isRequired = !!(this.component.validate && this.component.validate.required);
+    
+    // 2. If it's not required, let the base class handle standard logic
+    if (!isRequired) {
+      return super.checkComponentValidity(data, dirty, row, options);
+    }
+  
+    // 3. Check for files in ALL possible locations
+    const hasFiles = (Array.isArray(this.dataValue) && this.dataValue.length > 0) || 
+                     (this.files && this.files.length > 0) ||
+                     (!!this.dataValue && !Array.isArray(this.dataValue));
+  
+    if (hasFiles) {
+      // 1. Clear standard Form.io error properties
+      this.error = '';
+      this.invalid = false;
+      this.setPristine(true); // Reset the "touched" state
+      
+      // 2. CLEAR THE ARRAY-BASED ERRORS (The specific fix for your dump)
+      this._errors = []; 
+      this._visibleErrors = [];
+      
+      // 3. Clear validity message
+      if (typeof this.setCustomValidity === 'function') {
+          this.setCustomValidity('', false);
+      }
+  
+      // 4. MANUALLY STRIP THE CSS CLASS FROM THE ELEMENT
+      // Since submit() is mid-flight, we force the DOM to clean up
+      if (this.element) {
+          this.element.classList.remove('has-error');
+          this.element.classList.remove('error');
+          
+          // Find and hide the error message text specifically
+          const errorMsg = this.element.querySelector('.formio-errors, .help-block');
+          if (errorMsg) {
+              errorMsg.style.display = 'none';
+              errorMsg.innerHTML = '';
+          }
+      }
+      
+      return true; 
+    }
+  
+    // 4. If truly empty, let the standard validation show the error
     return super.checkComponentValidity(data, dirty, row, options);
+  }
+
+  getValue() {
+    const value = super.getValue();
+    // If the standard getValue is empty but we have files in the instance, return the files
+    if ((!value || (Array.isArray(value) && value.length === 0)) && this.files && this.files.length > 0) {
+      return this.files;
+    }
+    return value;
   }
  // BATTERY FIX: Clean up heavy WASM/Pica references when component is destroyed
  detach() {
