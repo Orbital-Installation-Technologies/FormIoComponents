@@ -861,7 +861,11 @@ export function applyFieldErrors(panel) {
 
     if (appliedCount < Object.keys(panel._errorMap).length && attemptCount < maxAttempts) {
       attemptCount++;
-      setTimeout(tryApplyErrors, 200);
+      if (window.requestIdleCallback) {
+        window.requestIdleCallback(tryApplyErrors); // Only run when CPU is quiet
+      } else {
+        window.requestAnimationFrame(tryApplyErrors); // Sync with screen refresh
+      }
     }
   };
 
