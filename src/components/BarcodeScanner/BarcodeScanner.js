@@ -2523,6 +2523,10 @@ export default class BarcodeScanner extends FieldComponent {
     if (this._camera) {
       this._camera.switchToDesiredState(FrameSourceState.Off);
     }
+    if (this._intersectionObserver) {
+      this._intersectionObserver.disconnect();
+      this._intersectionObserver = null;
+    }
     if (this._dataCaptureView && this._dataCaptureView.htmlElement) {
       const canvas = this._dataCaptureView.htmlElement.querySelector('canvas');
       if (canvas) { 
