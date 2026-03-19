@@ -295,10 +295,8 @@ export default class Gps extends FieldComponent {
       alert("Geolocation is not supported in this browser.");
       return;
     }
-    // IMPROVEMENT: Clear any existing location timeout before starting a new request
-    if (this._locationTimeout) {
-      clearTimeout(this._locationTimeout);
-    }
+    // Ensure previous watch/timeout is fully stopped before creating a new watcher
+    this.stopTracking();
     const options = {
       enableHighAccuracy: false,
       // IMPROVEMENT: Set a strict timeout (10s) to prevent the GPS hardware from staying active too long if a fix isn't found
