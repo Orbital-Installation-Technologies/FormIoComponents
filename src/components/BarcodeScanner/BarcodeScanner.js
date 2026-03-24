@@ -77,7 +77,7 @@ export default class BarcodeScanner extends FieldComponent {
     this._torchEnabled = false; // Track torch/flashlight state independently from camera state
     this._pendingBarcodes = []; // All detected barcodes waiting for confirmation
     this._selectedBarcodeIndices = new Set(); // For tracking radio selections
-    this._barcodeImages = {}; // Store barcode images by their data value
+    this._barcodeImage = {}; // Store barcode image by their data value
     this._allDetectedBarcodes = []; // Store ALL barcodes for backup field
     this._lastFrameTime = 0; // Throttle frame processing
     this._lastDrawTime = 0; // Throttle bounding box drawing
@@ -452,9 +452,9 @@ export default class BarcodeScanner extends FieldComponent {
 
     this._unhandledRejectionHandler = (event) => {
       if (event.reason && (
-          event.reason.name === 'NotAllowedError' || 
-          event.reason.message?.includes('Permission denied') ||
-          event.reason.message?.includes('permission')
+        event.reason.name === 'NotAllowedError' ||
+        event.reason.message?.includes('Permission denied') ||
+        event.reason.message?.includes('permission')
       )) {
         console.warn('Camera permission error suppressed:', event.reason);
         event.preventDefault();
@@ -673,13 +673,13 @@ export default class BarcodeScanner extends FieldComponent {
         if (this._dataCaptureView && this.refs.scanditContainer) {
           this._dataCaptureView.connectToElement(this.refs.scanditContainer);
         }
-        
+
         if (!this._boundingBoxCanvas || !this._boundingBoxCanvas.parentNode) {
           this._createBoundingBoxOverlay();
         } else {
           this._resizeBoundingBoxCanvas();
         }
-        
+
         this._startLiveScanningMode();
         this._startCameraMonitoring();
         this._currentBarcodes = [];
@@ -746,15 +746,14 @@ export default class BarcodeScanner extends FieldComponent {
     };
 
     try {
-        if (!scanditConfigured) {
-            await configure({
-                licenseKey: this._licenseKey,
-                libraryLocation: "/scandit-lib/",
-                moduleLoaders: [barcodeCaptureLoader()],
-                engineVariant: "regular"
-            });
-            scanditConfigured = true;
-        }
+      if (!scanditConfigured) {
+        await configure({
+          licenseKey: this._licenseKey,
+          libraryLocation: "/scandit-lib/",
+          moduleLoaders: [barcodeCaptureLoader()]
+        });
+        scanditConfigured = true;
+      }
 
         this._dataCaptureContext = await DataCaptureContext.create();
 
@@ -788,13 +787,17 @@ export default class BarcodeScanner extends FieldComponent {
             settings.batterySaving = true;
         }
 
-        this._configureAdvancedSymbologySettings(settings);
+      if (settings.locationSelection) {
+        settings.locationSelection = null;
+      }
 
-        if (!this._dataCaptureContext) {
-            throw new Error("DataCaptureContext is null - cannot create BarcodeCapture");
-        }
+      if (typeof settings.maxNumberOfCodesPerFrame !== 'undefined') {
+        settings.maxNumberOfCodesPerFrame = 10;
+      }
 
-        this._barcodeBatch = await BarcodeBatch.forContext(this._dataCaptureContext, settings);
+      if (typeof settings.batterySaving !== 'undefined') {
+        settings.batterySaving = false;
+      }
 
         await this._barcodeBatch.setEnabled(true);
         this._usingBatch = true;
@@ -889,65 +892,82 @@ export default class BarcodeScanner extends FieldComponent {
                   this._drawBoundingBoxes(this._currentBarcodes);
                 }
 
-                // Trigger auto-freeze and confirmation when barcode is detected
-                if (barcodes.length > 0 && !this._isVideoFrozen && !this._showingConfirmation) {
-                    if (window.ReactNativeWebView && this._torchEnabled === true) {
-                        window.ReactNativeWebView.postMessage('FLASH_OFF');
-                        this._torchEnabled = false;
-                    }
-                    // --- NEW: Capture the video frame and crop barcodes ---
-                    const video = this.refs.scanditContainer?.querySelector('video');
-        
-                    if (video && video.videoWidth > 0 && video.videoHeight > 0 && barcodes.length > 0) {
-                        const canvas = document.createElement('canvas');
-                        canvas.width = video.videoWidth;
-                        canvas.height = video.videoHeight;
-                        const ctx = canvas.getContext('2d');
-                      
-                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                        this._canvas = canvas;
-                        this._captureBarcodeImage(barcodes, this._canvas);
-                    } else {
-                        console.log('Video not ready yet or no barcodes detected.');
-                    }
-                    this._autoFreezeAndConfirm();
-                }  
-  
-            },
-        });
+      if (!this._dataCaptureContext) {
+        throw new Error("DataCaptureContext is null - cannot create BarcodeCapture");
+      }
 
-        this._dataCaptureView = await DataCaptureView.forContext(this._dataCaptureContext);
-        this._dataCaptureView.connectToElement(this.refs.scanditContainer);
+      this._barcodeBatch = await BarcodeBatch.forContext(this._dataCaptureContext, settings);
 
-        await BarcodeBatchBasicOverlay.withBarcodeBatchForViewWithStyle(
-            this._barcodeBatch,
-            this._dataCaptureView,
-            BarcodeBatchBasicOverlayStyle.Frame
-        );
+      await this._barcodeBatch.setEnabled(true);
+      this._usingBatch = true;
 
-        if (!document.getElementById('hide-scandit-blue-frames')) {
-            const style = document.createElement('style');
-            style.id = 'hide-scandit-blue-frames';
-            style.textContent = `
+      this._trackedBarcodes = {};
+      this._barcodeBatch.addListener({
+        didUpdateSession: (barcodeBatchMode, session) => {
+          this._trackedBarcodes = session.trackedBarcodes || {};
+          const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
+          this._currentBarcodes = barcodes;
+          this._drawBoundingBoxes(this._currentBarcodes);
+
+          // Trigger auto-freeze and confirmation when barcode is detected
+          if (barcodes.length > 0 && !this._isVideoFrozen && !this._showingConfirmation) {
+            if (window.ReactNativeWebView && this._torchEnabled === true) {
+              window.ReactNativeWebView.postMessage('FLASH_OFF');
+              this._torchEnabled = false;
+            }
+            // --- NEW: Capture the video frame and crop barcodes ---
+            const video = this.refs.scanditContainer?.querySelector('video');
+
+            if (video && video.videoWidth > 0 && video.videoHeight > 0 && barcodes.length > 0) {
+              const canvas = document.createElement('canvas');
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+              const ctx = canvas.getContext('2d');
+
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+              this._canvas = canvas;
+              this._captureBarcodeImage(barcodes, this._canvas);
+            } else {
+              console.log('Video not ready yet or no barcodes detected.');
+            }
+            this._autoFreezeAndConfirm();
+          }
+
+        },
+      });
+
+      this._dataCaptureView = await DataCaptureView.forContext(this._dataCaptureContext);
+      this._dataCaptureView.connectToElement(this.refs.scanditContainer);
+
+      await BarcodeBatchBasicOverlay.withBarcodeBatchForViewWithStyle(
+        this._barcodeBatch,
+        this._dataCaptureView,
+        BarcodeBatchBasicOverlayStyle.Frame
+      );
+
+      if (!document.getElementById('hide-scandit-blue-frames')) {
+        const style = document.createElement('style');
+        style.id = 'hide-scandit-blue-frames';
+        style.textContent = `
                 .scandit-barcode-batch-basic-overlay-frame,
                 .scandit-barcode-batch-basic-overlay-frame * {
                     opacity: 0 !important;
                     pointer-events: none !important;
                 }
             `;
-            document.head.appendChild(style);
-        }
+        document.head.appendChild(style);
+      }
 
-        this._configureCameraView();
-        this._createBoundingBoxOverlay();
-        this._startLiveScanningMode();
+      this._configureCameraView();
+      this._createBoundingBoxOverlay();
+      this._startLiveScanningMode();
 
-        this._currentBarcodes = [];
-        this._drawBoundingBoxes(this._currentBarcodes);
+      this._currentBarcodes = [];
+      this._drawBoundingBoxes(this._currentBarcodes);
     } catch (error) {
-        console.warn("Barcode scanner initialization error (handled):", error);
+      console.warn("Barcode scanner initialization error (handled):", error);
     } finally {
-        console.error = originalConsoleError;
+      console.error = originalConsoleError;
     }
   }
 
@@ -975,43 +995,43 @@ export default class BarcodeScanner extends FieldComponent {
         
         this._camera = Camera.default;
 
-        if (this._camera) {
-            await this._camera.applySettings(cameraSettings);
-            await this._dataCaptureContext.setFrameSource(this._camera);
-            await this._camera.switchToDesiredState(FrameSourceState.On);
+      if (this._camera) {
+        await this._camera.applySettings(cameraSettings);
+        await this._dataCaptureContext.setFrameSource(this._camera);
+        await this._camera.switchToDesiredState(FrameSourceState.On);
 
-            if (this._barcodeBatch) {
-                await this._barcodeBatch.setEnabled(true);
-            } else {
-                const errorMsg = this._initializationError
-                    ? `BarcodeBatch initialization failed: ${this._initializationError.message}`
-                    : "BarcodeBatch instance is null";
-                throw new Error(errorMsg);
-            }
+        if (this._barcodeBatch) {
+          await this._barcodeBatch.setEnabled(true);
         } else {
-            console.warn("No camera available");
+          const errorMsg = this._initializationError
+            ? `BarcodeBatch initialization failed: ${this._initializationError.message}`
+            : "BarcodeBatch instance is null";
+          throw new Error(errorMsg);
         }
+      } else {
+        console.warn("No camera available");
+      }
     } catch (error) {
-        console.warn("Camera access error (handled):", error);
-        
-        if (this.refs.freezeButton) {
-            this.refs.freezeButton.style.display = 'none';
-        }
-        
-        if (this.refs.scanditContainer) {
-            const rnWebView = typeof window !== 'undefined' ? window.ReactNativeWebView : null;
-            const canPost = rnWebView && typeof rnWebView.postMessage === 'function';
+      console.warn("Camera access error (handled):", error);
 
-            if (canPost) {
-              rnWebView.postMessage('cameraAccessDenied');
-            } else {
-              // Web fallback: show something actionable instead of leaving "Loading camera..."
-                this.refs.scanditContainer.textContent =
-                 'Camera access denied. Please enable camera permissions in your browser settings and try again.';
-            }
+      if (this.refs.freezeButton) {
+        this.refs.freezeButton.style.display = 'none';
+      }
+
+      if (this.refs.scanditContainer) {
+        const rnWebView = typeof window !== 'undefined' ? window.ReactNativeWebView : null;
+        const canPost = rnWebView && typeof rnWebView.postMessage === 'function';
+
+        if (canPost) {
+          rnWebView.postMessage('cameraAccessDenied');
+        } else {
+          // Web fallback: show something actionable instead of leaving "Loading camera..."
+          this.refs.scanditContainer.textContent =
+            'Camera access denied. Please enable camera permissions in your browser settings and try again.';
         }
+      }
     } finally {
-        console.error = originalConsoleError;
+      console.error = originalConsoleError;
     }
   }
 
@@ -2110,9 +2130,9 @@ export default class BarcodeScanner extends FieldComponent {
       `;
 
       // Check if we have a captured barcode image
-      if (this._barcodeImages[barcodeData]) {
+      if (this._barcodeImage) {
         const img = document.createElement('img');
-        img.src = this._barcodeImages[barcodeData];
+        img.src = this._barcodeImage;
         img.style.cssText = `
           max-width: 100%;
           max-height: 100%;
@@ -2177,44 +2197,20 @@ export default class BarcodeScanner extends FieldComponent {
   }
   _captureBarcodeImage(barcodes, canvas) {
     try {
-      const MARGIN = 20;
-      barcodes.forEach(barcode => {
-        const { x, y, width, height } = this.getBoundingBox(barcode._location);
-    
-        // Expand bounding box with margin
-        const bx = Math.max(0, x - MARGIN);
-        const by = Math.max(0, y - MARGIN);
-    
-        const bWidth = Math.min(
-            width + MARGIN * 2,
-            canvas.width - bx
-        );
-    
-        const bHeight = Math.min(
-            height + MARGIN * 2,
-            canvas.height - by
-        );
-    
-        // Validate dimensions
-        if (bWidth <= 0 || bHeight <= 0) return;
-    
-        const croppedCanvas = document.createElement('canvas');
-        croppedCanvas.width = bWidth;
-        croppedCanvas.height = bHeight;
-        const croppedCtx = croppedCanvas.getContext('2d');
-    
-        // Draw expanded crop
-        croppedCtx.drawImage(
-            canvas,
-            bx, by, bWidth, bHeight,   // source
-            0, 0, bWidth, bHeight      // destination
-        );
-    
-        const croppedDataURL = croppedCanvas.toDataURL('image/jpeg');
-        this._barcodeImages[barcode.data] = croppedDataURL;
-      })
+      // This captures the entire source canvas as one JPEG string
+      const fullImageDataURL = canvas.toDataURL('image/jpeg');
+
+      console.log('Full image captured');
+
+      // If you still need to associate it with the barcodes object:
+      this._barcodeImage = fullImageDataURL;
+
+      // Return it so you can use it immediately
+      return fullImageDataURL;
+
     } catch (error) {
-      console.warn('Error capturing barcode image:', error);
+      console.warn('Error capturing full image:', error);
+      return null;
     }
   }
 
@@ -2251,11 +2247,11 @@ export default class BarcodeScanner extends FieldComponent {
       }
 
       // Get the image data for this barcode
-      if (!this._barcodeImages[barcodeData]) {
+      if (!this._barcodeImage) {
         return;
       }
 
-      const imageDataUrl = this._barcodeImages[barcodeData];
+      const imageDataUrl = this._barcodeImage;
 
       // Get the root form and find the file upload component
       if (!this.root || !this.root.getComponent) {
@@ -2281,21 +2277,21 @@ export default class BarcodeScanner extends FieldComponent {
         if (typeof base64Data !== 'string') {
           throw new Error('Expected base64Data to be a string');
         }
-      
+
         const arr = base64Data.split(',');
         const mimeMatch = arr[0].match(/:(.*?);/);
         if (!mimeMatch) throw new Error('Invalid base64 format');
-      
+
         const mime = mimeMatch[1];
         const bstr = atob(arr[1]);
         let n = bstr.length;
         const u8arr = new Uint8Array(n);
         while (n--) u8arr[n] = bstr.charCodeAt(n);
-      
+
         return new File([u8arr], fileName, { type: mime });
       }
-      
-      
+
+
 
       const sanitizedBarcode = barcodeData.replace(/[^a-zA-Z0-9-_]/g, '_').substring(0, 50);
       const fileName = `barcode-${sanitizedBarcode}-${Date.now()}.png`;
@@ -2310,7 +2306,7 @@ export default class BarcodeScanner extends FieldComponent {
         originalName: fileName,
         size: file.size,
         storage: "s3"
-            };
+      };
       const uploadedFiles = await fileUploadComponent.uploadFile(fileToSync);
       fileUploadComponent.setValue(uploadedFiles);
       fileUploadComponent.triggerChange();
@@ -2319,7 +2315,7 @@ export default class BarcodeScanner extends FieldComponent {
     } catch (error) {
       console.warn('Error in _sendBarcodeImageToFileUpload:', error);
     }
-        
+
   }
 
   _removeBarcodeAt(index) {
@@ -2336,8 +2332,8 @@ export default class BarcodeScanner extends FieldComponent {
       barcodes.splice(index, 1);
 
       // Clean up stored image for removed barcode
-      if (this._barcodeImages[removedBarcode]) {
-        delete this._barcodeImages[removedBarcode];
+      if (this._barcodeImage) {
+        delete this._barcodeImage;
       }
     }
 
@@ -2351,7 +2347,7 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   _clearAllBarcodes() {
-    this._barcodeImages = {}; // Clear all stored images
+    this._barcodeImage = {}; // Clear all stored images
     this.setValue('');
     if (this.refs.barcode) {
       this.refs.barcode.value = '';
@@ -2608,8 +2604,8 @@ export default class BarcodeScanner extends FieldComponent {
       this._manualErrors = Array.isArray(errors)
         ? [...errors]
         : errors
-        ? [errors]
-        : [];
+          ? [errors]
+          : [];
     }
 
     super.setCustomValidity(errors, dirty);
