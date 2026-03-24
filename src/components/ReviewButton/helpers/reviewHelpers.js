@@ -318,19 +318,40 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
         }
       }
 
-      await onSubmit({
-        selectedVerificationType,
-        notesRequired,
-        notesOptional,
-        supportNumber,
-        uploadedFiles
-      });
+      const originalButtonText = submitButton.textContent;
+      submitButton.disabled = true;
+      submitButton.style.backgroundColor = "gray";
+      submitButton.style.cursor = "not-allowed";
+      submitButton.classList.add("is-submitting");
+      const spinner = document.createElement("span");
+      spinner.className = "review-modal-spinner";
+      submitButton.innerHTML = "";
+      submitButton.appendChild(spinner);
+      submitButton.appendChild(document.createTextNode(" Submitting..."));
 
-      if (hideScreenshot && typeof hideScreenshot === 'function') {
-        hideScreenshot();
+      try {
+        await onSubmit({
+          selectedVerificationType,
+          notesRequired,
+          notesOptional,
+          supportNumber,
+          uploadedFiles
+        });
+
+        if (hideScreenshot && typeof hideScreenshot === 'function') {
+          hideScreenshot();
+        }
+        document.body.classList.remove("no-scroll");
+        document.body.removeChild(modal);
+      } finally {
+        if (modal.parentNode && submitButton) {
+          submitButton.disabled = false;
+          submitButton.style.backgroundColor = "";
+          submitButton.style.cursor = "pointer";
+          submitButton.classList.remove("is-submitting");
+          submitButton.textContent = originalButtonText;
+        }
       }
-      document.body.classList.remove("no-scroll"); 
-      document.body.removeChild(modal);
     };
   }
 
@@ -507,6 +528,25 @@ const customCSS = `
 }
 .dropdown-selected.open i.dropdown.icon {
   transform: translateY(-50%) rotate(225deg); /* pointing up */
+}
+
+/* Submit button loading state */
+button.is-submitting {
+  pointer-events: none;
+}
+.review-modal-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: review-modal-spin 0.8s linear infinite;
+  vertical-align: middle;
+  margin-right: 2px;
+}
+@keyframes review-modal-spin {
+  to { transform: rotate(360deg); }
 }
 
 `;
