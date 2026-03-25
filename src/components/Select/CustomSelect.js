@@ -29,7 +29,7 @@ export default class CustomSelect extends SelectComponent {
         .form-control.ui.fluid.selection.dropdown.is-invalid {
           background-position: calc(100% - 1.5rem) calc(50% - 0.5px) !important;
         }
-       
+
         .choices {
           position: relative !important;
           overflow: visible !important;
@@ -41,8 +41,32 @@ export default class CustomSelect extends SelectComponent {
           width: 100% !important;
           z-index: 10000 !important;
         }
+
+        /* Wrap long option text — applied when wrapOptionText is enabled */
+        .choices--wrap-text .choices__list--dropdown .choices__item,
+        .choices--wrap-text .choices__list[aria-expanded] .choices__item {
+          white-space: normal !important;
+          word-break: break-word !important;
+          overflow-wrap: break-word !important;
+        }
+        .choices--wrap-text .choices__inner {
+          overflow: visible !important;
+          height: auto !important;
+          min-height: 44px;
+        }
+        .choices--wrap-text .choices__list--single .choices__item {
+          white-space: normal !important;
+          word-break: break-word !important;
+          overflow-wrap: break-word !important;
+        }
       `;
       document.head.appendChild(style);
+    }
+
+    // Apply wrap class based on component setting
+    const choicesContainer = element.querySelector('.choices');
+    if (choicesContainer) {
+      choicesContainer.classList.toggle('choices--wrap-text', this.component.wrapOptionText !== false);
     }
 
     //  Replace MutationObserver with Choices.js Events
