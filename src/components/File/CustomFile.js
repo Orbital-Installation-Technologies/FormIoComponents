@@ -15,7 +15,37 @@ export default class CustomFile extends FileComponent {
   constructor(...args) {
     super(...args);
     this.picaInstance = null;
-  } 
+  }
+
+  /**
+   * On slow/weak connections mobile browsers may report file.type = "" when the
+   * file is selected before the OS has fully read it (common with camera capture).
+   * The base validateFileSettings() immediately rejects empty-type files that have
+   * a filePattern set (e.g. "image/*"), showing a false "wrong type" error even
+   * though the image will upload fine once the type resolves.
+   *
+   * Fix: if the file has no MIME type but its extension looks like an image,
+   * skip the pattern check and only run the size constraints.
+   */
+  validateFileSettings(file) {
+    const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|webp|heic|heif|bmp|tiff?)$/i;
+    if (!file.type && file.name && this.component.filePattern && IMAGE_EXTENSIONS.test(file.name)) {
+      if (this.component.fileMinSize && !this.validateMinSize(file, this.component.fileMinSize)) {
+        return {
+          status: 'error',
+          message: this.t('File is too small; it must be at least {{ size }}', { size: this.component.fileMinSize }),
+        };
+      }
+      if (this.component.fileMaxSize && !this.validateMaxSize(file, this.component.fileMaxSize)) {
+        return {
+          status: 'error',
+          message: this.t('File is too big; it must be at most {{ size }}', { size: this.component.fileMaxSize }),
+        };
+      }
+      return {};
+    }
+    return super.validateFileSettings(file);
+  }
 
   /**
    * This is the key: fileToSync is an object containing:
@@ -35,14 +65,19 @@ export default class CustomFile extends FileComponent {
     if (file.type.startsWith("image/")) {
       try {
         const img = await this.fileToImage(file);
-        processedBlob = await this.compressImage(img);
+        processedBlob = await this.compressImage(img, file);
       } catch (err) {
         console.error("Compression failed, using original", err);
       }
     }
 
     // --- COLLISION-PROOF SCRAMBLING ---
-    const ext = file.name.substring(file.name.lastIndexOf('.')) || '.jpg';
+    // Use .jpg when compression produced image/jpeg regardless of original extension,
+    // to prevent a MIME-type/extension mismatch that causes a 400 from the /storage/s3 endpoint.
+    const outputType = processedBlob.type || '';
+    const ext = outputType === 'image/jpeg'
+      ? '.jpg'
+      : (file.name.includes('.') ? file.name.substring(file.name.lastIndexOf('.')) : '.jpg');
 
     // 1. Fixed Seed: Use size + high-res timestamp (sub-millisecond)
     const highResTime = typeof performance !== 'undefined' ? performance.now().toString(36).replace('.', '') : '';
@@ -185,15 +220,18 @@ export default class CustomFile extends FileComponent {
 
   fileToImage(file) {
     return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error("Failed to load image"));
-        img.src = e.target.result;
+      // createObjectURL is faster than readAsDataURL — no base64 encoding overhead
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(img);
       };
-      reader.onerror = () => reject(new Error("Failed to read file"));
-      reader.readAsDataURL(file);
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("Failed to load image"));
+      };
+      img.src = url;
     });
   }
 
@@ -231,7 +269,7 @@ export default class CustomFile extends FileComponent {
     }
   }
 
-  async compressImage(image) {
+  async compressImage(image, originalFile = null) {
     try {
       const p = await this.loadPica();
       if (!p) {
@@ -248,14 +286,17 @@ export default class CustomFile extends FileComponent {
       // Mobile-friendly: use smaller max size (1200px instead of 1500px)
       const maxDimension = 1200;
 
-      // If the image is already small enough, return original size as Blob
+      // If the image is already small enough, avoid canvas re-encoding
       if (smallest <= maxDimension) {
-        // Convert original image to Blob without resizing
+        // Already a JPEG at the right size — return as-is to avoid a lossy re-encode cycle
+        if (originalFile && originalFile.type === 'image/jpeg') {
+          return originalFile;
+        }
+        // Non-JPEG (PNG, HEIC, WebP…) — convert to JPEG via canvas
         if (typeof document === 'undefined') {
           throw new Error("Document is not available");
         }
         const canvas = document.createElement("canvas");
-        // Ensure canvas doesn't exceed mobile limits
         canvas.width = Math.min(srcW, 4096);
         canvas.height = Math.min(srcH, 4096);
         const ctx = canvas.getContext("2d");
@@ -492,18 +533,6 @@ div.file img:hover {
       });
     });
   }
-  removeFile(index) {
-    // Ensure dataValue is an array so findIndex doesn't crash
-    if (this.dataValue && !Array.isArray(this.dataValue)) {
-      this.dataValue = [this.dataValue];
-    }
-
-    // Call the original Form.io removal logic
-    super.removeFile(index);
-
-    // Optional: Trigger a UI refresh to clean up your custom wrappers
-    this.updateImagePreviews();
-  }
   openImageModal(src) {
     if (typeof document === 'undefined' || !document.body) return;
 
@@ -518,10 +547,7 @@ div.file img:hover {
     const img = document.createElement('img');
     img.src = src;
     img.className = 'custom-file-modal-content';
-
-    // Prevent clicking the image from closing the modal
-    img.onclick = (e) => e.stopPropagation();
-
+ img.onclick = (e) => e.stopPropagation();
     overlay.appendChild(closeBtn);
     overlay.appendChild(img);
     document.body.appendChild(overlay);
@@ -530,9 +556,7 @@ div.file img:hover {
     overlay.onclick = closeModal;
     closeBtn.onclick = closeModal;
   }
-
   setValue(value, flags = {}) {
-    // Normalize to array for consistent handling
     const normalizedValue = value ? (Array.isArray(value) ? value : [value]) : [];
     const changed = super.setValue(normalizedValue, flags);
 
@@ -568,10 +592,7 @@ div.file img:hover {
     if (typeof document === 'undefined' || !this.element) return res;
 
     this.loadImageCssOnce();
-
-    // REMOVE the flag here so it re-scans for new images on every attach
-    // this.wrapDefaultImagesOnce = false;
-
+    this.wrapDefaultImagesOnce = false;
     if (typeof window !== 'undefined' && window.requestAnimationFrame) {
       window.requestAnimationFrame(() => {
         if (!this.element) return;
