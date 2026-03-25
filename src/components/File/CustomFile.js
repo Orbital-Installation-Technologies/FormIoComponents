@@ -250,24 +250,46 @@ export default class CustomFile extends FileComponent {
         return await p.toBlob(canvas, "image/jpeg", 0.82);
       }
 
-      const scale = maxDimension / Math.min(image.width, image.height);
-      const newW = Math.round(image.width * scale);
-      const newH = Math.round(image.height * scale);
+      // Compute scale factor
+      const scale = maxDimension / smallest;
+      // Compute new dimensions
+      let newW = Math.round(srcW * scale);
+      let newH = Math.round(srcH * scale);
 
-      if (!this._workerCanvas) this._workerCanvas = document.createElement("canvas");
-      this._workerCanvas.width = newW;
-      this._workerCanvas.height = newH;
+      // Ensure dimensions don't exceed mobile canvas limits
+      const maxCanvasDimension = 4096;
+      if (newW > maxCanvasDimension || newH > maxCanvasDimension) {
+        const scaleDown = Math.min(maxCanvasDimension / newW, maxCanvasDimension / newH);
+        newW = Math.round(newW * scaleDown);
+        newH = Math.round(newH * scaleDown);
+      }
 
-      await p.resize(image, this._workerCanvas, {
-        quality: 2,      
+      // Prepare canvas
+      if (typeof document === 'undefined') {
+        throw new Error("Document is not available");
+      }
+      const srcCanvas = document.createElement("canvas");
+      srcCanvas.width = Math.min(srcW, maxCanvasDimension);
+      srcCanvas.height = Math.min(srcH, maxCanvasDimension);
+      const srcCtx = srcCanvas.getContext("2d");
+      srcCtx.drawImage(image, 0, 0, srcCanvas.width, srcCanvas.height);
+
+      const destCanvas = document.createElement("canvas");
+      destCanvas.width = newW;
+      destCanvas.height = newH;
+
+      // Resize with Pica
+      await p.resize(srcCanvas, destCanvas, {
+        quality: 2, // Good quality, mobile-friendly
         unsharpAmount: 80,
-        alpha: false // Faster processing if images don't need transparency
+        unsharpThreshold: 2
       });
 
-      return await p.toBlob(this._workerCanvas, "image/jpeg", 0.80);
+      const compressedBlob = await p.toBlob(destCanvas, "image/jpeg", 0.82);
+      return compressedBlob;
     } catch (err) {
-      console.error("Compression failed", err);
-      throw err;
+      console.error("Error in compressImage:", err);
+      throw err; // Re-throw to be caught by uploadFile
     }
   }
 
