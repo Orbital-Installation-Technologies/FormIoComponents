@@ -787,154 +787,118 @@ export default class BarcodeScanner extends FieldComponent {
             settings.batterySaving = true;
         }
 
-      if (settings.locationSelection) {
-        settings.locationSelection = null;
-      }
+        this._configureAdvancedSymbologySettings(settings);
 
-      if (typeof settings.maxNumberOfCodesPerFrame !== 'undefined') {
-        settings.maxNumberOfCodesPerFrame = 10;
-      }
+        if (!this._dataCaptureContext) {
+          throw new Error("DataCaptureContext is null - cannot create BarcodeCapture");
+        }
 
-      if (typeof settings.batterySaving !== 'undefined') {
-        settings.batterySaving = false;
-      }
+        this._barcodeBatch = await BarcodeBatch.forContext(this._dataCaptureContext, settings);
 
         await this._barcodeBatch.setEnabled(true);
         this._usingBatch = true;
 
         this._trackedBarcodes = {};
         this._barcodeBatch.addListener({
-             didUpdateSession: (barcodeBatchMode, session) => {
-                // Performance optimization: Throttle frame processing
-                const now = Date.now();
-                if (now - this._lastFrameTime < this._frameThrottleMs) {
-                  return; // Skip this frame if too soon
-                }
-                this._lastFrameTime = now;
-                 const isValidUPCChecksum = (code) => {
-                  if (code.length !== 12 && code.length !== 13) return false;
-              
-                  const digits = code.split('').map(Number);
-                  const lastDigit = digits.pop();
-                  
-                  // Weighting: UPC-A (12) and EAN-13 (13) use the same weighting 
-                  // when calculated from right-to-left.
-                  let sum = 0;
-                  const reversed = digits.reverse();
-              
-                  for (let i = 0; i < reversed.length; i++) {
-                      // First position (index 0) is weighted 3, then 1, alternating
-                      sum += reversed[i] * (i % 2 === 0 ? 3 : 1);
-                  }
-              
-                  const calculatedCheckDigit = (10 - (sum % 10)) % 10;
-                  return calculatedCheckDigit === lastDigit;
-              };
-                // IMPROVEMENT: Only process and draw if the modal is actually visible to the user
-                const trackedBarcodesMap = session.trackedBarcodes || {};
-                const trackedValues = Object.values(trackedBarcodesMap);
-                  this._trackedBarcodesProcessed = trackedValues.map((trackedBarcode) => {
-                    const rawBarcode = trackedBarcode.barcode;
+          didUpdateSession: (barcodeBatchMode, session) => {
+            const now = Date.now();
+            if (now - this._lastFrameTime < this._frameThrottleMs) {
+              return;
+            }
+            this._lastFrameTime = now;
 
-                    let currentData = rawBarcode.data.toString() || "";
-                    let finalSymbology = rawBarcode.symbology.toString() || "";
-                    let finalData = currentData;
-                    if (currentData && currentData.length === 13) {
-                      if (currentData.startsWith('0')) {
-                        // 1. EXCLUSION: If it's a Mexican EAN (0 + 750), DO NOT STRIP.
-                        if (currentData.startsWith('0750')) {
-                          finalData = currentData;
-                          finalSymbology = "EAN-13"; // Explicitly tag as US symbology
-                        } 
-                        else {
-                            // 2. POTENTIAL US UPC: Strip the zero and validate
-                            const potentialUPC = currentData.substring(1);
-                            
-                            // Validate that the stripped version is a mathematically correct UPC
-                            if (isValidUPCChecksum(potentialUPC)) {
-                              finalData = potentialUPC;
-                              finalSymbology = "UPCA";
-                          
-                            }else{
-                              finalData = currentData;
-                              finalSymbology = "EAN-13"; // Explicitly tag as US symbology
-                            }
-                        }
-                      }else{
-                        finalData = currentData;
-                        finalSymbology = "EAN-13"; // Explicitly tag as US symbology
-                      }
+            const isValidUPCChecksum = (code) => {
+              if (code.length !== 12 && code.length !== 13) return false;
+
+              const digits = code.split('').map(Number);
+              const lastDigit = digits.pop();
+
+              let sum = 0;
+              const reversed = digits.reverse();
+
+              for (let i = 0; i < reversed.length; i++) {
+                sum += reversed[i] * (i % 2 === 0 ? 3 : 1);
+              }
+
+              const calculatedCheckDigit = (10 - (sum % 10)) % 10;
+              return calculatedCheckDigit === lastDigit;
+            };
+
+            const trackedBarcodesMap = session.trackedBarcodes || {};
+            const trackedValues = Object.values(trackedBarcodesMap);
+            this._trackedBarcodesProcessed = trackedValues.map((trackedBarcode) => {
+              const rawBarcode = trackedBarcode.barcode;
+
+              let currentData = rawBarcode.data.toString() || "";
+              let finalSymbology = rawBarcode.symbology.toString() || "";
+              let finalData = currentData;
+              if (currentData && currentData.length === 13) {
+                if (currentData.startsWith('0')) {
+                  if (currentData.startsWith('0750')) {
+                    finalData = currentData;
+                    finalSymbology = "EAN-13";
+                  } else {
+                    const potentialUPC = currentData.substring(1);
+
+                    if (isValidUPCChecksum(potentialUPC)) {
+                      finalData = potentialUPC;
+                      finalSymbology = "UPCA";
+                    } else {
+                      finalData = currentData;
+                      finalSymbology = "EAN-13";
                     }
-
-
-                    return {
-                      ...trackedBarcode,
-                      barcode: {
-                          ...rawBarcode,
-                          data: finalData,
-                          symbology: finalSymbology
-                      }
-                  };
-
-
-                  })  
-                  
-                  const barcodes = this._trackedBarcodesProcessed.map(tp => tp.barcode);
-                  
-                  this._trackedBarcodes = this._trackedBarcodesProcessed;
-                  
-                  this._currentBarcodes =  barcodes;
-                
-                // Performance optimization: Throttle bounding box drawing
-                const drawNow = Date.now();
-                if (drawNow - this._lastDrawTime >= this._drawThrottleMs) {
-                  this._lastDrawTime = drawNow;
-                  this._drawBoundingBoxes(this._currentBarcodes);
+                  }
+                } else {
+                  finalData = currentData;
+                  finalSymbology = "EAN-13";
                 }
+              }
 
-      if (!this._dataCaptureContext) {
-        throw new Error("DataCaptureContext is null - cannot create BarcodeCapture");
-      }
+              return {
+                ...trackedBarcode,
+                barcode: {
+                  ...rawBarcode,
+                  data: finalData,
+                  symbology: finalSymbology
+                }
+              };
+            });
 
-      this._barcodeBatch = await BarcodeBatch.forContext(this._dataCaptureContext, settings);
+            const barcodes = this._trackedBarcodesProcessed.map(tp => tp.barcode);
 
-      await this._barcodeBatch.setEnabled(true);
-      this._usingBatch = true;
+            this._trackedBarcodes = this._trackedBarcodesProcessed;
 
-      this._trackedBarcodes = {};
-      this._barcodeBatch.addListener({
-        didUpdateSession: (barcodeBatchMode, session) => {
-          this._trackedBarcodes = session.trackedBarcodes || {};
-          const barcodes = Object.values(this._trackedBarcodes).map(tb => tb.barcode);
-          this._currentBarcodes = barcodes;
-          this._drawBoundingBoxes(this._currentBarcodes);
+            this._currentBarcodes = barcodes;
 
-          // Trigger auto-freeze and confirmation when barcode is detected
-          if (barcodes.length > 0 && !this._isVideoFrozen && !this._showingConfirmation) {
-            if (window.ReactNativeWebView && this._torchEnabled === true) {
-              window.ReactNativeWebView.postMessage('FLASH_OFF');
-              this._torchEnabled = false;
+            const drawNow = Date.now();
+            if (drawNow - this._lastDrawTime >= this._drawThrottleMs) {
+              this._lastDrawTime = drawNow;
+              this._drawBoundingBoxes(this._currentBarcodes);
             }
-            // --- NEW: Capture the video frame and crop barcodes ---
-            const video = this.refs.scanditContainer?.querySelector('video');
 
-            if (video && video.videoWidth > 0 && video.videoHeight > 0 && barcodes.length > 0) {
-              const canvas = document.createElement('canvas');
-              canvas.width = video.videoWidth;
-              canvas.height = video.videoHeight;
-              const ctx = canvas.getContext('2d');
+            if (barcodes.length > 0 && !this._isVideoFrozen && !this._showingConfirmation) {
+              if (window.ReactNativeWebView && this._torchEnabled === true) {
+                window.ReactNativeWebView.postMessage('FLASH_OFF');
+                this._torchEnabled = false;
+              }
+              const video = this.refs.scanditContainer?.querySelector('video');
 
-              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-              this._canvas = canvas;
-              this._captureBarcodeImage(barcodes, this._canvas);
-            } else {
-              console.log('Video not ready yet or no barcodes detected.');
+              if (video && video.videoWidth > 0 && video.videoHeight > 0 && barcodes.length > 0) {
+                const canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                const ctx = canvas.getContext('2d');
+
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                this._canvas = canvas;
+                this._captureBarcodeImage(barcodes, this._canvas);
+              } else {
+                console.log('Video not ready yet or no barcodes detected.');
+              }
+              this._autoFreezeAndConfirm();
             }
-            this._autoFreezeAndConfirm();
-          }
-
-        },
-      });
+          },
+        });
 
       this._dataCaptureView = await DataCaptureView.forContext(this._dataCaptureContext);
       this._dataCaptureView.connectToElement(this.refs.scanditContainer);
