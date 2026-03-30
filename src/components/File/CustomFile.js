@@ -165,6 +165,7 @@ export default class CustomFile extends FileComponent {
 
     this._previewTimer = setTimeout(() => {
       const rootEl = this.element;
+      if (!rootEl) return;
       // Unified selector to find all possible image containers
       const imageElements = rootEl.querySelectorAll('img[ref="fileImage"], .file img, img.wrapped');
 
