@@ -15,8 +15,13 @@ export default class CustomFile extends FileComponent {
   constructor(...args) {
     super(...args);
     this.picaInstance = null;
+    this._workerCanvas = null; 
+    this._uiUpdateTimeout = null;
+    this._previewTimer = null;
   } 
 
+
+  
   /**
    * This is the key: fileToSync is an object containing:
    *  - file: the actual File object
@@ -80,44 +85,26 @@ export default class CustomFile extends FileComponent {
     }
 
     const uploadedData = await super.uploadFile(fileToSync);
+    this.checkComponentValidity(this.data, true);
     this.updateImagePreviews();
 
     return uploadedData;
   }
   // Reset file input elements to prevent mobile browsers from reusing cached files
   resetFileInputs() {
-    if (typeof document === 'undefined') return; // SSR: skip in server environment
-    const rootEl = this.element;
-    if (!rootEl) return;
-
-    // Find all file input elements within this component
-    const fileInputs = rootEl.querySelectorAll('input[type="file"]');
-
-    fileInputs.forEach(input => {
-      // Reset the input value to allow selecting a new file
-      // This is crucial for mobile camera capture which can cache the file reference
-      // Setting value to empty string forces the browser to treat the next selection as new
-      try {
-        input.value = '';
-        // Some mobile browsers need the input to be "touched" to clear the cache
-        // Triggering a blur event can help ensure the reset is processed
-        input.blur();
-      } catch (e) {
-        // Some browsers may throw an error when setting value directly
-        // In that case, we'll try cloning the input as a fallback
-        try {
-          const form = input.form;
-          const parent = input.parentNode;
-          if (parent) {
-            const newInput = input.cloneNode(true);
-            newInput.value = '';
-            parent.replaceChild(newInput, input);
+    if (typeof document === 'undefined' || !this.element) return;
+    if (typeof window !== 'undefined' && window.requestAnimationFrame) {
+      window.requestAnimationFrame(() => {
+        const fileInputs = this.element.querySelectorAll('input[type="file"]');
+        fileInputs.forEach(input => {
+          try {
+            input.value = '';
+          } catch (e) {
+            // Fallback only if necessary
           }
-        } catch (cloneError) {
-          console.warn('Could not reset file input:', cloneError);
-        }
-      }
-    });
+        });
+      });
+    }
   }
 
   // New method to ensure image previews are displayed
@@ -489,6 +476,7 @@ div.file img:hover {
           if (delBtn.removeLink) delBtn.removeLink.click();
           container.remove();
         };
+        
       });
     });
   }
@@ -550,14 +538,11 @@ div.file img:hover {
         }
       });
     }
+    
 
     //  Debounced UI Update
     if (this.element && !flags.noUpdateConfig) {
-      clearTimeout(this.uiTimer);
-      this.uiTimer = setTimeout(() => {
-        this.wrapDefaultImages();
-        this.updateImagePreviews();
-      }, 200);
+      this.triggerUpdate();
     }
 
     return changed;
@@ -593,44 +578,26 @@ div.file img:hover {
       });
     }
 
-    this.setupFileInputResetListeners();
+    if (typeof document !== 'undefined' && this.element) {
+      // 2. Attach listeners once to the newly created elements
+      this.setupFileInputResetListeners();
+      
+      // 3. Trigger any UI updates (like your image previews)
+      this.triggerUpdate();
+    }
     return res;
   }
   // Set up listeners to reset file inputs after file selection (for mobile camera)
   setupFileInputResetListeners() {
-    if (typeof document === 'undefined') return; // SSR: skip in server environment
-    const rootEl = this.element;
-    if (!rootEl) return;
-
-    // Use a MutationObserver to catch dynamically added file inputs
-    const observer = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        mutation.addedNodes.forEach((node) => {
-          if (node.nodeType === 1) { // Element node
-            // Check if the added node is a file input or contains one
-            const fileInputs = node.matches && node.matches('input[type="file"]')
-              ? [node]
-              : node.querySelectorAll ? node.querySelectorAll('input[type="file"]') : [];
-
-            fileInputs.forEach(input => {
-              this.attachFileInputResetListener(input);
-            });
-          }
-        });
-      });
-    });
-
-    // Observe the component element for added file inputs
-    observer.observe(rootEl, { childList: true, subtree: true });
-
-    // Also attach to existing file inputs
-    const existingInputs = rootEl.querySelectorAll ? rootEl.querySelectorAll('input[type="file"]') : [];
-    existingInputs.forEach(input => {
+    if (typeof document === 'undefined' || !this.element) return;
+  
+    // Form.io stores a reference to the file input in this.refs.fileInput
+    // or we can find them once during the attach phase.
+    const fileInputs = this.element.querySelectorAll('input[type="file"]');
+    
+    fileInputs.forEach(input => {
       this.attachFileInputResetListener(input);
     });
-
-    // Store observer for cleanup if needed
-    this._fileInputObserver = observer;
   }
 
   // Attach reset listener to a specific file input
@@ -724,14 +691,90 @@ div.file img:hover {
       }
     }, { once: false });
   }
-
-  detach() {
-    // Disconnect the MutationObserver if it exists
-    if (this._fileInputObserver) {
-      this._fileInputObserver.disconnect();
-      this._fileInputObserver = null;
-    }
-    return super.detach();
+  triggerUpdate() {
+    if (this._uiUpdateTimeout) window.cancelAnimationFrame(this._uiUpdateTimeout);
+    this._uiUpdateTimeout = window.requestAnimationFrame(() => {
+      this.wrapDefaultImages();
+      this.updateImagePreviews();
+    });
   }
 
+checkComponentValidity(data, dirty, row, options) {
+    // 1. If the component is hidden or disabled, it's technically valid
+    if (!this.visible || this.disabled) {
+      return true;
+    }
+  
+    const isRequired = !!(this.component.validate && this.component.validate.required);
+    
+    // 2. If it's not required, let the base class handle standard logic
+    if (!isRequired) {
+      return super.checkComponentValidity(data, dirty, row, options);
+    }
+  
+    // 3. Check for files in ALL possible locations
+    const hasFiles = (Array.isArray(this.dataValue) && this.dataValue.length > 0) || 
+                     (this.files && this.files.length > 0) ||
+                     (!!this.dataValue && !Array.isArray(this.dataValue));
+  
+    if (hasFiles) {
+      // 1. Clear standard Form.io error properties
+      this.error = '';
+      this.invalid = false;
+      this.setPristine(true); // Reset the "touched" state
+      
+      // 2. CLEAR THE ARRAY-BASED ERRORS (The specific fix for your dump)
+      this._errors = []; 
+      this._visibleErrors = [];
+      
+      // 3. Clear validity message
+      if (typeof this.setCustomValidity === 'function') {
+          this.setCustomValidity('', false);
+      }
+  
+      // 4. MANUALLY STRIP THE CSS CLASS FROM THE ELEMENT
+      // Since submit() is mid-flight, we force the DOM to clean up
+      if (this.element) {
+          this.element.classList.remove('has-error');
+          this.element.classList.remove('error');
+          
+          // Find and hide the error message text specifically
+          const errorMsg = this.element.querySelector('.formio-errors, .help-block');
+          if (errorMsg) {
+              errorMsg.style.display = 'none';
+              errorMsg.innerHTML = '';
+          }
+      }
+      
+      return true; 
+    }
+  
+    // 4. If truly empty, let the standard validation show the error
+    return super.checkComponentValidity(data, dirty, row, options);
+  }
+
+  getValue() {
+    const value = super.getValue();
+    // If the standard getValue is empty but we have files in the instance, return the files
+    if ((!value || (Array.isArray(value) && value.length === 0)) && this.files && this.files.length > 0) {
+      return this.files;
+    }
+    return value;
+  }
+ // BATTERY FIX: Clean up heavy WASM/Pica references when component is destroyed
+ detach() {
+  if (this._uiUpdateTimeout) window.cancelAnimationFrame(this._uiUpdateTimeout);
+  if (this._previewTimer) clearTimeout(this._previewTimer);
+  
+  if (this._fileInputObserver) {
+    this._fileInputObserver.disconnect();
+    this._fileInputObserver = null;
+  }
+  this.picaInstance = null;
+    this._workerCanvas = null; 
+    
+    return super.detach();
+}
+
+ 
 }
