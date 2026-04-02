@@ -36,10 +36,15 @@ export default class CustomSelect extends SelectComponent {
         }
         .choices__list--dropdown {
           position: absolute !important;
-          top: 100% !important; /* Forces it right below the input */
+          top: 100%;
+          bottom: auto;
           left: 0 !important;
           width: 100% !important;
           z-index: 10000 !important;
+        }
+        .choices__list--dropdown.is-open-upward {
+          top: auto !important;
+          bottom: 100% !important;
         }
 
         /* Wrap long option text — applied when wrapOptionText is enabled */
@@ -84,40 +89,40 @@ export default class CustomSelect extends SelectComponent {
   }
 
 
-  adjustDropdownLogic(element, choicesInstance) {
+  adjustDropdownLogic(element, choicesInstance, isRetry = false) {
     const dropdown = choicesInstance.containerOuter.element.querySelector(
       '.choices__list--dropdown'
     );
-    
+
     if (!dropdown) return;
 
-    // Apply your dynamic height and positioning logic
     dropdown.style.width = `${element.offsetWidth}px`;
 
-    const rect = element.getBoundingClientRect();
+    const rect = choicesInstance.containerOuter.element.getBoundingClientRect();
     const margin = 10;
+    const minRequired = 200;
     const spaceBelow = window.innerHeight - rect.bottom - margin;
     const spaceAbove = rect.top - margin;
 
-    let maxHeight = 400;
-
-    // Small screen adjustment
-    if (window.innerHeight < 400) {
-      maxHeight = Math.min(spaceBelow, 200);
+    // Neither direction has enough room — scroll the input into view and retry once
+    if (!isRetry && spaceBelow < minRequired && spaceAbove < minRequired) {
+      choicesInstance.containerOuter.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => this.adjustDropdownLogic(element, choicesInstance, true), 350);
+      return;
     }
 
-    // Directional logic (Upward vs Downward)
-    if (spaceBelow < 200 && spaceAbove > spaceBelow) {
-      maxHeight = Math.min(spaceAbove, maxHeight);
-      dropdown.style.bottom = `${rect.height}px`; // Open upward
-      dropdown.style.top = 'auto';
-    } else {
-      dropdown.style.bottom = 'auto'; // Open downward
-      dropdown.style.top = '100%';
-    }
+    const openUpward = spaceBelow < minRequired && spaceAbove > spaceBelow;
+    const availableSpace = openUpward ? spaceAbove : spaceBelow;
+    const maxHeight = Math.min(availableSpace, window.innerHeight < 400 ? 200 : 400);
 
-    dropdown.style.maxHeight = `${maxHeight}px`;
-    dropdown.style.overflowY = 'auto';
+    dropdown.classList.toggle('is-open-upward', openUpward);
+
+    // Target the inner scrollable list so the dropdown container doesn't add a second scrollbar
+    const innerList = dropdown.querySelector('.choices__list');
+    if (innerList) {
+      innerList.style.maxHeight = `${maxHeight}px`;
+      innerList.style.overflowY = 'auto';
+    }
   }
 
   detach() {
