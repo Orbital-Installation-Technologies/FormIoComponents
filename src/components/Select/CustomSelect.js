@@ -66,15 +66,6 @@ export default class CustomSelect extends SelectComponent {
       document.head.appendChild(style);
     }
 
-    // DEBUG: visible indicator to confirm this build is active
-    if (!element.querySelector('.custom-select-debug')) {
-      const debugBadge = document.createElement('span');
-      debugBadge.className = 'custom-select-debug';
-      debugBadge.textContent = '[CustomSelect v2 - PR build active]';
-      debugBadge.style.cssText = 'font-size:10px;color:red;display:block;';
-      element.insertBefore(debugBadge, element.firstChild);
-    }
-
     // Apply wrap class based on component setting
     const choicesContainer = element.querySelector('.choices');
     if (choicesContainer) {
