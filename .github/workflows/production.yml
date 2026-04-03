@@ -46,6 +46,11 @@ jobs:
           SOURCE_DIR: "dist"
           DEST_DIR: "components"
 
+      - name: Prepare package metadata for GitHub Packages
+        run: |
+          npm pkg set name="@orbital-installation-technologies/formiocomponents"
+          npm version --no-git-tag-version "1.1.${{ github.run_number }}-${{ github.run_attempt }}"
+
       - name: Publish to GitHub Packages
         run: npm publish
         env:
