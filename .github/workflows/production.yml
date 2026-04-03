@@ -23,7 +23,7 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: "20"
           registry-url: "https://npm.pkg.github.com"
@@ -45,6 +45,17 @@ jobs:
           AWS_REGION: "us-east-1"
           SOURCE_DIR: "dist"
           DEST_DIR: "components"
+
+      - name: Bump version
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          npm version patch --no-git-tag-version
+          git add package.json
+          git commit -m "chore: bump version [skip ci]"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
       - name: Publish to GitHub Packages
         run: npm publish
