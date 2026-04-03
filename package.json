@@ -1,5 +1,5 @@
 {
-  "name": "formiocomponents",
+  "name": "@orbital-installation-technologies/formiocomponents"
   "version": "1.1.1",
   "description": "",
   "main": "src/app-prod.js",
@@ -37,6 +37,9 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
+  "publishConfig": {
+  "registry": "https://npm.pkg.github.com"
+  },
   "devDependencies": {
     "debug": "^4.4.1",
     "eslint": "^8.57.1",
