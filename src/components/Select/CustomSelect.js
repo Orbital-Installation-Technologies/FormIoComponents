@@ -34,11 +34,14 @@ export default class CustomSelect extends SelectComponent {
           position: relative !important;
           overflow: visible !important;
         }
+
+        /*
+          Do NOT force position/top/left/width here.
+          Choices.js sometimes moves the dropdown to <body> for portal/modal escape,
+          in which case top:100% resolves against the body and lands at the bottom of
+          the page. All positioning is handled in JS using fixed + viewport coords.
+        */
         .choices__list--dropdown {
-          position: absolute !important;
-          top: 100% !important; /* Forces it right below the input */
-          left: 0 !important;
-          width: 100% !important;
           z-index: 10000 !important;
         }
 
@@ -69,12 +72,9 @@ export default class CustomSelect extends SelectComponent {
       choicesContainer.classList.toggle('choices--wrap-text', this.component.wrapOptionText !== false);
     }
 
-    //  Replace MutationObserver with Choices.js Events
-    // Choices.js (the engine Form.io uses) emits events when the dropdown opens.
     const choicesInstance = this.choices || this._choices;
 
     if (choicesInstance && choicesInstance.passedElement) {
-      // We listen specifically for the 'showDropdown' event
       choicesInstance.passedElement.element.addEventListener('showDropdown', () => {
         this.adjustDropdownLogic(element, choicesInstance);
       });
@@ -83,45 +83,60 @@ export default class CustomSelect extends SelectComponent {
     return result;
   }
 
-
-  adjustDropdownLogic(element, choicesInstance) {
+  adjustDropdownLogic(element, choicesInstance, isRetry = false) {
     const dropdown = choicesInstance.containerOuter.element.querySelector(
       '.choices__list--dropdown'
     );
-    
+
     if (!dropdown) return;
 
-    // Apply your dynamic height and positioning logic
-    dropdown.style.width = `${element.offsetWidth}px`;
-
-    const rect = element.getBoundingClientRect();
+    const inputEl = choicesInstance.containerOuter.element;
+    const rect = inputEl.getBoundingClientRect();
     const margin = 10;
+    const minRequired = 200;
     const spaceBelow = window.innerHeight - rect.bottom - margin;
     const spaceAbove = rect.top - margin;
 
-    let maxHeight = 400;
-
-    // Small screen adjustment
-    if (window.innerHeight < 400) {
-      maxHeight = Math.min(spaceBelow, 200);
+    // Neither direction has enough room — scroll the input into view and retry once
+    if (!isRetry && spaceBelow < minRequired && spaceAbove < minRequired) {
+      inputEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => this.adjustDropdownLogic(element, choicesInstance, true), 350);
+      return;
     }
 
-    // Directional logic (Upward vs Downward)
-    if (spaceBelow < 200 && spaceAbove > spaceBelow) {
-      maxHeight = Math.min(spaceAbove, maxHeight);
-      dropdown.style.bottom = `${rect.height}px`; // Open upward
+    const openUpward = spaceBelow < minRequired && spaceAbove > spaceBelow;
+    const availableSpace = openUpward ? spaceAbove : spaceBelow;
+    const naturalMax = window.innerHeight < 400 ? 200 : 300;
+
+    // Use position:fixed + viewport pixel coords so the dropdown renders correctly
+    // regardless of where Choices.js placed it in the DOM (inline, body portal, modal, etc.)
+    dropdown.style.position = 'fixed';
+    dropdown.style.left = `${rect.left}px`;
+    dropdown.style.width = `${rect.width}px`;
+
+    if (openUpward) {
       dropdown.style.top = 'auto';
+      dropdown.style.bottom = `${window.innerHeight - rect.top}px`;
     } else {
-      dropdown.style.bottom = 'auto'; // Open downward
-      dropdown.style.top = '100%';
+      dropdown.style.top = `${rect.bottom}px`;
+      dropdown.style.bottom = 'auto';
     }
 
-    dropdown.style.maxHeight = `${maxHeight}px`;
-    dropdown.style.overflowY = 'auto';
+    // Only constrain the inner list's height when space is genuinely tight;
+    // otherwise clear inline styles so Choices.js defaults take over.
+    const innerList = dropdown.querySelector('.choices__list');
+    if (innerList) {
+      if (availableSpace < naturalMax) {
+        innerList.style.maxHeight = `${Math.min(availableSpace, naturalMax)}px`;
+        innerList.style.overflowY = 'auto';
+      } else {
+        innerList.style.maxHeight = '';
+        innerList.style.overflowY = '';
+      }
+    }
   }
 
   detach() {
-
     return super.detach();
   }
 }
