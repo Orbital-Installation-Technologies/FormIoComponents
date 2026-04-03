@@ -66,13 +66,26 @@ export default class CustomSelect extends SelectComponent {
       document.head.appendChild(style);
     }
 
-    // DEBUG: visible indicator to confirm this build is active
-    if (!element.querySelector('.custom-select-debug')) {
-      const debugBadge = document.createElement('span');
-      debugBadge.className = 'custom-select-debug';
-      debugBadge.textContent = '[CustomSelect v2 - PR build active]';
-      debugBadge.style.cssText = 'font-size:10px;color:red;display:block;';
-      element.insertBefore(debugBadge, element.firstChild);
+    // DEBUG: fixed banner to confirm this build is active — always visible
+    if (!document.getElementById('custom-select-debug-banner')) {
+      const debugBanner = document.createElement('div');
+      debugBanner.id = 'custom-select-debug-banner';
+      debugBanner.textContent = '🛠 CustomSelect PR build active';
+      debugBanner.style.cssText = [
+        'position:fixed',
+        'bottom:0',
+        'left:0',
+        'right:0',
+        'z-index:99999',
+        'background:red',
+        'color:white',
+        'font-weight:bold',
+        'font-size:14px',
+        'text-align:center',
+        'padding:6px',
+        'pointer-events:none',
+      ].join(';');
+      document.body.appendChild(debugBanner);
     }
 
     // Apply wrap class based on component setting
