@@ -624,6 +624,14 @@ export default class BarcodeScanner extends FieldComponent {
     }
   }
 
+  _awaitVisibleLayout() {
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => resolve());
+      });
+    });
+  }
+
   async openScanditModal() {
     if (this._animationFrameId) {
       cancelAnimationFrame(this._animationFrameId);
@@ -686,6 +694,7 @@ export default class BarcodeScanner extends FieldComponent {
         this._drawBoundingBoxes(this._currentBarcodes);
       }
       if (this._dataCaptureContext) {
+        await this._awaitVisibleLayout();
         await this._setupCamera();
       }
     } catch (error) {
@@ -1463,6 +1472,14 @@ export default class BarcodeScanner extends FieldComponent {
           await this._camera.switchToDesiredState(FrameSourceState.Off);
         } catch (cameraError) {
           console.warn("Error stopping camera:", cameraError);
+        }
+      }
+
+      if (this._dataCaptureView && typeof this._dataCaptureView.detachFromElement === 'function') {
+        try {
+          this._dataCaptureView.detachFromElement();
+        } catch (detachError) {
+          console.warn("Error detaching capture view:", detachError);
         }
       }
 
@@ -2476,6 +2493,12 @@ export default class BarcodeScanner extends FieldComponent {
     if (this._animationFrameId) {
       cancelAnimationFrame(this._animationFrameId);
       this._animationFrameId = null;
+    }
+
+    if (this._dataCaptureView && typeof this._dataCaptureView.detachFromElement === 'function') {
+      try {
+        this._dataCaptureView.detachFromElement();
+      } catch (e) {}
     }
 
     if (this._barcodeBatch) {
