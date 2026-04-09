@@ -168,7 +168,7 @@ export default class BarcodeScanner extends FieldComponent {
             type="text"
             class="form-control"
             value="${this.dataValue || ""}"
-            placeholder="Scan or enter barcode"
+            placeholder="Scan barcode"
             style="flex-grow:1; margin-right:10px; min-width:0;"
           />
           <button ref="scanButton" type="button" class="btn btn-primary" style="margin-right:5px; flex-shrink:0; padding:6px 12px; display:flex; align-items:center; justify-content:center; min-width:40px;" title="Open camera to scan">
