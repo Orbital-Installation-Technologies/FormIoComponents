@@ -11,16 +11,19 @@ const FLATTEN_TYPES = new Set(['columns', 'fieldset', 'tabs', 'tagpad', 'survey'
  */
 export const isContainerType = (t, exclude = []) => {
   if (!t) return false;
-  
-  // If no exclusion, use the static global Set (Fastest)
+
   if (!exclude || exclude.length === 0) {
-    return Array.isArray(t) ? t.some(x => CONTAINER_TYPES.has(x)) : CONTAINER_TYPES.has(t);
+    return Array.isArray(t)
+      ? t.some(x => x && CONTAINER_TYPES.has(x))
+      : CONTAINER_TYPES.has(t);
   }
 
-  // If exclusion exists, use a simple .includes to avoid object allocation
+  const excluded = new Set(exclude);
+  const allowed = new Set([...CONTAINER_TYPES].filter(x => !excluded.has(x)));
+
   return Array.isArray(t)
-    ? t.some(x => CONTAINER_TYPES.has(x) && !exclude.includes(x))
-    : CONTAINER_TYPES.has(t) && !exclude.includes(t);
+    ? t.some(x => x && allowed.has(x))
+    : allowed.has(t);
 };
 
 /**

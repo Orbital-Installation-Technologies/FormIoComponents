@@ -2557,6 +2557,7 @@ export default class BarcodeScanner extends FieldComponent {
     }
     return changed;
   }
+
   get defaultSchema() {
     return BarcodeScanner.schema();
   }

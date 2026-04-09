@@ -92,19 +92,38 @@ export default class CustomFile extends FileComponent {
   }
   // Reset file input elements to prevent mobile browsers from reusing cached files
   resetFileInputs() {
-    if (typeof document === 'undefined' || !this.element) return;
-    if (typeof window !== 'undefined' && window.requestAnimationFrame) {
-      window.requestAnimationFrame(() => {
-        const fileInputs = this.element.querySelectorAll('input[type="file"]');
-        fileInputs.forEach(input => {
-          try {
-            input.value = '';
-          } catch (e) {
-            // Fallback only if necessary
+    if (typeof document === 'undefined') return; // SSR: skip in server environment
+    const rootEl = this.element;
+    if (!rootEl) return;
+
+    // Find all file input elements within this component
+    const fileInputs = rootEl.querySelectorAll('input[type="file"]');
+
+    fileInputs.forEach(input => {
+      // Reset the input value to allow selecting a new file
+      // This is crucial for mobile camera capture which can cache the file reference
+      // Setting value to empty string forces the browser to treat the next selection as new
+      try {
+        input.value = '';
+        // Some mobile browsers need the input to be "touched" to clear the cache
+        // Triggering a blur event can help ensure the reset is processed
+        input.blur();
+      } catch (e) {
+        // Some browsers may throw an error when setting value directly
+        // In that case, we'll try cloning the input as a fallback
+        try {
+          const form = input.form;
+          const parent = input.parentNode;
+          if (parent) {
+            const newInput = input.cloneNode(true);
+            newInput.value = '';
+            parent.replaceChild(newInput, input);
           }
-        });
-      });
-    }
+        } catch (cloneError) {
+          console.warn('Could not reset file input:', cloneError);
+        }
+      }
+    });
   }
 
   // New method to ensure image previews are displayed
