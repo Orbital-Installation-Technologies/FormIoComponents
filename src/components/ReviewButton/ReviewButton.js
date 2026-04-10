@@ -58,7 +58,10 @@ export default class ReviewButton extends FieldComponent {
       schema: ReviewButton.schema(),
     };
   }
-
+  constructor(...args) {
+    super(...args);
+    this._outsideClickListener = null; // Reference for cleanup
+  }
   init() {
     super.init();
     this.root.on("submitDone", (submission) => {
@@ -404,12 +407,17 @@ export default class ReviewButton extends FieldComponent {
     this.root.everyComponent((component) => {
       const componentType = component.type || component.component?.type;
       if (componentType === 'datagrid' || componentType === 'datatable' || componentType === 'editgrid') {
-        highlightDataGridRows(component, results);
+        if (typeof highlightDataGridRows === 'function') {
+          highlightDataGridRows(component, results);
+        } else {
+          console.error('highlightDataGridRows helper is not loaded. Check your imports.');
+        }
       }
     });
   }
 
   highlightDataGridRows(dataGrid, results) {
+    
     highlightDataGridRows(dataGrid, results, this);
   }
 
@@ -931,12 +939,16 @@ export default class ReviewButton extends FieldComponent {
 
   async handleFormSubmission(modalData) {
     try {
+      console.log("handleFormSubmission", modalData);
       updateFormWithModalData(this.root, modalData);
-      
+
+     
       if (this.root && typeof this.root.submit === 'function') {
+        console.log("this.root ",this.root);
         await this.root.submit();
       }
     } catch (e) {
+      console.log("error", e);
       if(Array.isArray(e) && e.length > 0 && e[0].ruleName){
         var inputErrors = ""
         inputErrors = e.map(err => `- ${err.message}`).join('\n');
@@ -1929,11 +1941,16 @@ export default class ReviewButton extends FieldComponent {
           }
         });
 
-        document.addEventListener('mousedown', function(e) {
-          if (!dropdown?.contains(e.target)) {
+       
+        // DEFINE the listener using the reference
+        this._outsideClickListener = (e) => {
+          // dropdown and list should be defined in your attach scope
+          if (dropdown && !dropdown.contains(e.target)) {
             list?.classList.remove('open');
           }
-        });
+        };
+        // ADD the global listener
+        document.addEventListener('mousedown', this._outsideClickListener);
         // Initial validation to set submit button state
         validateModalForm(modal, screenshotComp, formData, requireSupportFields);
 
@@ -1949,5 +1966,15 @@ export default class ReviewButton extends FieldComponent {
     });
 
     return super.attach(element);
+  }
+  
+  destroy() {
+    // REMOVE the global listener to prevent memory leaks
+    if (this._outsideClickListener) {
+      document.removeEventListener('mousedown', this._outsideClickListener);
+      this._outsideClickListener = null;
+    }
+    
+    return super.destroy();
   }
 }
