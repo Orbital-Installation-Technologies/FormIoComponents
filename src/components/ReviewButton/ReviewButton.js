@@ -58,7 +58,10 @@ export default class ReviewButton extends FieldComponent {
       schema: ReviewButton.schema(),
     };
   }
-
+  constructor(...args) {
+    super(...args);
+    this._outsideClickListener = null; // Reference for cleanup
+  }
   init() {
     super.init();
     this.root.on("submitDone", (submission) => {
@@ -404,12 +407,17 @@ export default class ReviewButton extends FieldComponent {
     this.root.everyComponent((component) => {
       const componentType = component.type || component.component?.type;
       if (componentType === 'datagrid' || componentType === 'datatable' || componentType === 'editgrid') {
-        highlightDataGridRows(component, results);
+        if (typeof highlightDataGridRows === 'function') {
+          highlightDataGridRows(component, results);
+        } else {
+          console.error('highlightDataGridRows helper is not loaded. Check your imports.');
+        }
       }
     });
   }
 
   highlightDataGridRows(dataGrid, results) {
+    
     highlightDataGridRows(dataGrid, results, this);
   }
 
@@ -932,7 +940,6 @@ export default class ReviewButton extends FieldComponent {
   async handleFormSubmission(modalData) {
     try {
       updateFormWithModalData(this.root, modalData);
-      
       if (this.root && typeof this.root.submit === 'function') {
         await this.root.submit();
       }
@@ -1559,27 +1566,6 @@ export default class ReviewButton extends FieldComponent {
 
         const invalidFieldsArray = Array.from(invalidFields);
 
-        // Console log: Data map and invalids
-        console.log('=== Review Data Map ===');
-        console.log('Leaves:', leaves.map(l => ({ 
-          path: l.path, 
-          label: l.label, 
-          value: l.value,
-          compKey: l.comp?.key || l.comp?.component?.key 
-        })));
-        console.log('Label By Path:', labelByPath);
-        console.log('Meta By Path:', metaByPath);
-        console.log('Index By Path:', indexByPath);
-        console.log('=== Invalid Fields ===');
-        console.log('Invalid Fields Set:', Array.from(invalidFields));
-        console.log('Invalid Components:', Array.from(invalidComponents).map(c => ({
-          key: c.key || c.component?.key,
-          path: c.path,
-          type: c.type || c.component?.type,
-          errors: c.errors
-        })));
-        console.log('=== End Review Data Map ===');
-
         // Helper function to check if a path/component is a container (should be excluded from error counting)
         const isContainerPathOrComponent = (path, component) => {
           if (!component && !path) return false;
@@ -1929,11 +1915,16 @@ export default class ReviewButton extends FieldComponent {
           }
         });
 
-        document.addEventListener('mousedown', function(e) {
-          if (!dropdown?.contains(e.target)) {
+       
+        // DEFINE the listener using the reference
+        this._outsideClickListener = (e) => {
+          // dropdown and list should be defined in your attach scope
+          if (dropdown && !dropdown.contains(e.target)) {
             list?.classList.remove('open');
           }
-        });
+        };
+        // ADD the global listener
+        document.addEventListener('mousedown', this._outsideClickListener);
         // Initial validation to set submit button state
         validateModalForm(modal, screenshotComp, formData, requireSupportFields);
 
@@ -1949,5 +1940,15 @@ export default class ReviewButton extends FieldComponent {
     });
 
     return super.attach(element);
+  }
+  
+  destroy() {
+    // REMOVE the global listener to prevent memory leaks
+    if (this._outsideClickListener) {
+      document.removeEventListener('mousedown', this._outsideClickListener);
+      this._outsideClickListener = null;
+    }
+    
+    return super.destroy();
   }
 }

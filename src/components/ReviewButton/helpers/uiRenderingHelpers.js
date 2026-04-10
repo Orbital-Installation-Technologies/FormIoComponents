@@ -837,10 +837,8 @@ export function applyFieldErrors(panel) {
                   insertPoint.appendChild(errMsg);
                 }
               } else if (compType === 'radio') {
-                const radioContainer = comp.element.querySelector('.form-radio') ||
-                  comp.element.querySelector('.radio') ||
-                  comp.element.querySelector('[role="radiogroup"]') ||
-                  formGroup;
+                
+                const radioContainer = comp.refs.radioContainer || comp.refs.wrapper || comp.element;
 
                 if (radioContainer) {
                   radioContainer.appendChild(errMsg);
@@ -861,7 +859,11 @@ export function applyFieldErrors(panel) {
 
     if (appliedCount < Object.keys(panel._errorMap).length && attemptCount < maxAttempts) {
       attemptCount++;
-      setTimeout(tryApplyErrors, 200);
+      if (window.requestIdleCallback) {
+        window.requestIdleCallback(tryApplyErrors); // Only run when CPU is quiet
+      } else {
+        window.requestAnimationFrame(tryApplyErrors); // Sync with screen refresh
+      }
     }
   };
 
