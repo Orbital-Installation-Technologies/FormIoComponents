@@ -31,24 +31,32 @@ export function setupChangeListeners(panel, reviewButtonInstance) {
     var checkAndClearError = function(value) {
       setTimeout(function() {
         if (!comp || !panel._errorMap) return;
-
+        var normalizedCompKey = comp.path || comp.key || compKey;
+        var cleanKey = normalizedCompKey.replace(/(^form\.|^data\.|\.data\.)/g, '.').replace(/^\./, '');
         var checkValue = value;
         if (!checkValue || checkValue === '') {
           checkValue = comp.dataValue || comp.getValue?.() || (comp.data ? comp.data[compKey] : null);
         }
+// Improved file check for multi-upload
+    var hasFiles = compType === 'file' && 
+                   ((comp.files && comp.files.length > 0) || 
+                    (comp.fileService && comp.fileService.files && comp.fileService.files.length > 0));
+    
+    var isValid = hasFiles || isFieldNowValid(comp, checkValue);
 
-        var isValid = isFieldNowValid(comp, checkValue);
+    // Check the error map using both the clean key and the raw key
+    if (isValid && (panel._errorMap[compKey] || panel._errorMap[cleanKey] || panel._errorMap[normalizedCompKey])) {
+      delete panel._errorMap[compKey];
+      delete panel._errorMap[cleanKey];
+      delete panel._errorMap[normalizedCompKey];
+      
+      clearFieldErrors(comp);
+      var remainingErrors = Object.keys(panel._errorMap || {}).length;
 
-        if (isValid && panel._errorMap[compKey]) {
-          delete panel._errorMap[compKey];
-          clearFieldErrors(comp);
-
-          var remainingErrors = Object.keys(panel._errorMap || {}).length;
-
-          if (remainingErrors === 0) {
-            panel._hasErrors = false;
-            panel._customErrors = [];
-            panel._errorMap = {};
+      if (remainingErrors === 0) {
+        panel._hasErrors = false;
+        panel._customErrors = [];
+        panel._errorMap = {};
 
             panel.everyComponent?.(function(c) {
               if (c) {
@@ -224,6 +232,7 @@ export function setupPanelHooks(panel, rowIndex, reviewButtonInstance) {
  * @param {Object} reviewButtonInstance - Reference to the ReviewButton instance
  */
 export function highlightDataGridRows(dataGrid, results, reviewButtonInstance) {
+  console.log('highlightDataGridRows', dataGrid, results, reviewButtonInstance);
   if (!dataGrid.rows || !Array.isArray(dataGrid.rows)) return;
 
   dataGrid.rows.forEach((row, rowIndex) => {
