@@ -1,3 +1,4 @@
+
 import { Components } from "@formio/js";
 import CustomSelectEditForm from "./CustomSelect.form";
 
@@ -14,6 +15,7 @@ export default class CustomSelect extends SelectComponent {
 
   constructor(...args) {
     super(...args);
+    this._boundShowHandler = null;  
   }
 
   attach(element) {
@@ -25,11 +27,11 @@ export default class CustomSelect extends SelectComponent {
     if (!document.getElementById('customSelectStyles')) {
       const style = document.createElement('style');
       style.id = 'customSelectStyles';
-      style.innerHTML = `
+      style.textContent = `
         .form-control.ui.fluid.selection.dropdown.is-invalid {
           background-position: calc(100% - 1.5rem) calc(50% - 0.5px) !important;
         }
-
+       
         .choices {
           position: relative !important;
           overflow: visible !important;
@@ -40,33 +42,10 @@ export default class CustomSelect extends SelectComponent {
           left: 0 !important;
           width: 100% !important;
           z-index: 10000 !important;
-        }
-
-        /* Wrap long option text — applied when wrapOptionText is enabled */
-        .choices--wrap-text .choices__list--dropdown .choices__item,
-        .choices--wrap-text .choices__list[aria-expanded] .choices__item {
-          white-space: normal !important;
-          word-break: break-word !important;
-          overflow-wrap: break-word !important;
-        }
-        .choices--wrap-text .choices__inner {
-          overflow: visible !important;
-          height: auto !important;
-          min-height: 44px;
-        }
-        .choices--wrap-text .choices__list--single .choices__item {
-          white-space: normal !important;
-          word-break: break-word !important;
-          overflow-wrap: break-word !important;
+          will-change: transform, opacity;
         }
       `;
       document.head.appendChild(style);
-    }
-
-    // Apply wrap class based on component setting
-    const choicesContainer = element.querySelector('.choices');
-    if (choicesContainer) {
-      choicesContainer.classList.toggle('choices--wrap-text', this.component.wrapOptionText !== false);
     }
 
     //  Replace MutationObserver with Choices.js Events
@@ -74,15 +53,57 @@ export default class CustomSelect extends SelectComponent {
     const choicesInstance = this.choices || this._choices;
 
     if (choicesInstance && choicesInstance.passedElement) {
+      this._boundShowHandler = this.adjustDropdownPosition.bind(this);
+      const el = choicesInstance.passedElement.element;
       // We listen specifically for the 'showDropdown' event
-      choicesInstance.passedElement.element.addEventListener('showDropdown', () => {
-        this.adjustDropdownLogic(element, choicesInstance);
+      //  throttle dropdown adjustment using requestAnimationFrame to reduce CPU usage
+      
+
+      el.addEventListener("showDropdown", this._boundShowHandler);
+      el.addEventListener('hideDropdown', (e) => {
+        const dropdown = e.target.closest('.choices').querySelector('.choices__list--dropdown');
+        if (dropdown) dropdown.dataset.adjusted = "false";
       });
     }
 
     return result;
   }
+/**
+   * OPTIMIZED: Handles collision detection for mobile screens.
+   * Ensures the dropdown doesn't get cut off by the bottom of the viewport.
+   */
+adjustDropdownPosition(event) {
+  const element = event.target;
+  const dropdown = element.closest('.choices').querySelector('.choices__list--dropdown');
+  
+  if (!dropdown) return;
 
+  // PERFORMANCE: If we already adjusted this specific dropdown open, skip recalculation
+  if (dropdown.dataset.adjusted === "true") return;
+  dropdown.dataset.adjusted = "true";
+
+  window.requestAnimationFrame(() => {
+    if (!dropdown || !element) return;
+    
+    const rect = element.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const spaceBelow = viewportHeight - rect.bottom - 10;
+    const spaceAbove = rect.top - 10;
+
+    // Write styles in one go
+    dropdown.style.width = `${rect.width}px`;
+    
+    if (spaceBelow < 200 && spaceAbove > spaceBelow) {
+      dropdown.style.bottom = `${rect.height}px`;
+      dropdown.style.top = 'auto';
+      dropdown.style.maxHeight = `${Math.min(spaceAbove, 400)}px`;
+    } else {
+      dropdown.style.bottom = 'auto';
+      dropdown.style.top = '100%';
+      dropdown.style.maxHeight = `${Math.min(spaceBelow, 400)}px`;
+    }
+  });
+}
 
   adjustDropdownLogic(element, choicesInstance) {
     const dropdown = choicesInstance.containerOuter.element.querySelector(
@@ -94,7 +115,13 @@ export default class CustomSelect extends SelectComponent {
     // Apply your dynamic height and positioning logic
     dropdown.style.width = `${element.offsetWidth}px`;
 
+    if (dropdown.dataset.adjusted === "true") return;
+    dropdown.dataset.adjusted = "true";
+
+    const elementWidth = element.offsetWidth;
     const rect = element.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+
     const margin = 10;
     const spaceBelow = window.innerHeight - rect.bottom - margin;
     const spaceAbove = rect.top - margin;
@@ -121,6 +148,19 @@ export default class CustomSelect extends SelectComponent {
   }
 
   detach() {
+    const choicesInstance = this.choices || this._choices;
+
+    //  remove event listener on detach (prevents battery-draining leaks)
+    if (
+      this._boundShowHandler &&
+      choicesInstance &&
+      choicesInstance.passedElement
+    ) {
+      choicesInstance.passedElement.element.removeEventListener(
+        "showDropdown",
+        this._boundShowHandler
+      );
+    }
 
     return super.detach();
   }
