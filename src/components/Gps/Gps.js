@@ -423,8 +423,8 @@ export default class Gps extends FieldComponent {
     }
   
     // Only redraw if we absolutely have to change the structure of the component
-    if (changed && flags.fromUser) {
-      // this.redraw(); // Consider removing this unless the UI structure changes
+    if (changed) {
+       this.redraw(); 
     }
   }
 
