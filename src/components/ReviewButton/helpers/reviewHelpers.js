@@ -15,7 +15,7 @@ export function createReviewModal(hasErrors, fieldErrorCount, reviewHtml, suppor
   modal.style.zIndex = "1000";
   modal.style.setProperty('overflow-y', 'auto', 'important');
   modal.className = "fixed top-0 left-0 w-full h-screen inset-0 bg-black bg-opacity-50 flex items-center justify-center";
-  document.body.classList.add("no-scroll"); // block page scroll
+ // document.body.classList.add("no-scroll"); // block page scroll
   modal.innerHTML = `
     <div class="bg-white p-6 rounded shadow-md w-full max-w-2xl max-h-[90vh] overflow-y-auto">
       <h2 class="text-xl font-semibold mb-4">Review Form Data</h2>
@@ -286,7 +286,7 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
     if (hideScreenshot && typeof hideScreenshot === 'function') {
       hideScreenshot();
     }
-    document.body.classList.remove("no-scroll"); // restore page scroll
+  //  document.body.classList.remove("no-scroll"); // restore page scroll
     document.body.removeChild(modal);
   };
 
@@ -318,40 +318,19 @@ export function setupModalEventHandlers(modal, screenshotComp, hideScreenshot, v
         }
       }
 
-      const originalButtonText = submitButton.textContent;
-      submitButton.disabled = true;
-      submitButton.style.backgroundColor = "gray";
-      submitButton.style.cursor = "not-allowed";
-      submitButton.classList.add("is-submitting");
-      const spinner = document.createElement("span");
-      spinner.className = "review-modal-spinner";
-      submitButton.innerHTML = "";
-      submitButton.appendChild(spinner);
-      submitButton.appendChild(document.createTextNode(" Submitting..."));
+      await onSubmit({
+        selectedVerificationType,
+        notesRequired,
+        notesOptional,
+        supportNumber,
+        uploadedFiles
+      });
 
-      try {
-        await onSubmit({
-          selectedVerificationType,
-          notesRequired,
-          notesOptional,
-          supportNumber,
-          uploadedFiles
-        });
-
-        if (hideScreenshot && typeof hideScreenshot === 'function') {
-          hideScreenshot();
-        }
-        document.body.classList.remove("no-scroll");
-        document.body.removeChild(modal);
-      } finally {
-        if (modal.parentNode && submitButton) {
-          submitButton.disabled = false;
-          submitButton.style.backgroundColor = "";
-          submitButton.style.cursor = "pointer";
-          submitButton.classList.remove("is-submitting");
-          submitButton.textContent = originalButtonText;
-        }
+      if (hideScreenshot && typeof hideScreenshot === 'function') {
+        hideScreenshot();
       }
+   //   document.body.classList.remove("no-scroll"); 
+      document.body.removeChild(modal);
     };
   }
 
@@ -528,25 +507,6 @@ const customCSS = `
 }
 .dropdown-selected.open i.dropdown.icon {
   transform: translateY(-50%) rotate(225deg); /* pointing up */
-}
-
-/* Submit button loading state */
-button.is-submitting {
-  pointer-events: none;
-}
-.review-modal-spinner {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  border: 2px solid currentColor;
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: review-modal-spin 0.8s linear infinite;
-  vertical-align: middle;
-  margin-right: 2px;
-}
-@keyframes review-modal-spin {
-  to { transform: rotate(360deg); }
 }
 
 `;
