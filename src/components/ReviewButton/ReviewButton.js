@@ -939,16 +939,11 @@ export default class ReviewButton extends FieldComponent {
 
   async handleFormSubmission(modalData) {
     try {
-      console.log("handleFormSubmission", modalData);
       updateFormWithModalData(this.root, modalData);
-
-     
       if (this.root && typeof this.root.submit === 'function') {
-        console.log("this.root ",this.root);
         await this.root.submit();
       }
     } catch (e) {
-      console.log("error", e);
       if(Array.isArray(e) && e.length > 0 && e[0].ruleName){
         var inputErrors = ""
         inputErrors = e.map(err => `- ${err.message}`).join('\n');
@@ -1570,27 +1565,6 @@ export default class ReviewButton extends FieldComponent {
           await collectReviewLeavesAndLabels(this.root, invalidFields);
 
         const invalidFieldsArray = Array.from(invalidFields);
-
-        // Console log: Data map and invalids
-        console.log('=== Review Data Map ===');
-        console.log('Leaves:', leaves.map(l => ({ 
-          path: l.path, 
-          label: l.label, 
-          value: l.value,
-          compKey: l.comp?.key || l.comp?.component?.key 
-        })));
-        console.log('Label By Path:', labelByPath);
-        console.log('Meta By Path:', metaByPath);
-        console.log('Index By Path:', indexByPath);
-        console.log('=== Invalid Fields ===');
-        console.log('Invalid Fields Set:', Array.from(invalidFields));
-        console.log('Invalid Components:', Array.from(invalidComponents).map(c => ({
-          key: c.key || c.component?.key,
-          path: c.path,
-          type: c.type || c.component?.type,
-          errors: c.errors
-        })));
-        console.log('=== End Review Data Map ===');
 
         // Helper function to check if a path/component is a container (should be excluded from error counting)
         const isContainerPathOrComponent = (path, component) => {
