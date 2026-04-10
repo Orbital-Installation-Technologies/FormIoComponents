@@ -232,7 +232,6 @@ export function setupPanelHooks(panel, rowIndex, reviewButtonInstance) {
  * @param {Object} reviewButtonInstance - Reference to the ReviewButton instance
  */
 export function highlightDataGridRows(dataGrid, results, reviewButtonInstance) {
-  console.log('highlightDataGridRows', dataGrid, results, reviewButtonInstance);
   if (!dataGrid.rows || !Array.isArray(dataGrid.rows)) return;
 
   dataGrid.rows.forEach((row, rowIndex) => {
