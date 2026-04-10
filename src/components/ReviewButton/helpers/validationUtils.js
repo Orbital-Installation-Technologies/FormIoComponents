@@ -11,19 +11,16 @@ const FLATTEN_TYPES = new Set(['columns', 'fieldset', 'tabs', 'tagpad', 'survey'
  */
 export const isContainerType = (t, exclude = []) => {
   if (!t) return false;
-
+  
+  // If no exclusion, use the static global Set (Fastest)
   if (!exclude || exclude.length === 0) {
-    return Array.isArray(t)
-      ? t.some(x => x && CONTAINER_TYPES.has(x))
-      : CONTAINER_TYPES.has(t);
+    return Array.isArray(t) ? t.some(x => CONTAINER_TYPES.has(x)) : CONTAINER_TYPES.has(t);
   }
 
-  const excluded = new Set(exclude);
-  const allowed = new Set([...CONTAINER_TYPES].filter(x => !excluded.has(x)));
-
+  // If exclusion exists, use a simple .includes to avoid object allocation
   return Array.isArray(t)
-    ? t.some(x => x && allowed.has(x))
-    : allowed.has(t);
+    ? t.some(x => CONTAINER_TYPES.has(x) && !exclude.includes(x))
+    : CONTAINER_TYPES.has(t) && !exclude.includes(t);
 };
 
 /**
@@ -330,6 +327,11 @@ export const validateComponentsAndCollectResults = async (root, errorMap, warnin
         const isRequired = component.component?.validate?.required || component.validate?.required;
         let hasValue = false;
 
+
+        if ((!component.dataValue || (Array.isArray(component.dataValue) && component.dataValue.length === 0)) && 
+            component.files && component.files.length > 0) {
+          component.dataValue = component.files;
+        }
         const dataValue = component.dataValue;
         const componentData = component.data;
         const getValue =  component.getValue && component.getValue();
@@ -372,8 +374,11 @@ export const validateComponentsAndCollectResults = async (root, errorMap, warnin
         }
 
         const isValid = !isRequired || hasValue;
+        console.log('isValid', component.key, isValid);
         if (!isValid) {
           processComponentErrors(component, errorMap, results, showErrors);
+        }else{
+          clearFieldErrors(component);
         }
         if (includeWarnings && component.warnings?.length) {
           processComponentWarnings(component, warningMap, results);
