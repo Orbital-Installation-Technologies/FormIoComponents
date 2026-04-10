@@ -76,7 +76,7 @@ export default class BarcodeScanner extends FieldComponent {
     this._torchEnabled = false; // Track torch/flashlight state independently from camera state
     this._pendingBarcodes = []; // All detected barcodes waiting for confirmation
     this._selectedBarcodeIndices = new Set(); // For tracking radio selections
-    this._barcodeImages = {}; // Store barcode images by their data value
+    this._barcodeImage = {}; // Store barcode image by their data value
     this._allDetectedBarcodes = []; // Store ALL barcodes for backup field
     this._lastFrameTime = 0; // Throttle frame processing
     this._lastDrawTime = 0; // Throttle bounding box drawing
@@ -2069,9 +2069,9 @@ export default class BarcodeScanner extends FieldComponent {
       `;
 
       // Check if we have a captured barcode image
-      if (this._barcodeImages[barcodeData]) {
+      if (this._barcodeImage) {
         const img = document.createElement('img');
-        img.src = this._barcodeImages[barcodeData];
+        img.src = this._barcodeImage;
         img.style.cssText = `
           max-width: 100%;
           max-height: 100%;
@@ -2136,47 +2136,23 @@ export default class BarcodeScanner extends FieldComponent {
   }
   _captureBarcodeImage(barcodes, canvas) {
     try {
-      const MARGIN = 20;
-      barcodes.forEach(barcode => {
-        const { x, y, width, height } = this.getBoundingBox(barcode._location);
-    
-        // Expand bounding box with margin
-        const bx = Math.max(0, x - MARGIN);
-        const by = Math.max(0, y - MARGIN);
-    
-        const bWidth = Math.min(
-            width + MARGIN * 2,
-            canvas.width - bx
-        );
-    
-        const bHeight = Math.min(
-            height + MARGIN * 2,
-            canvas.height - by
-        );
-    
-        // Validate dimensions
-        if (bWidth <= 0 || bHeight <= 0) return;
-    
-        const croppedCanvas = document.createElement('canvas');
-        croppedCanvas.width = bWidth;
-        croppedCanvas.height = bHeight;
-        const croppedCtx = croppedCanvas.getContext('2d');
-    
-        // Draw expanded crop
-        croppedCtx.drawImage(
-            canvas,
-            bx, by, bWidth, bHeight,   // source
-            0, 0, bWidth, bHeight      // destination
-        );
-    
-        const croppedDataURL = croppedCanvas.toDataURL('image/jpeg');
-        this._barcodeImages[barcode.data] = croppedDataURL;
-      })
+      // This captures the entire source canvas as one JPEG string
+      const fullImageDataURL = canvas.toDataURL('image/jpeg');
+
+      console.log('Full image captured');
+
+      // If you still need to associate it with the barcodes object:
+      this._barcodeImage = fullImageDataURL;
+
+      // Return it so you can use it immediately
+      return fullImageDataURL;
+
     } catch (error) {
-      console.warn('Error capturing barcode image:', error);
+      console.warn('Error capturing full image:', error);
+      return null;
     }
   }
-
+  
   _saveBackupBarcodes() {
     try {
       // If no backup field configured, skip
@@ -2210,11 +2186,11 @@ export default class BarcodeScanner extends FieldComponent {
       }
 
       // Get the image data for this barcode
-      if (!this._barcodeImages[barcodeData]) {
+      if (!this._barcodeImage) {
         return;
       }
 
-      const imageDataUrl = this._barcodeImages[barcodeData];
+      const imageDataUrl = this._barcodeImage;
 
       // Get the root form and find the file upload component
       if (!this.root || !this.root.getComponent) {
@@ -2240,21 +2216,21 @@ export default class BarcodeScanner extends FieldComponent {
         if (typeof base64Data !== 'string') {
           throw new Error('Expected base64Data to be a string');
         }
-      
+
         const arr = base64Data.split(',');
         const mimeMatch = arr[0].match(/:(.*?);/);
         if (!mimeMatch) throw new Error('Invalid base64 format');
-      
+
         const mime = mimeMatch[1];
         const bstr = atob(arr[1]);
         let n = bstr.length;
         const u8arr = new Uint8Array(n);
         while (n--) u8arr[n] = bstr.charCodeAt(n);
-      
+
         return new File([u8arr], fileName, { type: mime });
       }
-      
-      
+
+
 
       const sanitizedBarcode = barcodeData.replace(/[^a-zA-Z0-9-_]/g, '_').substring(0, 50);
       const fileName = `barcode-${sanitizedBarcode}-${Date.now()}.png`;
@@ -2269,7 +2245,7 @@ export default class BarcodeScanner extends FieldComponent {
         originalName: fileName,
         size: file.size,
         storage: "s3"
-            };
+      };
       const uploadedFiles = await fileUploadComponent.uploadFile(fileToSync);
       fileUploadComponent.setValue(uploadedFiles);
       fileUploadComponent.triggerChange();
@@ -2278,7 +2254,7 @@ export default class BarcodeScanner extends FieldComponent {
     } catch (error) {
       console.warn('Error in _sendBarcodeImageToFileUpload:', error);
     }
-        
+
   }
 
   _removeBarcodeAt(index) {
@@ -2294,9 +2270,9 @@ export default class BarcodeScanner extends FieldComponent {
       const removedBarcode = barcodes[index];
       barcodes.splice(index, 1);
 
-      // Clean up stored image for removed barcode
-      if (this._barcodeImages[removedBarcode]) {
-        delete this._barcodeImages[removedBarcode];
+     // Clean up stored image for removed barcode
+      if (this._barcodeImage) {
+        delete this._barcodeImage;
       }
     }
 
@@ -2310,7 +2286,7 @@ export default class BarcodeScanner extends FieldComponent {
   }
 
   _clearAllBarcodes() {
-    this._barcodeImages = {}; // Clear all stored images
+    this._barcodeImage = {}; // Clear all stored images
     this.setValue('');
     if (this.refs.barcode) {
       this.refs.barcode.value = '';
