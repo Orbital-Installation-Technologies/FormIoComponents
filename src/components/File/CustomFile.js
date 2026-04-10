@@ -19,6 +19,35 @@ export default class CustomFile extends FileComponent {
     this._uiUpdateTimeout = null;
     this._previewTimer = null;
   } 
+/**
+   * On slow/weak connections mobile browsers may report file.type = "" when the
+   * file is selected before the OS has fully read it (common with camera capture).
+   * The base validateFileSettings() immediately rejects empty-type files that have
+   * a filePattern set (e.g. "image/*"), showing a false "wrong type" error even
+   * though the image will upload fine once the type resolves.
+   *
+   * Fix: if the file has no MIME type but its extension looks like an image,
+   * skip the pattern check and only run the size constraints.
+   */
+  validateFileSettings(file) {
+    const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|webp|heic|heif|bmp|tiff?)$/i;
+    if (!file.type && file.name && this.component.filePattern && IMAGE_EXTENSIONS.test(file.name)) {
+      if (this.component.fileMinSize && !this.validateMinSize(file, this.component.fileMinSize)) {
+        return {
+          status: 'error',
+          message: this.t('File is too small; it must be at least {{ size }}', { size: this.component.fileMinSize }),
+        };
+      }
+      if (this.component.fileMaxSize && !this.validateMaxSize(file, this.component.fileMaxSize)) {
+        return {
+          status: 'error',
+          message: this.t('File is too big; it must be at most {{ size }}', { size: this.component.fileMaxSize }),
+        };
+      }
+      return {};
+    }
+    return super.validateFileSettings(file);
+  }
 
 
   
@@ -39,16 +68,20 @@ export default class CustomFile extends FileComponent {
 
     if (file.type.startsWith("image/")) {
       try {
+        
         const img = await this.fileToImage(file);
-        processedBlob = await this.compressImage(img);
+        processedBlob = await this.compressImage(img, file);
       } catch (err) {
         console.error("Compression failed, using original", err);
       }
     }
 
     // --- COLLISION-PROOF SCRAMBLING ---
-    const ext = file.name.substring(file.name.lastIndexOf('.')) || '.jpg';
-
+    const outputType = processedBlob.type || '';
+    const ext = outputType === 'image/jpeg'
+      ? '.jpg'
+      : (file.name.includes('.') ? file.name.substring(file.name.lastIndexOf('.')) : '.jpg');
+      
     // 1. Fixed Seed: Use size + high-res timestamp (sub-millisecond)
     const highResTime = typeof performance !== 'undefined' ? performance.now().toString(36).replace('.', '') : '';
     const fixedSeed = file.size ? file.size.toString(36) : highResTime;
@@ -117,6 +150,7 @@ export default class CustomFile extends FileComponent {
 
     this._previewTimer = setTimeout(() => {
       const rootEl = this.element;
+      if (!rootEl) return;
       // Unified selector to find all possible image containers
       const imageElements = rootEl.querySelectorAll('img[ref="fileImage"], .file img, img.wrapped');
 
@@ -172,15 +206,17 @@ export default class CustomFile extends FileComponent {
 
   fileToImage(file) {
     return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error("Failed to load image"));
-        img.src = e.target.result;
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(img);
       };
-      reader.onerror = () => reject(new Error("Failed to read file"));
-      reader.readAsDataURL(file);
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("Failed to load image"));
+      };
+      img.src = url;
     });
   }
 
@@ -218,7 +254,7 @@ export default class CustomFile extends FileComponent {
     }
   }
 
-  async compressImage(image) {
+ async compressImage(image, originalFile = null) {
     try {
       const p = await this.loadPica();
       if (!p) {
