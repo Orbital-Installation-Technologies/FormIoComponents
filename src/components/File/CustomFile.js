@@ -79,7 +79,7 @@ export default class CustomFile extends FileComponent {
     if (file.type.startsWith('image/')) {
       try {
         const img = await this.fileToImage(file);
-        processedBlob = await this.compressImage(img);
+        processedBlob = await this.compressImage(img, file);
       } catch (err) {
         console.warn('[CustomFile] Compression failed, using original:', err);
       }
