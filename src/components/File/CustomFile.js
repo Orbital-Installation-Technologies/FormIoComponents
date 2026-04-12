@@ -1,5 +1,6 @@
 import { Components } from "@formio/js";
 import CustomFileEditForm from "./CustomFile.form";
+import { OfflineFileQueue, QUEUE_KEY } from './OfflineFileQueue';
 
 const FileComponent = Components.components.file;
 
@@ -14,7 +15,12 @@ export default class CustomFile extends FileComponent {
 
   constructor(...args) {
     super(...args);
-    this.picaInstance = null;
+    this.picaInstance      = null;
+    this._workerCanvas     = null;
+    this._uiUpdateTimeout  = null;
+    this._previewTimer     = null;
+    this._badgeTimer       = null;
+    this._draftDataRef     = null;
   }
 
   /**
@@ -47,6 +53,16 @@ export default class CustomFile extends FileComponent {
     return super.validateFileSettings(file);
   }
 
+  _getLiveDraftData() {
+    if (this.root?.data) return this.root.data;
+    if (this._draftDataRef) return this._draftDataRef;
+    return {};
+  }
+
+  async syncQueue() {
+    return this.retryPendingUploads();
+  }
+
   /**
    * This is the key: fileToSync is an object containing:
    *  - file: the actual File object
@@ -54,171 +70,279 @@ export default class CustomFile extends FileComponent {
    *  - storage: 's3' | 'base64'
    *  - url: preview
    */
-    async uploadFile(fileToSync) {
-    if (!fileToSync?.file) {
-      return super.uploadFile(fileToSync);
-    }
+  async uploadFile(fileToSync) {
+    if (!fileToSync?.file) return super.uploadFile(fileToSync);
 
     const file = fileToSync.file;
     let processedBlob = file;
 
-    if (file.type.startsWith("image/")) {
+    if (file.type.startsWith('image/')) {
       try {
         const img = await this.fileToImage(file);
-        processedBlob = await this.compressImage(img, file);
+        processedBlob = await this.compressImage(img);
       } catch (err) {
-        console.error("Compression failed, using original", err);
+        console.warn('[CustomFile] Compression failed, using original:', err);
       }
     }
 
-    // --- COLLISION-PROOF SCRAMBLING ---
-    // Use .jpg when compression produced image/jpeg regardless of original extension,
-    // to prevent a MIME-type/extension mismatch that causes a 400 from the /storage/s3 endpoint.
-    const outputType = processedBlob.type || '';
-    const ext = outputType === 'image/jpeg'
-      ? '.jpg'
-      : (file.name.includes('.') ? file.name.substring(file.name.lastIndexOf('.')) : '.jpg');
+    const ext          = file.name.substring(file.name.lastIndexOf('.')) || '.jpg';
+    const highResTime  = typeof performance !== 'undefined'
+      ? performance.now().toString(36).replace('.', '') : Date.now().toString(36);
+    const fixedSeed    = file.size ? file.size.toString(36) : highResTime;
+    const uniqueId     = Math.random().toString(36).slice(2, 10);
+    const currentCount = Array.isArray(this.dataValue) ? this.dataValue.length : 0;
+    const scrambledName = `file-${fixedSeed}-${uniqueId}-${currentCount}-${highResTime}${ext}`;
 
-    // 1. Fixed Seed: Use size + high-res timestamp (sub-millisecond)
-    const highResTime = typeof performance !== 'undefined' ? performance.now().toString(36).replace('.', '') : '';
-    const fixedSeed = file.size ? file.size.toString(36) : highResTime;
+    const scrambledFile = new File([processedBlob], scrambledName, { type: processedBlob.type });
+    fileToSync.file         = scrambledFile;
+    fileToSync.name         = scrambledName;
+    fileToSync.originalName = scrambledName;
+    fileToSync.url          = URL.createObjectURL(processedBlob);
 
-    // 2. Unique ID: Standard random string
-    const uniqueId = Math.random().toString(36).slice(2, 10);
+    setTimeout(() => this.resetFileInputs(), 0);
 
-    // 3. Instance Index: Use the current length of files to prevent same-batch collisions
-    const currentFiles = Array.isArray(this.dataValue) ? this.dataValue.length : 0;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return await this._queueOffline(fileToSync, processedBlob);
+    }
 
-    const scrambledName = `file-${fixedSeed}-${uniqueId}-${currentFiles}-${highResTime}${ext}`;
+    try {
+      const result = await super.uploadFile(fileToSync);
+      this.checkComponentValidity(this.data, true);
+      this.updateImagePreviews();
+      return result;
+    } catch (err) {
+      if (this._isNetworkError(err)) {
+        this._spliceFromArrays(scrambledName, null);
+        return await this._queueOffline(fileToSync, processedBlob);
+      }
+      throw err;
+    }
+  }
 
-    const scrambledFile = new File(
-      [processedBlob],
-      scrambledName,
-      { type: processedBlob.type }
+  async _queueOffline(fileToSync, compressedBlob) {
+    const draftData    = this._getLiveDraftData();
+    const componentKey = this.key;
+
+    const entryId = await OfflineFileQueue.enqueue(
+      draftData, componentKey, fileToSync, compressedBlob
     );
 
-    // CRITICAL: We must also update 'originalName' so Form.io doesn't
-    // try to validate against the browser's original filename.
-    fileToSync.file = scrambledFile;
-    fileToSync.name = scrambledName;
-    fileToSync.originalName = scrambledName;
-    fileToSync.url = URL.createObjectURL(processedBlob);
+    const stub = {
+      name:         fileToSync.name,
+      originalName: fileToSync.originalName,
+      size:         compressedBlob.size,
+      type:         compressedBlob.type,
+      storage:      fileToSync.storage || 's3',
+      url:          fileToSync.url,
+      __pendingId:  entryId,
+    };
 
-    if (typeof setTimeout !== 'undefined') {
-      setTimeout(() => this.resetFileInputs(), 0);
-    }
+    if (!Array.isArray(this.dataValue)) this.dataValue = [];
+    if (!this.dataValue.some(f => f.__pendingId === entryId)) this.dataValue.push(stub);
+    if (Array.isArray(this.files) && !this.files.some(f => f.__pendingId === entryId)) this.files.push(stub);
 
-    // --- PREVENT VALIDATION ERROR ---
-    // Ensure the internal state doesn't already think this name exists
-    if (this.component.multiple && Array.isArray(this.dataValue)) {
-      this.dataValue = this.dataValue.filter(f => f.name !== scrambledName);
-    }
+    this._syncQueueMeta(draftData);
+    this._renderPendingBadges();
+    this.redraw();
+    this._notifyDraftChanged();
 
-    const uploadedData = await super.uploadFile(fileToSync);
-    this.updateImagePreviews();
-
-    return uploadedData;
+    return stub;
   }
+
   // Reset file input elements to prevent mobile browsers from reusing cached files
   resetFileInputs() {
-    if (typeof document === 'undefined') return; // SSR: skip in server environment
-    const rootEl = this.element;
-    if (!rootEl) return;
-
-    // Find all file input elements within this component
-    const fileInputs = rootEl.querySelectorAll('input[type="file"]');
-
-    fileInputs.forEach(input => {
-      // Reset the input value to allow selecting a new file
-      // This is crucial for mobile camera capture which can cache the file reference
-      // Setting value to empty string forces the browser to treat the next selection as new
-      try {
-        input.value = '';
-        // Some mobile browsers need the input to be "touched" to clear the cache
-        // Triggering a blur event can help ensure the reset is processed
-        input.blur();
-      } catch (e) {
-        // Some browsers may throw an error when setting value directly
-        // In that case, we'll try cloning the input as a fallback
-        try {
-          const form = input.form;
-          const parent = input.parentNode;
-          if (parent) {
-            const newInput = input.cloneNode(true);
-            newInput.value = '';
-            parent.replaceChild(newInput, input);
-          }
-        } catch (cloneError) {
-          console.warn('Could not reset file input:', cloneError);
-        }
-      }
+    if (typeof document === 'undefined' || !this.element) return;
+    window.requestAnimationFrame?.(() => {
+      this.element?.querySelectorAll('input[type="file"]')
+        .forEach(input => { try { input.value = ''; } catch (_) {} });
     });
   }
 
   // New method to ensure image previews are displayed
-  updateImagePreviews() {
+ updateImagePreviews() {
     if (typeof document === 'undefined' || !this.element) return;
-
-    if (this._previewTimer) {
-      clearTimeout(this._previewTimer);
-    }
-
+    clearTimeout(this._previewTimer);
     this._previewTimer = setTimeout(() => {
       const rootEl = this.element;
-      if (!rootEl) return;
-      // Unified selector to find all possible image containers
-      const imageElements = rootEl.querySelectorAll('img[ref="fileImage"], .file img, img.wrapped');
-
-      // NORMALIZE: Ensure we are always dealing with an array, even for single file components/drafts
-      const fileValue = Array.isArray(this.dataValue)
-        ? this.dataValue
-        : (this.dataValue ? [this.dataValue] : []);
-
-      if (imageElements.length === 0 || fileValue.length === 0) return;
-
-      imageElements.forEach((img, index) => {
-        // Get the identifier from the image (Form.io usually puts the name in 'alt')
-        const fileName = img.alt || img.getAttribute('data-file-name');
-
-        // FIND LOGIC:
-        // 1. Match by exact name or originalName
-        // 2. Match by partial string (useful for scrambled names)
-        // 3. Fallback to index (most reliable for drafts where names haven't synced yet)
-        const fileData = fileValue.find(f =>
-          f.name === fileName ||
-          f.originalName === fileName ||
-          (f.name && fileName && f.name.includes(fileName))
-        ) || fileValue[index];
-
-        if (fileData && fileData.url) {
-          // Prevent infinite loops: Only update if the SRC is actually different
-          if (img.src !== fileData.url) {
-            img.src = fileData.url;
-
-            // Set consistent styling
-            Object.assign(img.style, {
-              display: 'inline-block',
-              opacity: '1',
-              width: '80px',
-              height: '80px',
-              objectFit: 'cover',
-              cursor: 'pointer',
-              border: '1px solid #ccc',
-              borderRadius: '4px'
-            });
-
-            // Attach Modal Click
-            img.onclick = (e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              this.openImageModal(fileData.url);
-            };
-          }
+      const imgs   = rootEl.querySelectorAll('img[ref="fileImage"], .file img, img.wrapped');
+      const files  = Array.isArray(this.dataValue)
+        ? this.dataValue : (this.dataValue ? [this.dataValue] : []);
+      if (!imgs.length || !files.length) return;
+      imgs.forEach((img, i) => {
+        const fname = img.alt || img.getAttribute('data-file-name');
+        const fd    = files.find(f =>
+          f.name === fname || f.originalName === fname ||
+          (f.name && fname && f.name.includes(fname))
+        ) || files[i];
+        if (fd?.url && img.src !== fd.url) {
+          img.src = fd.url;
+          Object.assign(img.style, {
+            display: 'inline-block', opacity: '1',
+            width: '80px', height: '80px', objectFit: 'cover',
+            cursor: 'pointer', border: '1px solid #ccc', borderRadius: '4px',
+          });
+          img.onclick = e => { e.preventDefault(); e.stopPropagation(); this.openImageModal(fd.url); };
         }
       });
+      this._renderPendingBadges();
     }, 300);
   }
+_syncQueueMeta(draftData) {
+    if (this._draftDataRef && this._draftDataRef !== draftData) {
+      this._draftDataRef[QUEUE_KEY] = draftData[QUEUE_KEY];
+    }
+  }
+_spliceFromArrays(name, pendingId) {
+    const shouldRemove = f => {
+      if (pendingId && f.__pendingId === pendingId) return true;
+      if (name && f.name === name) return true;
+      return false;
+    };
+    if (Array.isArray(this.dataValue)) {
+      for (let i = this.dataValue.length - 1; i >= 0; i--) {
+        if (shouldRemove(this.dataValue[i])) this.dataValue.splice(i, 1);
+      }
+    }
+    if (Array.isArray(this.files)) {
+      for (let i = this.files.length - 1; i >= 0; i--) {
+        if (shouldRemove(this.files[i])) this.files.splice(i, 1);
+      }
+    }
+  }
 
+  _ensureStubPresent(entry) {
+    if (!Array.isArray(this.dataValue)) this.dataValue = [];
+    if (!this.dataValue.some(f => f.__pendingId === entry.id)) {
+      const stub = OfflineFileQueue.toStub(entry);
+      this.dataValue.push(stub);
+      if (Array.isArray(this.files) && !this.files.some(f => f.__pendingId === entry.id)) {
+        this.files.push(stub);
+      }
+      this.redraw();
+    }
+  }
+
+  _isNetworkError(err) {
+    if (!err) return false;
+    if (err instanceof TypeError) return true;
+    if (err.status === 0 || err.statusCode === 0) return true;
+    if (err.message && /network|failed to fetch|load failed|net::/i.test(err.message)) return true;
+    return false;
+  }
+
+  _renderPendingBadges() {
+    if (typeof document === 'undefined' || !this.element) return;
+    clearTimeout(this._badgeTimer);
+    this._badgeTimer = setTimeout(() => {
+      if (!this.element) return;
+      const containers = this.element.querySelectorAll('div.file, .file');
+      const files      = Array.isArray(this.dataValue) ? this.dataValue : [];
+      containers.forEach((container, idx) => {
+        container.querySelector('.pending-badge')?.remove();
+        if (files[idx]?.__pendingId) {
+          const badge         = document.createElement('div');
+          badge.className     = 'pending-badge';
+          badge.title         = 'Waiting for network';
+          badge.style.cssText = 'position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);background:#f59e0b;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;white-space:nowrap;z-index:20;pointer-events:none';
+          badge.textContent        = 'PENDING';
+          container.style.position = 'relative';
+          container.appendChild(badge);
+        }
+      });
+    }, 200);
+  }
+
+  _notifyDraftChanged() {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent('akiti:draftChanged', {
+      detail: { data: this._getLiveDraftData() },
+    }));
+  }
+
+  async retryPendingUploads() {
+    const draftData    = this._getLiveDraftData();
+    const componentKey = this.key;
+    const pending      = OfflineFileQueue.getPending(draftData, componentKey);
+    if (pending.length === 0) return;
+
+    console.info(`[CustomFile] Retrying ${pending.length} pending upload(s) for "${componentKey}"`);
+
+    for (const entry of [...pending]) {
+      try {
+        const file = OfflineFileQueue.reconstructFile(entry);
+
+        this._spliceFromArrays(entry.name, entry.id);
+
+        // Must match Form.io File.upload() / syncFiles(): same shape as prepareFileToUpload + merge fileInfo into dataValue.
+        const fileToSync = Object.assign(this.getInitFileToSync(file), {
+          name:         entry.name,
+          originalName: entry.originalName || entry.name,
+          url:          URL.createObjectURL(file),
+          storage:      entry.storage || this.component.storage,
+          file,
+          size:         file.size,
+        });
+
+        const fileInfo = await super.uploadFile(fileToSync);
+        if (fileInfo) {
+          fileInfo.originalName = fileToSync.originalName;
+          if (fileToSync.hash) fileInfo.hash = fileToSync.hash;
+        }
+
+        // Use setValue + redraw: mutating dataValue with .push() skips Form.io hooks, and setValue alone
+        // may not redraw the file list when ref/input counts match (Component#setValue).
+        const updatedList = [...(this.dataValue || [])];
+        updatedList.push(fileInfo);
+        this.setValue(updatedList, { modified: true });
+        this.emit?.('fileUploadingEnd');
+        this.redraw();
+
+        OfflineFileQueue.dequeue(this._getLiveDraftData(), componentKey, entry.id);
+        this._syncQueueMeta(this._getLiveDraftData());
+        console.info(`[CustomFile] Retry succeeded: ${entry.name}`);
+
+        this.updateImagePreviews?.();
+
+      } catch (retryErr) {
+        console.warn(`[CustomFile] Retry failed for ${entry.name}:`, retryErr.message);
+        OfflineFileQueue.incrementRetry(this._getLiveDraftData(), componentKey, entry.id);
+        this._ensureStubPresent(entry);
+      }
+    }
+
+    this._renderPendingBadges();
+    this.triggerUpdate();
+    this._notifyDraftChanged();
+    this.checkComponentValidity(this.data, true);
+  }
+
+  triggerUpdate() {
+    if (this._uiUpdateTimeout) window.cancelAnimationFrame(this._uiUpdateTimeout);
+    this._uiUpdateTimeout = window.requestAnimationFrame(() => {
+      this.wrapDefaultImages(); this.updateImagePreviews();
+    });
+  }
+  restorePendingPreviews(draftData) {
+    const componentKey  = this.key;
+    const liveData      = this._getLiveDraftData();
+    const effectiveData = liveData[QUEUE_KEY] ? liveData
+      : (draftData?.[QUEUE_KEY] ? draftData : liveData);
+
+    const pending = OfflineFileQueue.getPending(effectiveData, componentKey);
+    if (pending.length === 0) return;
+
+    if (!Array.isArray(this.dataValue)) this.dataValue = [];
+    if (!Array.isArray(this.files))     this.files     = [];
+
+    for (const entry of pending) {
+      const stub = OfflineFileQueue.toStub(entry);
+      if (!this.dataValue.some(f => f.__pendingId === entry.id)) this.dataValue.push(stub);
+      if (!this.files.some(f => f.__pendingId === entry.id))     this.files.push(stub);
+    }
+
+    this._renderPendingBadges();
+    this.redraw();
+  }
   fileToImage(file) {
     return new Promise((resolve, reject) => {
       // createObjectURL is faster than readAsDataURL — no base64 encoding overhead
@@ -746,13 +870,38 @@ div.file img:hover {
       }
     }, { once: false });
   }
-
-  detach() {
-    // Disconnect the MutationObserver if it exists
-    if (this._fileInputObserver) {
-      this._fileInputObserver.disconnect();
-      this._fileInputObserver = null;
+   checkComponentValidity(data, dirty, row, options) {
+    if (!this.visible || this.disabled) return true;
+    if (!(this.component.validate?.required)) return super.checkComponentValidity(data, dirty, row, options);
+    const has = (Array.isArray(this.dataValue) && this.dataValue.length > 0)
+             || (this.files?.length > 0)
+             || (!!this.dataValue && !Array.isArray(this.dataValue));
+    if (has) {
+      this.error = ''; this.invalid = false; this.setPristine(true);
+      this._errors = []; this._visibleErrors = [];
+      this.setCustomValidity?.('', false);
+      if (this.element) {
+        this.element.classList.remove('has-error', 'error');
+        const em = this.element.querySelector('.formio-errors, .help-block');
+        if (em) { em.style.display = 'none'; em.innerHTML = ''; }
+      }
+      return true;
     }
+    return super.checkComponentValidity(data, dirty, row, options);
+  }
+ getValue() {
+    const v = super.getValue();
+    if ((!v || (Array.isArray(v) && !v.length)) && this.files?.length) return this.files;
+    return v;
+  }
+ detach() {
+    window.cancelAnimationFrame?.(this._uiUpdateTimeout);
+    clearTimeout(this._previewTimer);
+    clearTimeout(this._badgeTimer);
+    this._fileInputObserver?.disconnect();
+    this._fileInputObserver = null;
+    this.picaInstance       = null;
+    this._workerCanvas      = null;
     return super.detach();
   }
 
